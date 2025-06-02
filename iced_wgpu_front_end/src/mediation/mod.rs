@@ -51,7 +51,9 @@ pub struct IntermediateControls {
     reset_requested: bool,
     time_inc: f32,
     particle_size: f32,
-    light_position: [f32; 3]
+    rest_density: f32,
+    average_density: f32,
+    light_position: [f32; 3],
 }
 
 impl Default for IntermediateControls {
@@ -60,7 +62,9 @@ impl Default for IntermediateControls {
             connection_terminated: false,
             reset_requested: false,
             time_inc: 0.01,
-            particle_size: 0.5,
+            particle_size: 1.0,
+            rest_density: 0.,
+            average_density: 0.,
             light_position: [ 2.0, 20.0, 2.0 ],
         }
     }
@@ -100,6 +104,18 @@ impl IntermediateControls {
     }
     pub fn set_light_position(&mut self, position: [f32; 3]) {
         self.light_position = position;
+    }
+    pub fn get_rest_density(&self) -> f32 {
+        self.rest_density
+    }
+    pub fn set_rest_density(&mut self, density: f32) {
+        self.rest_density = density;
+    }
+    pub fn get_average_density(&self) -> f32 {
+        self.average_density
+    }
+    pub fn set_average_density(&mut self, density: f32) {
+        self.average_density = density;
     }
 }
 

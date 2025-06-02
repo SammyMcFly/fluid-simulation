@@ -1,35 +1,37 @@
 # Scene configuration file
 
 [params]
+buffer_length_limit = 1 # 3000
 time_inc = 0.01
-viscosity = 1.0
-stiffness = 100.0
+viscosity = 3.0
+stiffness = 10.0
 integration_scheme = "EulerCromer" # Not implemented yet
 # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
-particle_mass = 0.5
-particle_size = 0.5 # diameter (not updatable yet)
+particle_mass = 0.001
+particle_diameter = 0.8 # (does not update visualization yet)
 
 [scene.particles]
-n_particles_x = 25
-n_particles_y = 25
-n_particles_z = 15
+n_particles_x = 30
+n_particles_y = 30
+n_particles_z = 20
 x_offset = -5.0
-y_offset = -10.0
+y_offset = -4.0
 z_offset = 5.0
-particle_spacing = 0.9
+particle_spacing = 0.795
 
 [scene.boundary_particles]
-n_floor_particles_x = 100
-n_floor_particles_y = 100
-n_floor_particles_z = 10
+n_floor_particles_x = 60
+n_floor_particles_y = 60
+n_floor_particles_z = 5
 wall_height = 30 # wall is at the edge but above floor
-wall_thickness = 2
-x_offset = -12.0
-y_offset = -12.0
+x_wall_thickness = 2
+y_wall_thickness = 2
+x_offset = -10.0
+y_offset = -10.0
 z_offset = -12.0
-particle_spacing = 0.4
+particle_spacing = 0.7
 
 [springs]
 
 [scene.light]
-position = [ 2.0, 20.0, 2.0 ] # (not updatable yet)
+position = [ 2.0, 30.0, 2.0 ] # (not updatable)

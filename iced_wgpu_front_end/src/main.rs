@@ -2,6 +2,26 @@
 //!
 //! Sketched fluid solver aiming to be powerful
 //!
+//! BUGS:
+//! -
+//!
+//! IDEAS:
+//! - Implement time incremation by user (display one frame at a time)
+//! - Multithreading
+//!
+//! DONE:
+//! - Split particle_diameter up into particle_diameter and smoothing length
+//! - Display 'filled buffer length' or precumputed timesteps or precomputed time in [s]
+//! - Exchanged std::collections::HashMap for rustc_hash::FxHashMap for performance reasons:
+//! -   When there were massive hash collisions, this change would cause a performance penalty.
+//! -   Since hash collisions happen when there all multiple particles in one grid cell or different grid cells
+//! -   map to the same hash value, this is a non-problem, because of pressure forces prevent
+//! -   too many particles in one grid cell. And in general, not too many grid cells are used at all.
+//! - Implemented skipping of queue elements when time between frames is greater than twice the time increment.
+//! -   This should better syncronize the system time with real user time.
+//!
+//! flamegraph profiling:
+//! - cargo flamegraph -- ./scene_config.toml
 use std::thread;
 use std::sync::{Arc, Mutex};
 
@@ -27,7 +47,7 @@ fn fetch_file_info(
     config_file: &str,
     queue: Arc<Mutex<mediation::IntermediateQueue>>,
     controls: Arc<Mutex<mediation::IntermediateControls>>
-) -> Result<physics::System3D, Box<dyn std::error::Error>> {
+) -> Result<(physics::System3D, u32), Box<dyn std::error::Error>> {
     // Read the scene config file
     let config_file_content = std::fs::read_to_string(config_file)?;
     // Parse the content into the Config struct
@@ -36,26 +56,28 @@ fn fetch_file_info(
     // hand over time_inc
     controls.lock().unwrap().set_time_inc(config.params.time_inc as f32);
     // hand over particle size
-    controls.lock().unwrap().set_particle_size(config.params.particle_size as f32);
+    controls.lock().unwrap().set_particle_size(config.params.particle_diameter as f32);
+    // hand over rest density
+    controls.lock().unwrap().set_rest_density((config.params.particle_mass/config.params.particle_diameter.powi(3)) as f32);
     // hand over light position
     controls.lock().unwrap().set_light_position(config.scene.light.position);
     // init system properties
     let system_properties = physics::SystemProperties::new(
         config.params.time_inc,
         config.params.particle_mass,
-        config.params.particle_size,
+        config.params.particle_diameter,
         config.params.viscosity,
         config.params.stiffness,
         physics::cubic_spline_3d,
         physics::cubic_spline_3d_gradient
     );
     // create simulation system
-    Ok(physics::System3D::from_config(
+    Ok((physics::System3D::from_config(
         &config,
         system_properties,
         queue,
         controls,
-    ))
+    ), config.params.buffer_length_limit))
 }
 
 
@@ -100,7 +122,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queue = Arc::new(Mutex::new(mediation::IntermediateQueue::default()));
     let controls = Arc::new(Mutex::new(mediation::IntermediateControls::default()));
 
-    let system = fetch_file_info(&args.scene, queue.clone(), controls.clone()).unwrap();
+    let (mut system_at_time_0, mut buffer_length) = fetch_file_info(&args.scene, queue.clone(), controls.clone())
+        .expect("Invalid scene file!");
+    system_at_time_0.queue_for_visualization();
+
+    // run simulation in separate thread: Calculate new positions if queue not full
+    let handle = thread::spawn(move || {
+        // clone simulation system for time propagation (keep clone of initial state)
+        let mut system = system_at_time_0.clone();
+        loop {
+            if system.controls.lock().unwrap().is_connection_terminated() {
+                break;
+            }
+            {
+                if system.controls.lock().unwrap().is_reset_requested() {
+                    // reread config file to update simulation system
+                    match fetch_file_info(&args.scene, system.queue.clone(), system.controls.clone()) {
+                        Ok(system_buffer_length) => {
+                            (system_at_time_0, buffer_length) = system_buffer_length;
+                            system = system_at_time_0.clone();
+                        },
+                        _ => {
+                            system = system_at_time_0.clone();
+                            println!("Invalid scene file!");
+                        },
+                    };
+                    system.queue.lock().unwrap().clear();
+                    system.queue_for_visualization();
+                    system.controls.lock().unwrap().reset_done();
+                } else if system.queue.lock().unwrap().len() >= buffer_length {
+                    // thread::sleep(std::time::Duration::from_millis(300));
+                    continue;
+                // if system.queue.lock().unwrap().len() >= 100 { // for profiling
+                    // break;
+                } else {
+                    system.inc_time(physics::PropagationMethod::EulerCromer);
+                    system.queue_for_visualization();
+                }
+            }
+        }
+    });
 
     let event_loop = EventLoop::new().unwrap();
 
@@ -115,39 +176,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut app = gui::StateApplication::new(queue.clone(), controls.clone());
 
-    // run simulation in separate thread: Calculate new positions if queue not full
-    let handle = thread::spawn(move || {
-        // move simulation system
-        let mut system = system;
-        loop {
-            {
-                let reset_requested = system.controls.lock().unwrap().is_reset_requested();
-                if reset_requested {
-                    // reread config file to update simulation system
-                    system = fetch_file_info(&args.scene, system.queue.clone(), system.controls.clone()).unwrap();
-                    system.controls.lock().unwrap().reset_done();
-                }
-            }
-            {
-                let controls = system.controls.lock().unwrap();
-                if controls.is_connection_terminated() {
-                    break;
-                }
-            }
-            {
-                let queue = system.queue.lock().unwrap();
-                if queue.len() >= 300 {
-                    // debug!("len: {}", q.len());
-                    // thread::sleep(std::time::Duration::from_millis(300));
-                    continue;
-                }
-            }
-            system.inc_time(physics::PropagationMethod::EulerCromer);
-        }
-    });
-
     let _ = event_loop.run_app(&mut app);
-    handle.join().expect("Couldn't join simulation thread");
 
+    handle.join().expect("Couldn't join simulation thread");
     Ok(())
 }

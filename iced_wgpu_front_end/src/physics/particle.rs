@@ -275,11 +275,7 @@ impl Particle3D {
 
     pub fn update_color(&mut self) {
         if !self.custom_color {
-            let whiteness = if self.vel().now().norm() >= 10. {
-                1.
-            } else {
-                self.vel().now().norm()/10.
-            };
+            let whiteness = f64::min(self.vel().now().norm()/10., 1.);
             self.color = [ whiteness as f32, whiteness as f32, 1. ];
         }
     }
@@ -309,9 +305,7 @@ pub struct BoundaryParticle3D {
 
 impl GridParticle for BoundaryParticle3D {
     fn get_distance(&self, other: &Vector3<f64>) -> f64 {
-        ((self.position.x-other.x).powi(2)
-            +(self.position.y-other.y).powi(2)
-            +(self.position.z-other.z).powi(2)).sqrt()
+        (self.position-other).norm()
     }
 }
 

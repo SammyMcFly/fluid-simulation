@@ -11,24 +11,27 @@ name = "bench_System1D_inc_time"
 harness = false
 
 [dependencies]
+# linear algebra
 nalgebra = "0.33.2"
-num-traits = "0.2.19"
 cgmath = "0.18"
 
+num-traits = "0.2.19"
+
+# logging
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 tracing-appender = "0.2.3"
 
+# command line parser
 clap = {version = "4.5.23", features = ["derive"] }
 
+# visualization
 # iced = "0.13.1"
-# iced_wgpu = "0.13.5"
 iced_widget = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4",  package = "iced_widget", features = ["wgpu"]}
 iced_wgpu = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_wgpu" }
 iced_winit = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_winit" }
-# wgpu = "25.0.0"
-# winit = "0.30.10"
 
+# load sphere for visualization
 tobj = { version = "4.0.2", default-features = false, features = ["async"]}
 
 bytemuck = { version = "1.20.0", features = [ "derive" ] }
@@ -39,5 +42,18 @@ anyhow = "1.0.93"
 fs_extra = "1.3"
 glob = "0.3.1"
 
+# parsing file content
 serde = { version = "1.0", features = ["derive"] }
+
+# loading .toml files
 toml = "0.8"
+
+# hash map for uniform grid
+rustc-hash = "2.1.1"
+
+# multithreading of for loops
+rayon = "1.10"
+
+# for profiling with flamegraph
+# [profile.release]
+# debug = true

@@ -2,23 +2,33 @@ use iced_wgpu::Renderer;
 // use iced::widget::{Container, column, row, slider, text, text_input};
 use iced_widget::{bottom, column, row, slider, text, text_input};
 use iced_winit::core::{Color, Element, Theme};
+use serde::de;
 
-pub struct Controls {
+pub struct UIControls {
     background_color: Color,
-    input: String,
+    // input: String,
+    buffer_length: u32,
+    rest_density: f32,
+    average_density: f32,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     BackgroundColorChanged(Color),
-    InputChanged(String),
+    // InputChanged(String),
+    BufferLengthChanged(u32),
+    RestDensityChanged(f32),
+    AverageDensityChanged(f32),
 }
 
-impl Controls {
-    pub fn new() -> Controls {
-        Controls {
+impl UIControls {
+    pub fn new() -> UIControls {
+        UIControls {
             background_color: Color::WHITE,
-            input: String::default(),
+            // input: String::default(),
+            buffer_length: u32::default(),
+            rest_density: f32::default(),
+            average_density: f32::default(),
         }
     }
 
@@ -27,14 +37,23 @@ impl Controls {
     }
 }
 
-impl Controls {
+impl UIControls {
     pub fn update(&mut self, message: Message) {
         match message {
             Message::BackgroundColorChanged(color) => {
                 self.background_color = color;
             }
-            Message::InputChanged(input) => {
-                self.input = input;
+            // Message::InputChanged(input) => {
+            //     self.input = input;
+            // }
+            Message::BufferLengthChanged(length) => {
+                self.buffer_length = length;
+            }
+            Message::RestDensityChanged(density) => {
+                self.rest_density = density;
+            }
+            Message::AverageDensityChanged(density) => {
+                self.average_density = density;
             }
         }
     }
@@ -80,11 +99,23 @@ impl Controls {
         // .into()
         bottom(
             column![
-                text("Background color").color(Color::WHITE),
-                text!("{background_color:?}").size(14).color(Color::WHITE),
+                text("Background color").color(Color::BLACK),
+                text!("{background_color:?}").size(14).color(Color::BLACK),
                 sliders,
-                text_input("Type something...", &self.input)
-                    .on_input(Message::InputChanged),
+                row![
+                    text("Average density: ").color(Color::BLACK),
+                    text!("{}", self.average_density).size(16).color(Color::BLACK),
+                ],
+                row![
+                    text("Rest density: ").color(Color::BLACK),
+                    text!("{}", self.rest_density).size(16).color(Color::BLACK),
+                ],
+                row![
+                    text("Buffer length: ").color(Color::BLACK),
+                    text!("{}", self.buffer_length).size(16).color(Color::BLACK),
+                ],
+                // text_input("Type something...", &self.input)
+                //     .on_input(Message::InputChanged),
             ]
             .spacing(10),
         )

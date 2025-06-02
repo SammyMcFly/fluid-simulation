@@ -10,6 +10,8 @@ use num_traits::identities::Zero;
 use serde::Deserialize;
 
 // use tracing::{debug, error, info, span, trace, warn};
+use tracing::{debug};
+
 
 pub mod particle;
 use particle::*;
@@ -21,35 +23,30 @@ pub mod uniform_grid;
 
 
 /// Cubic spline kernel function
-///
-/// Control flow is ordered in a way to minimize calculations
-/// (this assumes that normalized_distance >= 2. for many function calls)
-/// Since the cubic spline function is continuous, the points:
-/// normalized_distance == 2. and normalized_distance == 1. can be chosen
-/// to be calculated in the earlier, simpler and thus faster branch
-pub fn cubic_spline_3d(distance: f64, particle_size: f64) -> f64 {
-    let normalized_distance = distance/particle_size;
-    if normalized_distance >= 2. {
-        0.
-    } else if normalized_distance >= 1. {
-        let prefactor = 1./4./std::f64::consts::PI/particle_size.powi(3);
+pub fn cubic_spline_3d(distance: f64, smoothing_length: f64) -> f64 {
+    let normalized_distance = distance/smoothing_length;
+    if normalized_distance < 1. {
+        let prefactor = 1./4./std::f64::consts::PI/smoothing_length.powi(3);
+        prefactor*((2.-normalized_distance).powi(3)-4.*(1.-normalized_distance).powi(3))
+    } else if normalized_distance < 2. {
+        let prefactor = 1./4./std::f64::consts::PI/smoothing_length.powi(3);
         prefactor*(2.-normalized_distance).powi(3)
     } else {
-        let prefactor = 1./4./std::f64::consts::PI/particle_size.powi(3);
-        prefactor*((2.-normalized_distance).powi(3)-4.*(1.-normalized_distance).powi(3))
+        0.
     }
 }
 
-pub fn cubic_spline_3d_gradient(distance: f64, particle_size: f64, direction: Vector3<f64>) -> Vector3<f64> {
-    let normalized_distance = distance/particle_size;
-    if normalized_distance >= 2. {
+/// Gradient of cubic spline kernel function
+pub fn cubic_spline_3d_gradient(distance: f64, smoothing_length: f64, direction: Vector3<f64>) -> Vector3<f64> {
+    let normalized_distance = distance/smoothing_length;
+    if normalized_distance == 0. { // if distance is 0 direction is invalid -> return Vector3::zeros()
         Vector3::zeros()
-    } else if normalized_distance >= 1. {
-        let prefactor = 1./4./std::f64::consts::PI/particle_size.powi(5);
-        direction/normalized_distance*prefactor*(-3.*(2.-normalized_distance).powi(2))
-    } else if normalized_distance > 0. {
-        let prefactor = 1./4./std::f64::consts::PI/particle_size.powi(5);
+    } else if normalized_distance < 1. {
+        let prefactor = 1./4./std::f64::consts::PI/smoothing_length.powi(5);
         direction/normalized_distance*prefactor*(-3.*(2.-normalized_distance).powi(2)+12.*(1.-normalized_distance).powi(2))
+    } else if normalized_distance < 2. {
+        let prefactor = 1./4./std::f64::consts::PI/smoothing_length.powi(5);
+        direction/normalized_distance*prefactor*(-3.*(2.-normalized_distance).powi(2))
     } else {
         Vector3::zeros()
     }
@@ -70,7 +67,10 @@ pub enum PropagationMethod {
 pub struct SystemProperties {
     time_inc: f64,
     particle_mass: f64,
-    particle_size: f64,
+    /// Smooting length, often denoted as h
+    particle_diameter: f64,
+    rest_density: f64, // rho_0
+    average_density: f64,
     viscosity: f64,
     stiffness: f64,
     kernel_fn: fn(distance: f64, particle_size: f64) -> f64,
@@ -81,13 +81,25 @@ impl SystemProperties {
     pub fn new(
         time_inc: f64,
         particle_mass: f64,
-        particle_size: f64,
+        particle_diameter: f64,
         viscosity: f64,
         stiffness: f64,
         kernel_fn: fn(distance: f64, particle_size: f64) -> f64,
         kernel_gradient_fn: fn(distance: f64, particle_size: f64, direction: Vector3<f64>) -> Vector3<f64>,
     ) -> Self {
-        Self { time_inc, particle_mass, particle_size, viscosity, stiffness, kernel_fn, kernel_gradient_fn }
+        let rest_density = particle_mass/particle_diameter.powi(3);
+        let average_density = 0.;
+        Self {
+            time_inc,
+            particle_mass,
+            particle_diameter,
+            rest_density,
+            average_density,
+            viscosity,
+            stiffness,
+            kernel_fn,
+            kernel_gradient_fn,
+        }
     }
 }
 
@@ -130,8 +142,8 @@ impl System3D {
         queue: Arc<Mutex<super::mediation::IntermediateQueue>>,
         controls: Arc<Mutex<super::mediation::IntermediateControls>>,
     ) -> Self {
-        let particle_grid = uniform_grid::UniformGrid::new(system_properties.particle_size);
-        let mut boundary_particle_grid = uniform_grid::UniformGrid::new(system_properties.particle_size);
+        let particle_grid = uniform_grid::UniformGrid::new(system_properties.particle_diameter);
+        let mut boundary_particle_grid = uniform_grid::UniformGrid::new(system_properties.particle_diameter);
         boundary_particle_grid.populate_boundary_particles(&boundary_particles);
         let mut system = Self {
             particles,
@@ -196,10 +208,10 @@ impl System3D {
                     let y = (j as f64)*config.scene.boundary_particles.particle_spacing+config.scene.boundary_particles.y_offset;
                     let z = (k as f64)*config.scene.boundary_particles.particle_spacing+config.scene.boundary_particles.z_offset;
                     // filter for particles at the edge of the floor
-                    if x < (config.scene.boundary_particles.x_offset + config.scene.boundary_particles.wall_thickness as f64 * config.scene.boundary_particles.particle_spacing)
-                            || x >= (config.scene.boundary_particles.x_offset + config.scene.boundary_particles.n_floor_particles_x as f64 * config.scene.boundary_particles.particle_spacing- config.scene.boundary_particles.wall_thickness as f64 * config.scene.boundary_particles.particle_spacing)
-                            || y < (config.scene.boundary_particles.y_offset + config.scene.boundary_particles.wall_thickness as f64 * config.scene.boundary_particles.particle_spacing)
-                            || y >= (config.scene.boundary_particles.y_offset + config.scene.boundary_particles.n_floor_particles_y as f64 * config.scene.boundary_particles.particle_spacing - config.scene.boundary_particles.wall_thickness as f64 * config.scene.boundary_particles.particle_spacing) {
+                    if x < (config.scene.boundary_particles.x_offset + config.scene.boundary_particles.x_wall_thickness as f64 * config.scene.boundary_particles.particle_spacing)
+                            || x > (config.scene.boundary_particles.x_offset + ((config.scene.boundary_particles.n_floor_particles_x as f64 - 1.) - config.scene.boundary_particles.x_wall_thickness as f64) * config.scene.boundary_particles.particle_spacing)
+                            || y < (config.scene.boundary_particles.y_offset + config.scene.boundary_particles.y_wall_thickness as f64 * config.scene.boundary_particles.particle_spacing)
+                            || y > (config.scene.boundary_particles.y_offset + ((config.scene.boundary_particles.n_floor_particles_y as f64 - 1.) - config.scene.boundary_particles.y_wall_thickness as f64) * config.scene.boundary_particles.particle_spacing) {
                         let boundary_particle = BoundaryParticle3D::new(
                             Vector3::new(x, y, z),
                             [0.0,0.0,0.0]);
@@ -229,28 +241,41 @@ impl System3D {
             // add density for every neighbor
             for &neighbor in &self.particles[particle_index].neighbors.clone() {
                 let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
-                let density = self.particles[neighbor].mass()*(self.properties.kernel_fn)(distance, self.properties.particle_size);
+                let density = self.particles[neighbor].mass()
+                    *(self.properties.kernel_fn)(distance, self.properties.particle_diameter);
                 self.particles[particle_index].add_density(density);
             }
             // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
             for &boundary_neighbors in &self.particles[particle_index].boundary_neighbors.clone() {
                 // add density for every neighbor
                 let distance = self.particles[particle_index].get_distance(&self.boundary_particles[boundary_neighbors].pos());
-                let density = self.particles[particle_index].mass()*(self.properties.kernel_fn)(distance, self.properties.particle_size);
+                let density = self.particles[particle_index].mass()
+                    *(self.properties.kernel_fn)(distance, self.properties.particle_diameter);
                 self.particles[particle_index].add_density(density);
             }
+            // debug!("rest density: {}", self.properties.rest_density);
         }
+        // calculate average density
+        self.properties.average_density = 0.;
+        let mut count = 0.;
+        for particle in &self.particles {
+            if particle.density() >= self.properties.rest_density {
+                self.properties.average_density += particle.density();
+                count += 1.;
+            }
+        }
+        if count != 0. {
+            self.properties.average_density /= count;
+        }
+        debug!("Average density: {}, rest density: {}, contributing particles: {}", self.properties.average_density, self.properties.rest_density, count);
     }
 
     pub fn update_pressure(&mut self) {
-        let rest_density = self.particles[0].mass()/self.properties.particle_size;
         for particle_index in 0..self.particles.len() {
-            let pressure = self.properties.stiffness*(self.particles[particle_index].density()/rest_density - 1.);
-            let pressure = if pressure > 0. {
-                pressure
-            } else {
+            let pressure = self.properties.stiffness*f64::max(
+                self.particles[particle_index].density()/self.properties.rest_density - 1.,
                 0.
-            };
+            );
             self.particles[particle_index].set_pressure(pressure);
         }
     }
@@ -287,10 +312,10 @@ impl System3D {
             for &neighbor in &self.particles[particle_index].neighbors.clone() {
                 let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
                 let direction = self.particles[particle_index].get_direction(&self.particles[neighbor].pos().now());
-                let acc = self.properties.viscosity*2.*self.particles[particle_index].mass()/self.particles[particle_index].density()
+                let acc = self.properties.viscosity*2.*self.particles[neighbor].mass()/self.particles[particle_index].density()
                     *(self.particles[particle_index].vel().now()-self.particles[neighbor].vel().now()).dot(&(self.particles[particle_index].pos().now()-self.particles[neighbor].pos().now()))
-                    /((self.particles[particle_index].pos().now()-self.particles[neighbor].pos().now()).norm_squared()+0.01*self.properties.particle_size.powi(2))
-                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_size, direction);
+                    /((self.particles[particle_index].pos().now()-self.particles[neighbor].pos().now()).norm_squared()+0.01*self.properties.particle_diameter.powi(2))
+                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
                 self.particles[particle_index].add_acc(acc);
             }
             // add viscostiy acceleration from boundary particles
@@ -299,8 +324,8 @@ impl System3D {
                 let direction = self.particles[particle_index].get_direction(&self.boundary_particles[boundary_neighbor].pos());
                 let acc = self.properties.viscosity*2.*self.particles[particle_index].mass()/self.particles[particle_index].density()
                     *(self.particles[particle_index].vel().now()-Vector3::new(0., 0., 0.)).dot(&(self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()))
-                    /((self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.properties.particle_size.powi(2))
-                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_size, direction);
+                    /((self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.properties.particle_diameter.powi(2))
+                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
                 self.particles[particle_index].add_acc(acc);
             }
         }
@@ -313,9 +338,9 @@ impl System3D {
             for &neighbor in &self.particles[particle_index].neighbors.clone() {
                 let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
                 let direction = self.particles[particle_index].get_direction(&self.particles[neighbor].pos().now());
-                let acc = -self.particles[particle_index].mass()
-                    *(self.particles[particle_index].pressure()/self.particles[particle_index].density().powi(2)+self.particles[neighbor].pressure()/self.particles[neighbor].density().powi(2))
-                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_size, direction);
+                let acc = -self.particles[neighbor].mass()
+                    *(self.particles[particle_index].pressure()/self.particles[particle_index].density().powi(2) + self.particles[neighbor].pressure()/self.particles[neighbor].density().powi(2))
+                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
                 self.particles[particle_index].add_acc(acc);
             }
             // add pressure acceleration from boundary particles
@@ -324,7 +349,7 @@ impl System3D {
                 let direction = self.particles[particle_index].get_direction(&self.boundary_particles[boundary_neighbor].pos());
                 let acc = -self.particles[particle_index].mass()
                     *2.*self.particles[particle_index].pressure()/self.particles[particle_index].density().powi(2)
-                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_size, direction);
+                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
                 self.particles[particle_index].add_acc(acc);
             }
         }
@@ -332,7 +357,7 @@ impl System3D {
 
     /// Calculate acceleration at current time
     ///
-    /// Supports: GRavity, spring force, viscosity and pressure acceleration
+    /// Supports: Gravity, spring force, viscosity and pressure acceleration
     fn calc_acceleration(&mut self) {
         for particle_index in 0..self.particles.len() {
             // update neighbors
@@ -482,8 +507,6 @@ impl System3D {
         for particle in &mut self.particles {
             particle.update_color();
         }
-        // forward new particle positions to graphics output
-        self.queue.lock().unwrap().push_back(self.particles_as_instances());
         // update uniform grid
         self.particle_grid.clear();
         self.particle_grid.populate(&self.particles);
@@ -510,6 +533,14 @@ impl System3D {
             result.push(instance);
         }
         result
+    }
+
+    /// Forward new particle positions to graphics output
+    /// by queueing particles to visualization queue
+    pub fn queue_for_visualization(&self) {
+        // debug!("queued\n");
+        self.queue.lock().unwrap().push_back(self.particles_as_instances());
+        self.controls.lock().unwrap().set_average_density(self.properties.average_density as f32);
     }
 }
 

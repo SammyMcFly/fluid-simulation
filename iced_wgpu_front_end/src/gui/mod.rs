@@ -2,6 +2,7 @@
 //!
 //! Frontend is based on wgpu and winit.
 //!
+use iced_winit::program::Message;
 use tracing::{debug, info}; // error, trace, warn
 
 use std::sync::{Arc, Mutex};
@@ -37,7 +38,7 @@ pub mod model;
 use model::{DrawLight, DrawModel, VertexBufferLayout, ToRaw};
 mod camera;
 mod controls;
-use controls::Controls;
+use controls::UIControls;
 
 
 
@@ -65,7 +66,7 @@ pub struct StateApplication {
     controls: Arc<Mutex<super::mediation::IntermediateControls>>,
     // time inc in s
     time_inc: f32,
-    update_time_inc: bool,
+    do_reset: bool,
 }
 
 impl StateApplication {
@@ -78,7 +79,7 @@ impl StateApplication {
             queue,
             controls,
             time_inc,
-            update_time_inc: true,
+            do_reset: false,
         }
     }
 }
@@ -93,6 +94,7 @@ impl winit::application::ApplicationHandler for StateApplication {
         self.state = Some(State::new(window, instances, sphere_size, light_position));
         self.last_render_time = Some(std::time::Instant::now());
         self.last_frame_time = Some(std::time::Instant::now());
+        self.time_inc = self.controls.lock().unwrap().time_inc();
     }
 
     fn window_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, id: winit::window::WindowId, event: WindowEvent) {
@@ -108,34 +110,62 @@ impl winit::application::ApplicationHandler for StateApplication {
                     self.state.as_mut().unwrap().resize(physical_size);
                 }
                 WindowEvent::RedrawRequested => {
+                    let mut update_messages: Vec<controls::Message> = vec![];
+
                     if self.state.as_mut().unwrap().reset_requested {
                         self.controls.lock().unwrap().request_reset();
-                        self.queue.lock().unwrap().clear();
-                        self.update_time_inc = true;
+                        self.do_reset = true;
                         self.state.as_mut().unwrap().reset_requested = false;
                     }
-                    if self.update_time_inc && !self.queue.lock().unwrap().is_empty() {
-                        self.time_inc = self.controls.lock().unwrap().time_inc();
-                        self.update_time_inc = false;
-                    }
 
-                    let dt = self.last_render_time.unwrap().elapsed();
-                    self.last_render_time = Some(std::time::Instant::now());
+                    let time_delta_to_last_render_time = self.last_render_time.unwrap().elapsed();
 
                     let new_instances = {
-                        if let SimulationDisplayState::Resumed = self.state.as_ref().unwrap().sim_state {
-                            if self.last_frame_time.unwrap().elapsed()
-                            >= std::time::Duration::from_millis((self.time_inc*1000.0) as u64)
-                            && !self.queue.lock().unwrap().is_empty() {
+                        if !self.queue.lock().unwrap().is_empty() && !self.controls.lock().unwrap().is_reset_requested() {
+                            // as soon as the queue has refreshed (reloading of scene file has finished), update parameters
+                            // and dequeue and load first frame
+                            if self.do_reset {
+                                self.time_inc = self.controls.lock().unwrap().time_inc();
+                                self.do_reset = false;
+                                // update last frametime to now
+                                self.last_frame_time = Some(std::time::Instant::now());
+                                // UI update messages
+                                update_messages.push(controls::Message::AverageDensityChanged(self.controls.lock().unwrap().get_average_density()));
+                                update_messages.push(controls::Message::RestDensityChanged(self.controls.lock().unwrap().get_rest_density()));
+                                // return
                                 Some(self.queue.lock().unwrap().pop_front().unwrap())
+                            } else if let SimulationDisplayState::Resumed = self.state.as_ref().unwrap().sim_state {
+                                let next_visualized_queue_element = (self.last_frame_time.unwrap().elapsed().as_secs_f32()
+                                    /self.time_inc) as u32;
+                                if next_visualized_queue_element >= 1 {
+                                    for _ in 1..next_visualized_queue_element {
+                                        let mut queue = self.queue.lock().unwrap();
+                                        if queue.len() >= 2 {
+                                            queue.pop_front();
+                                        }
+                                    }
+                                    // update last frametime to now
+                                    self.last_frame_time = Some(std::time::Instant::now());
+                                    // UI update messages
+                                    update_messages.push(controls::Message::AverageDensityChanged(self.controls.lock().unwrap().get_average_density()));
+                                    update_messages.push(controls::Message::RestDensityChanged(self.controls.lock().unwrap().get_rest_density()));
+                                    Some(self.queue.lock().unwrap().pop_front().unwrap())
+                                } else {
+                                    None
+                                }
                             } else {
+                                self.last_frame_time = Some(std::time::Instant::now());
                                 None
                             }
                         } else {
                             None
                         }
                     };
-                    self.state.as_mut().unwrap().update(dt, new_instances);
+
+                    update_messages.push(controls::Message::BufferLengthChanged(self.queue.lock().unwrap().len()));
+                    self.state.as_mut().unwrap().update(time_delta_to_last_render_time, new_instances, update_messages);
+
+                    self.last_render_time = Some(std::time::Instant::now());
                     self.state.as_mut().unwrap().render().unwrap();
                     self.state.as_mut().unwrap().window.request_redraw();
                 }
@@ -193,7 +223,7 @@ struct State {
     renderer: Renderer,
 
     events: Vec<Event>,
-    controls: Controls,
+    uicontrols: UIControls,
     cache: user_interface::Cache,
     modifiers: ModifiersState,
     cursor: mouse::Cursor,
@@ -308,7 +338,7 @@ impl State {
         };
 
         // Initialize GUI controls
-        let controls = Controls::new();
+        let controls = UIControls::new();
 
         Self {
             window: window_arc,
@@ -335,7 +365,7 @@ impl State {
             light_render_pipeline,
             viewport,
             renderer,
-            controls,
+            uicontrols: controls,
             events: Vec::new(),
             cache: user_interface::Cache::new(),
             modifiers: ModifiersState::default(),
@@ -586,7 +616,7 @@ impl State {
     fn process_events(&mut self) {
         // Process events
         let mut interface = UserInterface::build(
-            self.controls.view(),
+            self.uicontrols.view(),
             self.viewport.logical_size(),
             std::mem::take(&mut self.cache),
             &mut self.renderer,
@@ -607,7 +637,7 @@ impl State {
 
         // update our UI with any messages
         for message in messages {
-            self.controls.update(message);
+            self.uicontrols.update(message);
         }
 
         // and request a redraw
@@ -639,9 +669,13 @@ impl State {
     }
 
     /// Update buffer for next rendering step (consider new state of State)
-    fn update(&mut self, dt: std::time::Duration, instances: Option<Vec<super::mediation::Instance>>) {
+    fn update(&mut self, time_delta_to_last_render_time: std::time::Duration, instances: Option<Vec<super::mediation::Instance>>, messages: Vec<controls::Message>) {
+        // Update UI controls
+        for message in messages {
+            self.uicontrols.update(message);
+        }
         // Update instances
-        if let SimulationDisplayState::Resumed = self.sim_state {
+        // if let SimulationDisplayState::Resumed = self.sim_state {
             if let Some(instances) = instances {
                 self.instances = instances;
                 self.instance_buffer = Self::create_instance_buffer(&self.device, &self.instances);
@@ -651,9 +685,9 @@ impl State {
                 //     bytemuck::cast_slice(&[self.instances[0]]),
                 // );
             }
-        }
+        // }
         // Update camera
-        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.camera_controller.update_camera(&mut self.camera, time_delta_to_last_render_time);
         self.camera_uniform.update_view_proj(&self.camera, &self.projection);
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -665,7 +699,7 @@ impl State {
         let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
         self.light_uniform.position = (cgmath::Quaternion::from_axis_angle(
             (0.0, 1.0, 0.0).into(),
-            cgmath::Deg(std::f32::consts::PI * dt.as_secs_f32()),
+            cgmath::Deg(std::f32::consts::PI * time_delta_to_last_render_time.as_secs_f32()),
         ) * old_position)
             .into();
         self.queue.write_buffer(
@@ -698,10 +732,10 @@ impl State {
                                 //     a: 1.0,
                                 // }
                                 wgpu::Color {
-                                    r: self.controls.background_color().r as f64,
-                                    g: self.controls.background_color().g as f64,
-                                    b: self.controls.background_color().b as f64,
-                                    a: self.controls.background_color().a as f64,
+                                    r: self.uicontrols.background_color().r as f64,
+                                    g: self.uicontrols.background_color().g as f64,
+                                    b: self.uicontrols.background_color().b as f64,
+                                    a: self.uicontrols.background_color().a as f64,
                                 }
                             ),
                             store: wgpu::StoreOp::Store,
@@ -741,7 +775,7 @@ impl State {
 
         // Draw iced on top
         let mut interface = UserInterface::build(
-            self.controls.view(),
+            self.uicontrols.view(),
             self.viewport.logical_size(),
             std::mem::take(&mut self.cache),
             &mut self.renderer,

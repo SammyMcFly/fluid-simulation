@@ -27,12 +27,14 @@ pub struct SceneConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct Parameters {
+    pub buffer_length_limit: u32,
     pub time_inc: f64,
     pub viscosity: f64,
     pub stiffness: f64,
     pub integration_scheme: super::physics::PropagationMethod,
     pub particle_mass: f64,
-    pub particle_size: f64,
+    pub particle_diameter: f64,
+    // pub smoothing_length: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,7 +54,8 @@ pub struct BoundaryParticleConfig {
     pub n_floor_particles_y: usize,
     pub n_floor_particles_z: usize,
     pub wall_height: usize,
-    pub wall_thickness: usize,
+    pub x_wall_thickness: usize,
+    pub y_wall_thickness: usize,
     pub x_offset: f64,
     pub y_offset: f64,
     pub z_offset: f64,

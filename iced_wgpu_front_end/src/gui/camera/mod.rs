@@ -182,8 +182,11 @@ impl CameraController {
     }
 
     pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
-        self.rotate_horizontal = (mouse_dx*5.0) as f32;
-        self.rotate_vertical = (mouse_dy*5.0) as f32;
+        // if inverted is set to -1 camera rotation is inverted (if 1 there is no inversion)
+        let inversion = -1.;
+        let mouse_sensitivity = 5.;
+        self.rotate_horizontal = (inversion*mouse_dx*mouse_sensitivity) as f32;
+        self.rotate_vertical = (inversion*mouse_dy*mouse_sensitivity) as f32;
     }
 
     pub fn process_scroll(&mut self, delta: &MouseScrollDelta) {
