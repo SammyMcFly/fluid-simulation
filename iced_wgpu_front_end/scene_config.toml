@@ -1,7 +1,7 @@
 # Scene configuration file
 
-[params]
-buffer_length_limit = 1 # 3000
+[params] # Implement as UI controls
+buffer_length_limit = 3000 # 3000
 time_inc = 0.01
 viscosity = 3.0
 stiffness = 10.0
@@ -9,6 +9,7 @@ integration_scheme = "EulerCromer" # Not implemented yet
 # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 particle_mass = 0.001
 particle_diameter = 0.8 # (does not update visualization yet)
+disable_particles_below = -30
 
 [scene.particles]
 n_particles_x = 30
@@ -16,7 +17,7 @@ n_particles_y = 30
 n_particles_z = 20
 x_offset = -5.0
 y_offset = -4.0
-z_offset = 5.0
+z_offset = 0.0
 particle_spacing = 0.795
 
 [scene.boundary_particles]

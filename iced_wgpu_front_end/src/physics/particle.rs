@@ -1,6 +1,6 @@
 // use tracing::{debug, error, info, span, trace, warn};
 use nalgebra::Vector3;
-
+use serde::{Serialize, Deserialize};
 
 
 #[derive(Debug, Clone, Copy)]
@@ -154,6 +154,7 @@ pub struct Particle3D {
     /// RGB-color values between 0.0 and 1.0
     custom_color: bool,
     color: [f32; 3],
+    disabled: bool,
     /// neighbors
     pub neighbors: Vec<usize>,
     /// boundary neighbors
@@ -264,6 +265,7 @@ impl Particle3D {
             pressure: f64::default(),
             custom_color,
             color,
+            disabled: false,
             neighbors: vec![],
             boundary_neighbors: vec![],
             d_l: Vector3::default(),
@@ -291,6 +293,14 @@ impl Particle3D {
     /// Direction from particle1 towards particle2
     pub fn get_direction(&self, other: &Vector3<f64>) -> Vector3<f64> {
         self.position.now()-other
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        !self.disabled
+    }
+
+    pub fn disable(&mut self) {
+        self.disabled = true;
     }
 }
 
@@ -332,6 +342,75 @@ impl BoundaryParticle3D {
 
     pub fn color(&self) -> [f32; 3] {
         self.color
+    }
+}
+
+impl From<SerParticle3D> for Particle3D {
+    fn from(particle: SerParticle3D) -> Self {
+        Self {
+            position: Q3::new(particle.position[0].into(), particle.position[2].into()),
+            velocity: Q3::new(particle.velocity[0].into(), particle.velocity[2].into()),
+            acceleration: particle.acceleration.into(),
+            mass: particle.mass,
+            density: particle.density,
+            pressure: particle.pressure,
+            custom_color: particle.custom_color,
+            color: particle.color,
+            disabled: particle.disabled,
+            neighbors: particle.neighbors,
+            boundary_neighbors: particle.boundary_neighbors,
+            d_l: particle.d_l.into(),
+            r_l: particle.r_l.into(),
+            alpha_l: particle.alpha_l,
+            a_times_d_l: particle.a_times_d_l.into(),
+        }
+    }
+}
+
+/// Serializable particle in a 3-dimensional context
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerParticle3D {
+    position: [[f64; 3]; 3],
+    velocity: [[f64; 3]; 3],
+    acceleration: [f64; 3],
+    mass: f64,
+    /// density (necessary for sph fluid)
+    density: f64,
+    pressure: f64,
+    /// RGB-color values between 0.0 and 1.0
+    custom_color: bool,
+    color: [f32; 3],
+    disabled: bool,
+    /// neighbors
+    pub neighbors: Vec<usize>,
+    /// boundary neighbors
+    pub boundary_neighbors: Vec<usize>,
+    /// implicit euler variables
+    pub d_l: [f64; 3],
+    pub r_l: [f64; 3],
+    pub alpha_l: f64,
+    pub a_times_d_l: [f64; 3],
+}
+
+impl From<Particle3D> for SerParticle3D {
+    fn from(particle: Particle3D) -> Self {
+        Self {
+            position: [particle.position.now().into(), particle.position.pred().into(), particle.position.prev().into()],
+            velocity: [particle.velocity.now().into(), particle.velocity.pred().into(), particle.velocity.prev().into()],
+            acceleration: particle.acceleration.into(),
+            mass: particle.mass,
+            density: particle.density,
+            pressure: particle.pressure,
+            custom_color: particle.custom_color,
+            color: particle.color,
+            disabled: particle.disabled,
+            neighbors: particle.neighbors,
+            boundary_neighbors: particle.boundary_neighbors,
+            d_l: particle.d_l.into(),
+            r_l: particle.r_l.into(),
+            alpha_l: particle.alpha_l,
+            a_times_d_l: particle.a_times_d_l.into(),
+        }
     }
 }
 

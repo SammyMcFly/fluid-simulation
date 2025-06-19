@@ -8,6 +8,7 @@ use std::{sync::{Arc, Mutex}, vec};
 use nalgebra::{Matrix3, Vector3};
 use num_traits::identities::Zero;
 use serde::Deserialize;
+use std::io::Write;
 
 // use tracing::{debug, error, info, span, trace, warn};
 use tracing::{debug};
@@ -19,6 +20,10 @@ pub mod spring;
 use spring::*;
 pub mod uniform_grid;
 
+use crate::measure;
+
+use super::setup;
+use super::mediation;
 
 
 
@@ -69,8 +74,11 @@ pub struct SystemProperties {
     particle_mass: f64,
     /// Smooting length, often denoted as h
     particle_diameter: f64,
+    /// disable particles below this threshold
+    disable_particles_below: f64,
     rest_density: f64, // rho_0
     average_density: f64,
+    fluid_depth: f64,
     viscosity: f64,
     stiffness: f64,
     kernel_fn: fn(distance: f64, particle_size: f64) -> f64,
@@ -82,6 +90,8 @@ impl SystemProperties {
         time_inc: f64,
         particle_mass: f64,
         particle_diameter: f64,
+        disable_particles_below: f64,
+        fluid_depth: f64,
         viscosity: f64,
         stiffness: f64,
         kernel_fn: fn(distance: f64, particle_size: f64) -> f64,
@@ -93,8 +103,10 @@ impl SystemProperties {
             time_inc,
             particle_mass,
             particle_diameter,
+            disable_particles_below,
             rest_density,
             average_density,
+            fluid_depth,
             viscosity,
             stiffness,
             kernel_fn,
@@ -127,10 +139,11 @@ pub struct System3D {
     time: f64,
     /// Properties of the system
     properties: SystemProperties,
-    /// Queue for queuing all particle position for visualization
-    pub queue: Arc<Mutex<super::mediation::IntermediateQueue>>,
+    // /// Queue for queuing all particle position for visualization
+    // pub queue: Arc<Mutex<super::mediation::IntermediateQueue>>,
     /// Controls for communicating with front end
     pub controls: Arc<Mutex<super::mediation::IntermediateControls>>,
+    measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
 }
 
 impl System3D {
@@ -139,8 +152,8 @@ impl System3D {
         boundary_particles: Vec<BoundaryParticle3D>,
         springs: Vec<Spring>,
         system_properties: SystemProperties,
-        queue: Arc<Mutex<super::mediation::IntermediateQueue>>,
         controls: Arc<Mutex<super::mediation::IntermediateControls>>,
+        measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
     ) -> Self {
         let particle_grid = uniform_grid::UniformGrid::new(system_properties.particle_diameter);
         let mut boundary_particle_grid = uniform_grid::UniformGrid::new(system_properties.particle_diameter);
@@ -153,37 +166,24 @@ impl System3D {
             springs,
             time: 0.0,
             properties: system_properties,
-            queue,
             controls,
+            measurement_series,
         };
-        // Add initial positions to queue and update uniform grid
+        // calculate initial accelerations
+        system.calc_acceleration();
+        // Update color and uniform grid
         system.update();
+        system.measure();
         system
     }
 
-    pub fn from_config(
+    pub fn from_state(
+        particles: Vec<Particle3D>,
         config: &super::setup::Config,
         system_properties: SystemProperties,
-        queue: Arc<Mutex<super::mediation::IntermediateQueue>>,
         controls: Arc<Mutex<super::mediation::IntermediateControls>>,
+        measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
     ) -> Self {
-        // init particles
-        let mut particles = vec![];
-        for i in 0..config.scene.particles.n_particles_x {
-            for j in 0..config.scene.particles.n_particles_y {
-                for k in 0..config.scene.particles.n_particles_z {
-                    let x = (i as f64)*config.scene.particles.particle_spacing+config.scene.particles.x_offset;
-                    let y = (j as f64)*config.scene.particles.particle_spacing+config.scene.particles.y_offset;
-                    let z = (k as f64)*config.scene.particles.particle_spacing+config.scene.particles.z_offset;
-                    let particle = Particle3D::new(
-                        [Vector3::new(x, y, z), Vector3::new(x, y, z)],
-                        Vector3::new(0., 0., 0.),
-                        config.params.particle_mass,
-                        None);
-                    particles.push(particle);
-                }
-            }
-        }
         // init boundary particles
         let mut boundary_particles = vec![];
         // init floor
@@ -220,7 +220,7 @@ impl System3D {
                 }
             }
         }
-        // init springs
+        // init springs (Note: Consider not disabling particles)
         let mut springs = vec![];
         // add springs configured in config file here
 
@@ -229,54 +229,220 @@ impl System3D {
             boundary_particles,
             springs,
             system_properties,
-            queue,
+            // queue,
             controls,
+            measurement_series,
         )
     }
 
-    pub fn update_density(&mut self) {
-        for particle_index in 0..self.particles.len() {
-            // reset density
-            self.particles[particle_index].set_density(0.);
-            // add density for every neighbor
-            for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
-                let density = self.particles[neighbor].mass()
-                    *(self.properties.kernel_fn)(distance, self.properties.particle_diameter);
-                self.particles[particle_index].add_density(density);
+    pub fn from_config(
+        file_path: &str,
+        controls: Arc<Mutex<mediation::IntermediateControls>>,
+        measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
+    ) -> Result<(Self, u32), Box<dyn std::error::Error>> {
+        // Read the scene config file
+        let config_file_content = std::fs::read_to_string(file_path)?;
+        // Parse the content into the Config struct
+        let config: setup::Config = toml::from_str(&config_file_content)?;
+
+        // hand over time_inc
+        controls.lock().unwrap().set_time_inc(config.params.time_inc as f32);
+        // hand over particle size
+        controls.lock().unwrap().set_particle_size(config.params.particle_diameter as f32);
+        // hand over rest density
+        controls.lock().unwrap().set_rest_density((config.params.particle_mass/config.params.particle_diameter.powi(3)) as f32);
+        // hand over light position
+        controls.lock().unwrap().set_light_position(config.scene.light.position);
+        // estimate fluid depth
+        let floor_area = config.scene.boundary_particles.n_floor_particles_x as f64
+            *config.scene.boundary_particles.n_floor_particles_y as f64
+            *config.scene.boundary_particles.particle_spacing.powi(2);
+        let total_particle_volume = config.scene.particles.n_particles_x as f64
+            *config.scene.particles.n_particles_y as f64
+            *config.scene.particles.n_particles_z as f64
+            *config.params.particle_diameter.powi(3);
+        let fluid_depth = total_particle_volume/floor_area;
+        // init system properties
+        let system_properties = SystemProperties::new(
+            config.params.time_inc,
+            config.params.particle_mass,
+            config.params.particle_diameter,
+            config.params.disable_particles_below,
+            fluid_depth,
+            config.params.viscosity,
+            config.params.stiffness,
+            cubic_spline_3d,
+            cubic_spline_3d_gradient
+        );
+        // init particles
+        let mut particles = vec![];
+        for i in 0..config.scene.particles.n_particles_x {
+            for j in 0..config.scene.particles.n_particles_y {
+                for k in 0..config.scene.particles.n_particles_z {
+                    let x = (i as f64)*config.scene.particles.particle_spacing+config.scene.particles.x_offset;
+                    let y = (j as f64)*config.scene.particles.particle_spacing+config.scene.particles.y_offset;
+                    let z = (k as f64)*config.scene.particles.particle_spacing+config.scene.particles.z_offset;
+                    let particle = Particle3D::new(
+                        [Vector3::new(x, y, z), Vector3::new(x, y, z)],
+                        Vector3::new(0., 0., 0.),
+                        config.params.particle_mass,
+                        None);
+                    particles.push(particle);
+                }
             }
-            // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
-            for &boundary_neighbors in &self.particles[particle_index].boundary_neighbors.clone() {
-                // add density for every neighbor
-                let distance = self.particles[particle_index].get_distance(&self.boundary_particles[boundary_neighbors].pos());
-                let density = self.particles[particle_index].mass()
-                    *(self.properties.kernel_fn)(distance, self.properties.particle_diameter);
-                self.particles[particle_index].add_density(density);
-            }
-            // debug!("rest density: {}", self.properties.rest_density);
         }
-        // calculate average density
-        self.properties.average_density = 0.;
+        // create simulation system
+        Ok((Self::from_state(
+            particles,
+            &config,
+            system_properties,
+            controls,
+            measurement_series,
+        ), config.params.buffer_length_limit))
+    }
+
+    pub fn load_state(
+        state_file_path: &str,
+        config_file_path: &str,
+        controls: Arc<Mutex<mediation::IntermediateControls>>,
+        measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
+    ) -> Result<(Self, u32), Box<dyn std::error::Error>> {
+        let content = std::fs::read_to_string(state_file_path)?;
+        let particles: Vec<SerParticle3D> = ron::from_str(&content).unwrap();
+        let particles: Vec<Particle3D> = particles.into_iter().map(|p| p.into()).collect();
+
+        // Read the scene config file
+        let config_file_content = std::fs::read_to_string(config_file_path)?;
+        // Parse the content into the Config struct
+        let config: setup::Config = toml::from_str(&config_file_content)?;
+
+        // hand over time_inc
+        controls.lock().unwrap().set_time_inc(config.params.time_inc as f32);
+        // hand over particle size
+        controls.lock().unwrap().set_particle_size(config.params.particle_diameter as f32);
+        // hand over rest density
+        controls.lock().unwrap().set_rest_density((config.params.particle_mass/config.params.particle_diameter.powi(3)) as f32);
+        // hand over light position
+        controls.lock().unwrap().set_light_position(config.scene.light.position);
+        // estimate fluid depth
+        let floor_area = config.scene.boundary_particles.n_floor_particles_x as f64
+            *config.scene.boundary_particles.n_floor_particles_y as f64
+            *config.scene.boundary_particles.particle_spacing.powi(2);
+        let total_particle_volume = config.scene.particles.n_particles_x as f64
+            *config.scene.particles.n_particles_y as f64
+            *config.scene.particles.n_particles_z as f64
+            *config.params.particle_diameter.powi(3);
+        let fluid_depth = total_particle_volume/floor_area;
+        // init system properties
+        let system_properties = SystemProperties::new(
+            config.params.time_inc,
+            config.params.particle_mass,
+            config.params.particle_diameter,
+            config.params.disable_particles_below,
+            fluid_depth,
+            config.params.viscosity,
+            config.params.stiffness,
+            cubic_spline_3d,
+            cubic_spline_3d_gradient
+        );
+        // create simulation system
+        Ok((Self::from_state(
+            particles,
+            &config,
+            system_properties,
+            controls,
+            measurement_series,
+        ), config.params.buffer_length_limit))
+    }
+
+    pub fn save_state(&self, file_path: &str) -> std::io::Result<()> {
+        let ron_string = ron::to_string(&self.get_serializable_particles()).unwrap();
+        let mut file = std::fs::File::create(file_path)?;
+        file.write_all(ron_string.as_bytes())?;
+        Ok(())
+    }
+
+    /// Calculate average kinetic energy for all fluid particles
+    fn calc_average_kinetic_energy(&self) -> f64 {
+        let mut average_kin_energy = 0.;
         let mut count = 0.;
         for particle in &self.particles {
-            if particle.density() >= self.properties.rest_density {
-                self.properties.average_density += particle.density();
+            if particle.is_enabled() {
+                if particle.density() > self.properties.rest_density {
+                    average_kin_energy += particle.density();
+                } else {
+                    average_kin_energy += self.properties.rest_density;
+
+                }
                 count += 1.;
             }
         }
         if count != 0. {
-            self.properties.average_density /= count;
+            average_kin_energy /= count;
         }
-        debug!("Average density: {}, rest density: {}, contributing particles: {}", self.properties.average_density, self.properties.rest_density, count);
+        // debug!("Average kin. energy: {}", average_kin_energy);
+        average_kin_energy
     }
 
-    pub fn update_pressure(&mut self) {
+    /// Calculate average mass density for all fluid particles
+    fn calc_average_mass_density(&self) -> f64 {
+        let mut average_density = 0.;
+        let mut count = 0.;
+        for particle in &self.particles {
+            if particle.is_enabled() {
+                if particle.density() > self.properties.rest_density {
+                    average_density += particle.density();
+                } else {
+                    average_density += self.properties.rest_density;
+
+                }
+                count += 1.;
+            }
+        }
+        if count != 0. {
+            average_density /= count;
+        }
+        // debug!("Average density: {}, rest density: {}", average_density, self.properties.rest_density);
+        average_density
+    }
+
+    fn update_density(&mut self) {
         for particle_index in 0..self.particles.len() {
-            let pressure = self.properties.stiffness*f64::max(
-                self.particles[particle_index].density()/self.properties.rest_density - 1.,
-                0.
-            );
-            self.particles[particle_index].set_pressure(pressure);
+            if self.particles[particle_index].is_enabled() {
+                // reset density
+                self.particles[particle_index].set_density(0.);
+                // add density for every neighbor
+                for &neighbor in &self.particles[particle_index].neighbors.clone() {
+                    let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
+                    let density = self.particles[neighbor].mass()
+                        *(self.properties.kernel_fn)(distance, self.properties.particle_diameter);
+                    self.particles[particle_index].add_density(density);
+                }
+                // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
+                for &boundary_neighbors in &self.particles[particle_index].boundary_neighbors.clone() {
+                    // add density for every neighbor
+                    let distance = self.particles[particle_index].get_distance(&self.boundary_particles[boundary_neighbors].pos());
+                    let density = self.particles[particle_index].mass()
+                        *(self.properties.kernel_fn)(distance, self.properties.particle_diameter);
+                    self.particles[particle_index].add_density(density);
+                }
+                // debug!("rest density: {}", self.properties.rest_density);
+            }
+        }
+        // calculate average density
+
+
+    }
+
+    fn update_pressure(&mut self) {
+        for particle_index in 0..self.particles.len() {
+            if self.particles[particle_index].is_enabled() {
+                let pressure = self.properties.stiffness*f64::max(
+                    self.particles[particle_index].density()/self.properties.rest_density - 1.,
+                    0.
+                );
+                self.particles[particle_index].set_pressure(pressure);
+            }
         }
     }
 
@@ -308,25 +474,27 @@ impl System3D {
     /// Calculate viscosity acceleration at current time and add it to respective particles
     fn add_viscosity_acceleration(&mut self) {
         for particle_index in 0..self.particles.len() {
-            // add viscostiy acceleration from other moving particles
-            for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
-                let direction = self.particles[particle_index].get_direction(&self.particles[neighbor].pos().now());
-                let acc = self.properties.viscosity*2.*self.particles[neighbor].mass()/self.particles[particle_index].density()
-                    *(self.particles[particle_index].vel().now()-self.particles[neighbor].vel().now()).dot(&(self.particles[particle_index].pos().now()-self.particles[neighbor].pos().now()))
-                    /((self.particles[particle_index].pos().now()-self.particles[neighbor].pos().now()).norm_squared()+0.01*self.properties.particle_diameter.powi(2))
-                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
-                self.particles[particle_index].add_acc(acc);
-            }
-            // add viscostiy acceleration from boundary particles
-            for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                let distance = self.particles[particle_index].get_distance(&self.boundary_particles[boundary_neighbor].pos());
-                let direction = self.particles[particle_index].get_direction(&self.boundary_particles[boundary_neighbor].pos());
-                let acc = self.properties.viscosity*2.*self.particles[particle_index].mass()/self.particles[particle_index].density()
-                    *(self.particles[particle_index].vel().now()-Vector3::new(0., 0., 0.)).dot(&(self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()))
-                    /((self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.properties.particle_diameter.powi(2))
-                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
-                self.particles[particle_index].add_acc(acc);
+            if self.particles[particle_index].is_enabled() {
+                // add viscostiy acceleration from other moving particles
+                for &neighbor in &self.particles[particle_index].neighbors.clone() {
+                    let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
+                    let direction = self.particles[particle_index].get_direction(&self.particles[neighbor].pos().now());
+                    let acc = self.properties.viscosity*2.*self.particles[neighbor].mass()/self.particles[particle_index].density()
+                        *(self.particles[particle_index].vel().now()-self.particles[neighbor].vel().now()).dot(&(self.particles[particle_index].pos().now()-self.particles[neighbor].pos().now()))
+                        /((self.particles[particle_index].pos().now()-self.particles[neighbor].pos().now()).norm_squared()+0.01*self.properties.particle_diameter.powi(2))
+                        *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
+                    self.particles[particle_index].add_acc(acc);
+                }
+                // add viscostiy acceleration from boundary particles
+                for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
+                    let distance = self.particles[particle_index].get_distance(&self.boundary_particles[boundary_neighbor].pos());
+                    let direction = self.particles[particle_index].get_direction(&self.boundary_particles[boundary_neighbor].pos());
+                    let acc = self.properties.viscosity*2.*self.particles[particle_index].mass()/self.particles[particle_index].density()
+                        *(self.particles[particle_index].vel().now()-Vector3::new(0., 0., 0.)).dot(&(self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()))
+                        /((self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.properties.particle_diameter.powi(2))
+                        *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
+                    self.particles[particle_index].add_acc(acc);
+                }
             }
         }
     }
@@ -334,23 +502,25 @@ impl System3D {
     /// Calculate pressure acceleration at current time and add it to respective particles
     fn add_pressure_acceleration(&mut self) {
         for particle_index in 0..self.particles.len() {
-            // add pressure acceleration from other moving particles
-            for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
-                let direction = self.particles[particle_index].get_direction(&self.particles[neighbor].pos().now());
-                let acc = -self.particles[neighbor].mass()
-                    *(self.particles[particle_index].pressure()/self.particles[particle_index].density().powi(2) + self.particles[neighbor].pressure()/self.particles[neighbor].density().powi(2))
-                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
-                self.particles[particle_index].add_acc(acc);
-            }
-            // add pressure acceleration from boundary particles
-            for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                let distance = self.particles[particle_index].get_distance(&self.boundary_particles[boundary_neighbor].pos());
-                let direction = self.particles[particle_index].get_direction(&self.boundary_particles[boundary_neighbor].pos());
-                let acc = -self.particles[particle_index].mass()
-                    *2.*self.particles[particle_index].pressure()/self.particles[particle_index].density().powi(2)
-                    *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
-                self.particles[particle_index].add_acc(acc);
+            if self.particles[particle_index].is_enabled() {
+                // add pressure acceleration from other moving particles
+                for &neighbor in &self.particles[particle_index].neighbors.clone() {
+                    let distance = self.particles[particle_index].get_distance(&self.particles[neighbor].pos().now());
+                    let direction = self.particles[particle_index].get_direction(&self.particles[neighbor].pos().now());
+                    let acc = -self.particles[neighbor].mass()
+                        *(self.particles[particle_index].pressure()/self.particles[particle_index].density().powi(2) + self.particles[neighbor].pressure()/self.particles[neighbor].density().powi(2))
+                        *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
+                    self.particles[particle_index].add_acc(acc);
+                }
+                // add pressure acceleration from boundary particles
+                for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
+                    let distance = self.particles[particle_index].get_distance(&self.boundary_particles[boundary_neighbor].pos());
+                    let direction = self.particles[particle_index].get_direction(&self.boundary_particles[boundary_neighbor].pos());
+                    let acc = -self.particles[particle_index].mass()
+                        *2.*self.particles[particle_index].pressure()/self.particles[particle_index].density().powi(2)
+                        *(self.properties.kernel_gradient_fn)(distance, self.properties.particle_diameter, direction);
+                    self.particles[particle_index].add_acc(acc);
+                }
             }
         }
     }
@@ -360,12 +530,14 @@ impl System3D {
     /// Supports: Gravity, spring force, viscosity and pressure acceleration
     fn calc_acceleration(&mut self) {
         for particle_index in 0..self.particles.len() {
-            // update neighbors
-            let neighbors = self.particle_grid.get_particles_in_kernel_range(&self.particles[particle_index].pos().now(), &self.particles);
-            self.particles[particle_index].set_neighbors(neighbors);
-            // update boundary neighbors
-            let boundary_neighbors = self.boundary_particle_grid.get_particles_in_kernel_range(&self.particles[particle_index].pos().now(), &self.boundary_particles);
-            self.particles[particle_index].set_boundary_neighbors(boundary_neighbors);
+            if self.particles[particle_index].is_enabled() {
+                // update neighbors
+                let neighbors = self.particle_grid.get_particles_in_kernel_range(&self.particles[particle_index].pos().now(), &self.particles);
+                self.particles[particle_index].set_neighbors(neighbors);
+                // update boundary neighbors
+                let boundary_neighbors = self.boundary_particle_grid.get_particles_in_kernel_range(&self.particles[particle_index].pos().now(), &self.boundary_particles);
+                self.particles[particle_index].set_boundary_neighbors(boundary_neighbors);
+            }
         }
         // compute density and pressure
         self.update_density();
@@ -385,16 +557,16 @@ impl System3D {
     }
 
     pub fn inc_time(&mut self, method: PropagationMethod) {
-        // calculate accelerations
-        self.calc_acceleration();
         // increment time one step
         match method {
             PropagationMethod::ExplicitEuler => {
-                for v in &mut self.particles {
-                    // update positions
-                    v.set_new_pos(v.pos().now() + self.properties.time_inc*v.vel().now());
-                    // update velocities
-                    v.set_new_vel(v.vel().now() + self.properties.time_inc*v.acc());
+                for particle in &mut self.particles {
+                    if particle.is_enabled() {
+                        // update positions
+                        particle.set_new_pos(particle.pos().now() + self.properties.time_inc*particle.vel().now());
+                        // update velocities
+                        particle.set_new_vel(particle.vel().now() + self.properties.time_inc*particle.acc());
+                    }
                 }
             },
             PropagationMethod::ImplicitEuler => { // Conjugate Gradient implementation
@@ -479,32 +651,46 @@ impl System3D {
 
             }
             PropagationMethod::EulerCromer => {
-                for v in &mut self.particles {
-                    // update velocities
-                    v.set_new_vel(v.vel().now() + self.properties.time_inc*v.acc());
-                    // update positions with new velocities: v_i(t+h)
-                    v.set_new_pos(v.pos().now() + self.properties.time_inc*v.vel().now());
+                for particle in &mut self.particles {
+                    if particle.is_enabled() {
+                        // update velocities
+                        particle.set_new_vel(particle.vel().now() + self.properties.time_inc*particle.acc());
+                        // update positions with new velocities: v_i(t+h)
+                        particle.set_new_pos(particle.pos().now() + self.properties.time_inc*particle.vel().now());
+                    }
                 }
             },
             PropagationMethod::Verlet => {
                 // update positions
-                for v in &mut self.particles {
-                    // update positions
-                    let t = 2.0*v.pos().now() - v.pos().prev() + self.properties.time_inc.powi(2)*v.acc();
-                    v.set_new_pos(t);
-                    // update velocities
-                    let t = (v.pos().now() - v.pos().prev())/self.properties.time_inc;
-                    v.set_new_vel(t);
+                for particle in &mut self.particles {
+                    if particle.is_enabled() {
+                        // update positions
+                        let t = 2.0*particle.pos().now() - particle.pos().prev() + self.properties.time_inc.powi(2)*particle.acc();
+                        particle.set_new_pos(t);
+                        // update velocities
+                        let t = (particle.pos().now() - particle.pos().prev())/self.properties.time_inc;
+                        particle.set_new_vel(t);
+                    }
                 }
             },
         }
         self.time += self.properties.time_inc;
+        // calculate new accelerations
+        self.calc_acceleration();
+        // Update color and uniform grid
         self.update();
+        // Measure (physical) quantities at current time step
+        self.measure();
     }
 
+    /// Update color and uniform grid
     fn update(&mut self) {
+        // disable irrelevant particles (NOTE: Disabled particles must not be connected via spring)
         // update color
         for particle in &mut self.particles {
+            if particle.pos().now()[2] < self.properties.disable_particles_below {
+                particle.disable();
+            }
             particle.update_color();
         }
         // update uniform grid
@@ -512,17 +698,43 @@ impl System3D {
         self.particle_grid.populate(&self.particles);
     }
 
+    fn measure(&mut self) {
+        self.properties.average_density = self.calc_average_mass_density();
+        if let Some(ms) = &self.measurement_series {
+            let measurement = measure::Measurement {
+                time: self.time,
+                density: self.properties.average_density,
+                kinetic_energy: self.calc_average_kinetic_energy(),
+                stiffness: self.properties.stiffness,
+                viscosity: self.properties.viscosity,
+                fluid_depth: self.properties.fluid_depth,
+            };
+            ms.lock().unwrap().push_back(measurement);
+        }
+    }
+
+    fn get_serializable_particles(&self) -> Vec<SerParticle3D> {
+        self.particles.clone().into_iter().map(|p| p.into()).collect()
+    }
+
     fn particles_as_instances(&self) -> Vec<super::mediation::Instance> {
         let mut result = Vec::new();
         // add moving particles
         for particle in &self.particles {
-            let instance = super::mediation::Instance {
-                position: Matrix3::new(1., 0., 0., 0., 0., 1., 0., -1., 0.) // map y to -z axis and z to y axis
-                    *particle.pos().now().map(|v| { v as f32 }),
-                color: particle.color(),
-            };
-            result.push(instance);
+            if particle.is_enabled() {
+                let instance = super::mediation::Instance {
+                    position: Matrix3::new(1., 0., 0., 0., 0., 1., 0., -1., 0.) // map y to -z axis and z to y axis
+                        *particle.pos().now().map(|v| { v as f32 }),
+                    color: particle.color(),
+                };
+                result.push(instance);
+            }
         }
+        result
+    }
+
+    fn boundary_particles_as_instances(&self) -> Vec<super::mediation::Instance> {
+        let mut result = Vec::new();
         // add boundary particles
         for particle in &self.boundary_particles {
             let instance = super::mediation::Instance {
@@ -539,8 +751,11 @@ impl System3D {
     /// by queueing particles to visualization queue
     pub fn queue_for_visualization(&self) {
         // debug!("queued\n");
-        self.queue.lock().unwrap().push_back(self.particles_as_instances());
-        self.controls.lock().unwrap().set_average_density(self.properties.average_density as f32);
+        // self.queue.lock().unwrap().push_back(self.particles_as_instances());
+        let mut controls = self.controls.lock().unwrap(); //.set_average_density(self.properties.average_density as f32);
+        controls.particle_positions.push_back(self.particles_as_instances());
+        controls.boundary_particle_positions.push_back(self.boundary_particles_as_instances());
+        controls.average_density.push_back(self.properties.average_density as f32);
     }
 }
 

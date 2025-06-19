@@ -2,7 +2,7 @@
 //!
 //! Frontend is based on wgpu and winit.
 //!
-use iced_winit::program::Message;
+// use iced_winit::program::Message;
 use tracing::{debug, info}; // error, trace, warn
 
 use std::sync::{Arc, Mutex};
@@ -43,26 +43,11 @@ use controls::UIControls;
 
 
 
-#[derive(Debug)]
-enum SimulationDisplayState {
-    Resumed,
-    Paused,
-}
-
-impl SimulationDisplayState {
-    fn toggle(&mut self) {
-        match *self {
-            Self::Paused => *self = Self::Resumed,
-            Self::Resumed => *self = Self::Paused,
-        }
-    }
-}
-
 pub struct StateApplication {
     state: Option<State>,
     last_render_time: Option<std::time::Instant>,
     last_frame_time: Option<std::time::Instant>,
-    queue: Arc<Mutex<super::mediation::IntermediateQueue>>,
+    // queue: Arc<Mutex<super::mediation::IntermediateQueue>>,
     controls: Arc<Mutex<super::mediation::IntermediateControls>>,
     // time inc in s
     time_inc: f32,
@@ -70,13 +55,13 @@ pub struct StateApplication {
 }
 
 impl StateApplication {
-    pub fn new(queue: Arc<Mutex<super::mediation::IntermediateQueue>>, controls: Arc<Mutex<super::mediation::IntermediateControls>>) -> Self {
+    pub fn new(controls: Arc<Mutex<super::mediation::IntermediateControls>>) -> Self { //queue: Arc<Mutex<super::mediation::IntermediateQueue>>,
         let time_inc = controls.lock().unwrap().time_inc();
         Self {
             state: Option::default(),
             last_render_time: Option::default(),
             last_frame_time: Option::default(),
-            queue,
+            // queue,
             controls,
             time_inc,
             do_reset: false,
@@ -88,10 +73,13 @@ impl winit::application::ApplicationHandler for StateApplication {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let window = event_loop.create_window(winit::window::Window::default_attributes()
             .with_visible(true).with_title("Rusty Fluid Solver")).unwrap();
-        let instances = self.queue.lock().unwrap().pop_front().unwrap();
+        // let instances = self.queue.lock().unwrap().pop_front().unwrap();
+        let particles = self.controls.lock().unwrap().particle_positions.pop_front().unwrap();
+        let boundary_particles = self.controls.lock().unwrap().boundary_particle_positions.pop_front().unwrap();
+        let update_messages: controls::Message = controls::Message::AverageDensityChanged(self.controls.lock().unwrap().average_density.pop_front().unwrap());
         let sphere_size = self.controls.lock().unwrap().particle_size();
         let light_position = self.controls.lock().unwrap().light_position();
-        self.state = Some(State::new(window, instances, sphere_size, light_position));
+        self.state = Some(State::new(window, particles, boundary_particles, sphere_size, light_position, update_messages));
         self.last_render_time = Some(std::time::Instant::now());
         self.last_frame_time = Some(std::time::Instant::now());
         self.time_inc = self.controls.lock().unwrap().time_inc();
@@ -112,16 +100,19 @@ impl winit::application::ApplicationHandler for StateApplication {
                 WindowEvent::RedrawRequested => {
                     let mut update_messages: Vec<controls::Message> = vec![];
 
-                    if self.state.as_mut().unwrap().reset_requested {
+                    if self.state.as_mut().unwrap().uicontrols.is_saving_requested() {
+                        self.controls.lock().unwrap().request_saving();
+                    }
+
+                    if self.state.as_mut().unwrap().uicontrols.is_reset_requested() {
                         self.controls.lock().unwrap().request_reset();
                         self.do_reset = true;
-                        self.state.as_mut().unwrap().reset_requested = false;
                     }
 
                     let time_delta_to_last_render_time = self.last_render_time.unwrap().elapsed();
 
-                    let new_instances = {
-                        if !self.queue.lock().unwrap().is_empty() && !self.controls.lock().unwrap().is_reset_requested() {
+                    let (new_particles, new_boundary_particles) = {
+                        if !self.controls.lock().unwrap().particle_positions.is_empty() && !self.controls.lock().unwrap().is_reset_requested() {
                             // as soon as the queue has refreshed (reloading of scene file has finished), update parameters
                             // and dequeue and load first frame
                             if self.do_reset {
@@ -130,40 +121,50 @@ impl winit::application::ApplicationHandler for StateApplication {
                                 // update last frametime to now
                                 self.last_frame_time = Some(std::time::Instant::now());
                                 // UI update messages
-                                update_messages.push(controls::Message::AverageDensityChanged(self.controls.lock().unwrap().get_average_density()));
+                                if let Some(average_density) = self.controls.lock().unwrap().average_density.pop_front() {
+                                    update_messages.push(controls::Message::AverageDensityChanged(average_density));
+                                }
                                 update_messages.push(controls::Message::RestDensityChanged(self.controls.lock().unwrap().get_rest_density()));
                                 // return
-                                Some(self.queue.lock().unwrap().pop_front().unwrap())
-                            } else if let SimulationDisplayState::Resumed = self.state.as_ref().unwrap().sim_state {
+                                let new_particles = self.controls.lock().unwrap().particle_positions.pop_front().unwrap();
+                                let new_boundary_particles = self.controls.lock().unwrap().boundary_particle_positions.pop_front().unwrap();
+                                (Some(new_particles), Some(new_boundary_particles))
+                            } else if let controls::DisplayState::Resumed = self.state.as_ref().unwrap().uicontrols.display_state {
                                 let next_visualized_queue_element = (self.last_frame_time.unwrap().elapsed().as_secs_f32()
                                     /self.time_inc) as u32;
                                 if next_visualized_queue_element >= 1 {
                                     for _ in 1..next_visualized_queue_element {
-                                        let mut queue = self.queue.lock().unwrap();
-                                        if queue.len() >= 2 {
-                                            queue.pop_front();
+                                        let mut controls = self.controls.lock().unwrap();
+                                        if controls.particle_positions.len() >= 2 {
+                                            controls.particle_positions.pop_front();
+                                            controls.boundary_particle_positions.pop_front();
+                                            controls.average_density.pop_front();
                                         }
                                     }
                                     // update last frametime to now
                                     self.last_frame_time = Some(std::time::Instant::now());
                                     // UI update messages
-                                    update_messages.push(controls::Message::AverageDensityChanged(self.controls.lock().unwrap().get_average_density()));
+                                    if let Some(average_density) = self.controls.lock().unwrap().average_density.pop_front() {
+                                        update_messages.push(controls::Message::AverageDensityChanged(average_density));
+                                    }
                                     update_messages.push(controls::Message::RestDensityChanged(self.controls.lock().unwrap().get_rest_density()));
-                                    Some(self.queue.lock().unwrap().pop_front().unwrap())
+                                    let new_particles = self.controls.lock().unwrap().particle_positions.pop_front().unwrap();
+                                    let new_boundary_particles = self.controls.lock().unwrap().boundary_particle_positions.pop_front().unwrap();
+                                    (Some(new_particles), Some(new_boundary_particles))
                                 } else {
-                                    None
+                                    (None, None)
                                 }
                             } else {
                                 self.last_frame_time = Some(std::time::Instant::now());
-                                None
+                                (None, None)
                             }
                         } else {
-                            None
+                            (None, None)
                         }
                     };
 
-                    update_messages.push(controls::Message::BufferLengthChanged(self.queue.lock().unwrap().len()));
-                    self.state.as_mut().unwrap().update(time_delta_to_last_render_time, new_instances, update_messages);
+                    update_messages.push(controls::Message::BufferLengthChanged(self.controls.lock().unwrap().particle_positions.len()));
+                    self.state.as_mut().unwrap().update(time_delta_to_last_render_time, new_particles, new_boundary_particles, update_messages);
 
                     self.last_render_time = Some(std::time::Instant::now());
                     self.state.as_mut().unwrap().render().unwrap();
@@ -181,7 +182,7 @@ impl winit::application::ApplicationHandler for StateApplication {
         ) {
         match event {
             winit::event::DeviceEvent::MouseMotion{ delta, } => {
-                if self.state.as_mut().unwrap().mouse_pressed {
+                if self.state.as_mut().unwrap().mouse_right_button_pressed {
                     self.state.as_mut().unwrap().camera_controller.process_mouse(delta.0, delta.1);
                 }
             }
@@ -201,8 +202,10 @@ struct State {
 
     sphere: model::Model,
 
-    instances: Vec<super::mediation::Instance>,
-    instance_buffer: wgpu::Buffer,
+    particles: Vec<super::mediation::Instance>,
+    boundary_particles: Vec<super::mediation::Instance>,
+    rendered_instances: Vec<super::mediation::Instance>,
+    rendered_instance_buffer: wgpu::Buffer,
 
     camera: camera::Camera,
     camera_uniform: camera::CameraUniform,
@@ -222,20 +225,23 @@ struct State {
     viewport: Viewport,
     renderer: Renderer,
 
-    events: Vec<Event>,
     uicontrols: UIControls,
+    events: Vec<Event>,
     cache: user_interface::Cache,
     modifiers: ModifiersState,
     cursor: mouse::Cursor,
-    mouse_pressed: bool,
+    mouse_right_button_pressed: bool,
     clipboard: Clipboard,
-
-    sim_state: SimulationDisplayState,
-    reset_requested: bool,
 }
 
 impl State {
-    pub fn new(window: Window, instances: Vec<super::mediation::Instance>, sphere_size: f32, light_position: [f32; 3]) -> Self {
+    pub fn new(
+        window: Window,
+        particles: Vec<super::mediation::Instance>,
+        boundary_particles: Vec<super::mediation::Instance>,
+        sphere_size: f32, light_position: [f32; 3],
+        message: controls::Message,
+    ) -> Self {
         let window_arc = Arc::new(window);
 
         let size = window_arc.inner_size();
@@ -256,7 +262,9 @@ impl State {
         let depth_texture = model::Texture::create_depth_texture(&device, &config, "depth_texture");
         let sphere = model::load_model("./src/gui/model/sphere.obj", &device, sphere_size).unwrap();
 
-        let instance_buffer = Self::create_instance_buffer(&device, &instances);
+        let mut rendered_instances = particles.clone();
+        rendered_instances.extend(boundary_particles.clone());
+        let instance_buffer = Self::create_instance_buffer(&device, &rendered_instances);
 
         let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
         let projection = camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
@@ -338,7 +346,8 @@ impl State {
         };
 
         // Initialize GUI controls
-        let controls = UIControls::new();
+        let mut controls = UIControls::new();
+        controls.update(message);
 
         Self {
             window: window_arc,
@@ -349,8 +358,10 @@ impl State {
             size,
             depth_texture,
             sphere,
-            instances,
-            instance_buffer,
+            particles,
+            boundary_particles,
+            rendered_instances,
+            rendered_instance_buffer: instance_buffer,
             camera,
             projection,
             camera_controller,
@@ -370,10 +381,8 @@ impl State {
             cache: user_interface::Cache::new(),
             modifiers: ModifiersState::default(),
             cursor: mouse::Cursor::Unavailable,
-            mouse_pressed: false,
+            mouse_right_button_pressed: false,
             clipboard,
-            sim_state: SimulationDisplayState::Paused,
-            reset_requested: false,
         }
     }
 
@@ -591,11 +600,11 @@ impl State {
                 true
             }
             WindowEvent::MouseInput {
-                button: winit::event::MouseButton::Left,
+                button: winit::event::MouseButton::Right,
                 state,
                 ..
             } => {
-                self.mouse_pressed = *state == winit::event::ElementState::Pressed;
+                self.mouse_right_button_pressed = *state == winit::event::ElementState::Pressed;
                 true
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -644,12 +653,13 @@ impl State {
         self.window.request_redraw();
     }
 
+    // TODO move and unify this into/with controls
     fn process_keyboard(&mut self, key: &winit::keyboard::KeyCode, state: &winit::event::ElementState) -> bool {
         match key {
             winit::keyboard::KeyCode::KeyK => {
                 if *state == winit::event::ElementState::Pressed {
                     debug!("K pressed");
-                    self.sim_state.toggle();
+                    self.uicontrols.display_state.toggle();
                     true
                 } else {
                     false
@@ -658,7 +668,7 @@ impl State {
             winit::keyboard::KeyCode::KeyR => {
                 if *state == winit::event::ElementState::Pressed {
                     debug!("R pressed");
-                    self.reset_requested = true;
+                    self.uicontrols.update(controls::Message::RequestReset);
                     true
                 } else {
                     false
@@ -669,23 +679,31 @@ impl State {
     }
 
     /// Update buffer for next rendering step (consider new state of State)
-    fn update(&mut self, time_delta_to_last_render_time: std::time::Duration, instances: Option<Vec<super::mediation::Instance>>, messages: Vec<controls::Message>) {
+    fn update(
+        &mut self,
+        time_delta_to_last_render_time: std::time::Duration,
+        particles: Option<Vec<super::mediation::Instance>>,
+        boundary_particles: Option<Vec<super::mediation::Instance>>,
+        messages: Vec<controls::Message>,
+    ) {
         // Update UI controls
         for message in messages {
             self.uicontrols.update(message);
         }
-        // Update instances
-        // if let SimulationDisplayState::Resumed = self.sim_state {
-            if let Some(instances) = instances {
-                self.instances = instances;
-                self.instance_buffer = Self::create_instance_buffer(&self.device, &self.instances);
-                // self.queue.write_buffer(
-                //     &self.instance_buffer,
-                //     0,
-                //     bytemuck::cast_slice(&[self.instances[0]]),
-                // );
-            }
-        // }
+        // Update rendered instances
+        if let Some(particles) = particles {
+            self.particles = particles;
+            self.boundary_particles = boundary_particles.unwrap();
+        }
+        self.rendered_instances = self.particles.clone().into_iter().filter(|particle| {
+            self.uicontrols.get_cut().cut(particle)
+        }).collect();
+        if !self.uicontrols.is_boundary_hidden() {
+            self.rendered_instances.extend(self.boundary_particles.clone().into_iter().filter(|particle| {
+                self.uicontrols.get_cut().cut(particle)
+            }));
+        }
+        self.rendered_instance_buffer = Self::create_instance_buffer(&self.device, &self.rendered_instances);
         // Update camera
         self.camera_controller.update_camera(&mut self.camera, time_delta_to_last_render_time);
         self.camera_uniform.update_view_proj(&self.camera, &self.projection);
@@ -753,7 +771,7 @@ impl State {
                 timestamp_writes: None,
             });
 
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.rendered_instance_buffer.slice(..));
 
             render_pass.set_pipeline(&self.light_render_pipeline);
             render_pass.draw_light_model(
@@ -765,7 +783,7 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.draw_model_instanced(
                 &self.sphere,
-                0..self.instances.len() as u32,
+                0..self.rendered_instances.len() as u32,
                 &self.camera_bind_group,
                 &self.light_bind_group,
             );

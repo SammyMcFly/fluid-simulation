@@ -2,17 +2,17 @@ use std::collections::VecDeque;
 
 
 #[derive(Debug, Clone, Default)]
-pub struct IntermediateQueue {
+pub struct IntermediateQueue<T> {
     length: u32,
-    queue: VecDeque<Vec<Instance>>,
+    queue: VecDeque<T>,
 }
 
-impl IntermediateQueue {
-    pub fn push_back(&mut self, value: Vec<Instance>) {
+impl<T> IntermediateQueue<T> {
+    pub fn push_back(&mut self, value: T) {
         self.length += 1;
         self.queue.push_back(value);
     }
-    pub fn pop_front(&mut self) -> Option<Vec<Instance>> {
+    pub fn pop_front(&mut self) -> Option<T> {
         self.length -= 1;
         self.queue.pop_front()
     }
@@ -45,15 +45,21 @@ impl Default for Instance {
     }
 }
 
+
+
 #[derive(Debug, Clone)]
 pub struct IntermediateControls {
     connection_terminated: bool,
     reset_requested: bool,
+    saving_requested: bool,
     time_inc: f32,
     particle_size: f32,
     rest_density: f32,
-    average_density: f32,
     light_position: [f32; 3],
+
+    pub particle_positions: IntermediateQueue<Vec<Instance>>,
+    pub boundary_particle_positions: IntermediateQueue<Vec<Instance>>,
+    pub average_density: IntermediateQueue<f32>,
 }
 
 impl Default for IntermediateControls {
@@ -61,11 +67,14 @@ impl Default for IntermediateControls {
         Self {
             connection_terminated: false,
             reset_requested: false,
+            saving_requested: false,
             time_inc: 0.01,
             particle_size: 1.0,
             rest_density: 0.,
-            average_density: 0.,
             light_position: [ 2.0, 20.0, 2.0 ],
+            particle_positions: IntermediateQueue::default(),
+            boundary_particle_positions: IntermediateQueue::default(),
+            average_density: IntermediateQueue::default(),
         }
     }
 }
@@ -86,6 +95,15 @@ impl IntermediateControls {
     }
     pub fn reset_done(&mut self) {
         self.reset_requested = false;
+    }
+    pub fn is_saving_requested(&self) -> bool {
+        self.saving_requested
+    }
+    pub fn request_saving(&mut self) {
+        self.saving_requested = true;
+    }
+    pub fn saving_done(&mut self) {
+        self.saving_requested = false;
     }
     pub fn time_inc(&self) -> f32 {
         self.time_inc
@@ -110,12 +128,6 @@ impl IntermediateControls {
     }
     pub fn set_rest_density(&mut self, density: f32) {
         self.rest_density = density;
-    }
-    pub fn get_average_density(&self) -> f32 {
-        self.average_density
-    }
-    pub fn set_average_density(&mut self, density: f32) {
-        self.average_density = density;
     }
 }
 

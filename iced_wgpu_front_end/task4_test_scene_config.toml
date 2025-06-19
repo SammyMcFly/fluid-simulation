@@ -9,6 +9,7 @@ integration_scheme = "EulerCromer" # Not implemented yet
 # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 particle_mass = 0.001
 particle_diameter = 0.8 # (does not update visualization yet)
+disable_particles_below = -20
 
 [scene.particles]
 n_particles_x = 1

@@ -36,49 +36,14 @@ use iced_winit::winit::{
     // keyboard::ModifiersState,
 };
 
+use crate::measure::MeasurementSeries;
+use crate::physics::System3D;
+
 pub mod physics;
 mod gui;
 mod mediation;
 mod setup;
-
-
-
-fn fetch_file_info(
-    config_file: &str,
-    queue: Arc<Mutex<mediation::IntermediateQueue>>,
-    controls: Arc<Mutex<mediation::IntermediateControls>>
-) -> Result<(physics::System3D, u32), Box<dyn std::error::Error>> {
-    // Read the scene config file
-    let config_file_content = std::fs::read_to_string(config_file)?;
-    // Parse the content into the Config struct
-    let config: setup::Config = toml::from_str(&config_file_content)?;
-
-    // hand over time_inc
-    controls.lock().unwrap().set_time_inc(config.params.time_inc as f32);
-    // hand over particle size
-    controls.lock().unwrap().set_particle_size(config.params.particle_diameter as f32);
-    // hand over rest density
-    controls.lock().unwrap().set_rest_density((config.params.particle_mass/config.params.particle_diameter.powi(3)) as f32);
-    // hand over light position
-    controls.lock().unwrap().set_light_position(config.scene.light.position);
-    // init system properties
-    let system_properties = physics::SystemProperties::new(
-        config.params.time_inc,
-        config.params.particle_mass,
-        config.params.particle_diameter,
-        config.params.viscosity,
-        config.params.stiffness,
-        physics::cubic_spline_3d,
-        physics::cubic_spline_3d_gradient
-    );
-    // create simulation system
-    Ok((physics::System3D::from_config(
-        &config,
-        system_properties,
-        queue,
-        controls,
-    ), config.params.buffer_length_limit))
-}
+mod measure;
 
 
 
@@ -88,10 +53,16 @@ fn fetch_file_info(
 struct Args {
     /// File path to input .toml file with scene info
     #[arg(default_value = "./scene_config.toml")] // short, long,
-    scene: String,
+    config: String,
+    /// File path to file with state of all particles of a system, where to start simulating from
+    #[arg(short, long, default_value_t=String::from(""))]
+    state: String,
     /// Log severity level (Options: TRACE, DEBUG, INFO, WARN, ERROR, OFF)
     #[arg(short, long, default_value_t=String::from("DEBUG"))]
     log: String,
+    /// Store measurements to .csv file
+    #[arg(short, long, default_value_t=String::from(""))]
+    measurement_file: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -117,13 +88,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // .with(debug_log);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
 
+    let measurement_series = if !args.measurement_file.is_empty() {
+        Some(Arc::new(Mutex::new(MeasurementSeries::default())))
+    } else {
+        None
+    };
+    let moved_measurement_series = measurement_series.clone();
 
     // init queue and controls connecting simulation backend with graphics front end
-    let queue = Arc::new(Mutex::new(mediation::IntermediateQueue::default()));
     let controls = Arc::new(Mutex::new(mediation::IntermediateControls::default()));
 
-    let (mut system_at_time_0, mut buffer_length) = fetch_file_info(&args.scene, queue.clone(), controls.clone())
-        .expect("Invalid scene file!");
+    // load simulation system
+    let (mut system_at_time_0, mut buffer_length) = if !args.state.is_empty() {
+        if let Ok(res) = System3D::load_state(&args.state, &args.config, controls.clone(), measurement_series.clone()) {
+            res
+        } else {
+            println!("Invalid state file!");
+            System3D::from_config(&args.config, controls.clone(), measurement_series.clone())
+            .expect("Invalid scene file!")
+        }
+    } else {
+        System3D::from_config(&args.config, controls.clone(), measurement_series.clone())
+        .expect("Invalid scene file!")
+    };
+    // pass on initial position for visualization
     system_at_time_0.queue_for_visualization();
 
     // run simulation in separate thread: Calculate new positions if queue not full
@@ -135,22 +123,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             {
+                if system.controls.lock().unwrap().is_saving_requested() {
+                    if system.save_state("state.ron").is_ok() {
+                        println!("Successfully saved state!");
+                    } else {
+                        println!("Failed to save state!");
+                    }
+                    system.controls.lock().unwrap().saving_done();
+                }
                 if system.controls.lock().unwrap().is_reset_requested() {
-                    // reread config file to update simulation system
-                    match fetch_file_info(&args.scene, system.queue.clone(), system.controls.clone()) {
-                        Ok(system_buffer_length) => {
-                            (system_at_time_0, buffer_length) = system_buffer_length;
-                            system = system_at_time_0.clone();
-                        },
-                        _ => {
-                            system = system_at_time_0.clone();
-                            println!("Invalid scene file!");
-                        },
-                    };
-                    system.queue.lock().unwrap().clear();
+                    // reload simulation system
+                    if !args.state.is_empty() {
+                        match System3D::load_state(&args.state, &args.config, system.controls.clone(), moved_measurement_series.clone()) {
+                            Ok(new_system) => {
+                                (system_at_time_0, buffer_length) = new_system;
+                                system = system_at_time_0.clone();
+                            },
+                            _ => {
+                                system = system_at_time_0.clone();
+                                println!("Invalid state or scene file!");
+                            },
+                        }
+                    } else {
+                        match System3D::from_config(&args.config, system.controls.clone(), moved_measurement_series.clone()) {
+                            Ok(new_system) => {
+                                (system_at_time_0, buffer_length) = new_system;
+                                system = system_at_time_0.clone();
+                            },
+                            _ => {
+                                system = system_at_time_0.clone();
+                                println!("Invalid scene file!");
+                            },
+                        };
+                    }
+                    system.controls.lock().unwrap().particle_positions.clear();
                     system.queue_for_visualization();
                     system.controls.lock().unwrap().reset_done();
-                } else if system.queue.lock().unwrap().len() >= buffer_length {
+                } else if system.controls.lock().unwrap().particle_positions.len() >= buffer_length {
                     // thread::sleep(std::time::Duration::from_millis(300));
                     continue;
                 // if system.queue.lock().unwrap().len() >= 100 { // for profiling
@@ -174,10 +183,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // input, and uses significantly less power/CPU time than ControlFlow::Poll.
     // event_loop.set_control_flow(ControlFlow::Wait);
 
-    let mut app = gui::StateApplication::new(queue.clone(), controls.clone());
+    let mut app = gui::StateApplication::new(controls.clone());
 
     let _ = event_loop.run_app(&mut app);
 
     handle.join().expect("Couldn't join simulation thread");
+
+    // save measurements
+    if let Some(ms) = measurement_series {
+        ms.lock().unwrap().save(&args.measurement_file)?;
+    }
     Ok(())
 }

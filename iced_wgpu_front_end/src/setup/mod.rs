@@ -34,6 +34,7 @@ pub struct Parameters {
     pub integration_scheme: super::physics::PropagationMethod,
     pub particle_mass: f64,
     pub particle_diameter: f64,
+    pub disable_particles_below: f64,
     // pub smoothing_length: f64,
 }
 
