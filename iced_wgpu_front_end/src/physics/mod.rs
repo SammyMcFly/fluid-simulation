@@ -219,7 +219,7 @@ impl System3D {
                 }
             }
         }
-        debug!("Maximum speed: {}", max_speed);
+        // debug!("Maximum speed: {}", max_speed);
         max_speed
     }
 
@@ -479,9 +479,9 @@ impl System3D {
                     let distance = particle.get_distance(&self.boundary_particles[boundary_neighbor].pos());
                     let direction = particle.get_direction(&self.boundary_particles[boundary_neighbor].pos());
                     // mirror pressure into boundary particle
+                    // -particle.mass()
                     let acc =
-                        // -self.boundary_particles[boundary_neighbor].mass()
-                        -particle.mass()
+                        -self.boundary_particles[boundary_neighbor].mass()
                         *particle.pressure()*(1./particle.density().powi(2)+1./self.properties.rest_density.powi(2))
                         *(self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
                     particle.add_acc(acc);
@@ -657,10 +657,10 @@ impl System3D {
 
     fn measure(&mut self) {
         self.properties.average_density = self.calc_average_mass_density();
-        // self.properties.max_speed =
-        let cfl_coeff = self.calc_max_speed()*self.properties.time_inc/self.properties.rest_density_grid_spacing;
-        debug!("cfl coefficient: {}", cfl_coeff);
         // debug!("{}, {}", self.properties.average_density, self.properties.rest_density);
+        // self.properties.max_speed =
+        // let cfl_coeff = self.calc_max_speed()*self.properties.time_inc/self.properties.rest_density_grid_spacing;
+        // debug!("cfl coefficient: {}", cfl_coeff);
         if let Some(ms) = &self.measurement_series {
             let measurement = measure::Measurement {
                 time: self.time(),

@@ -1,8 +1,8 @@
 # Scene configuration file
 
 [parameters]
-buffer_length_limit = 20
-time_inc = 0.01
+buffer_length_limit = 10000
+time_inc = 0.001
 viscosity = 0.3
 stiffness = 15000000.0
 integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
@@ -20,17 +20,17 @@ type = "NoLidCube"
 [scene.parameters.particles]
 n_particles_x = 9
 n_particles_y = 9
-n_particles_z = 25
+n_particles_z = 50
 x_offset = 1.0
 y_offset = 1.0
-z_offset = 3.0
+z_offset = 1.0
 particle_spacing = 0.795
 
 [scene.parameters.boundary_particles]
 n_floor_particles_x = 12
 n_floor_particles_y = 12
 n_floor_particles_z = 1
-wall_height = 35 # wall is at the edge but above floor
+wall_height = 160 # wall is at the edge but above floor
 x_wall_thickness = 1
 y_wall_thickness = 1
 x_offset = 0.0
