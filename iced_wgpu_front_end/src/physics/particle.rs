@@ -15,8 +15,9 @@ impl Cycle3 {
 impl std::ops::Add<u8> for Cycle3 {
     type Output = usize;
 
-    fn add(self, rhs: u8) -> Self::Output {
-        assert!(rhs==1);
+    /// Add one to Cycle3. Right hand side must be 1.
+    fn add(self, _: u8) -> Self::Output {
+        // assert!(rhs==1);
         if self.0 == 2 {
             0
         } else {
@@ -26,8 +27,9 @@ impl std::ops::Add<u8> for Cycle3 {
 }
 
 impl std::ops::AddAssign<u8> for Cycle3 {
-    fn add_assign(&mut self, rhs: u8) {
-        assert!(rhs==1);
+    /// Add one to Cycle3. Right hand side must be 1.
+    fn add_assign(&mut self, _: u8) {
+        // assert!(rhs==1);
         if self.0 == 2 {
             self.0 = 0;
         } else {
@@ -39,8 +41,9 @@ impl std::ops::AddAssign<u8> for Cycle3 {
 impl std::ops::Sub<u8> for Cycle3 {
     type Output = usize;
 
-    fn sub(self, rhs: u8) -> Self::Output {
-        assert!(rhs==1);
+    /// Subtract one to Cycle3. Right hand side must be 1.
+    fn sub(self, _: u8) -> Self::Output {
+        // assert!(rhs==1);
         if self.0 == 0 {
             2
         } else {
@@ -50,8 +53,9 @@ impl std::ops::Sub<u8> for Cycle3 {
 }
 
 impl std::ops::SubAssign<u8> for Cycle3 {
-    fn sub_assign(&mut self, rhs: u8) {
-        assert!(rhs==1);
+    /// Subtract one to Cycle3. Right hand side must be 1.
+    fn sub_assign(&mut self, _: u8) {
+        // assert!(rhs==1);
         if self.0 == 0 {
             self.0 = 2;
         } else {
@@ -60,7 +64,7 @@ impl std::ops::SubAssign<u8> for Cycle3 {
     }
 }
 
-// Cant accomodate Runge-Kutta 4th (Q4) order or Adams-Bashforth/Adams-Moulton (Q5/Q7)
+// Cant accomodate Runge-Kutta 4th (Q4) order or Adams-Bashforth/Adams-Moulton (needed Q5/Q7)
 #[derive(Debug, Clone, Copy)]
 pub struct Q3<T>
 where
