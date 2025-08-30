@@ -38,11 +38,11 @@ impl Cut {
     pub fn cut(&self, particle: &mediation::Instance) -> bool {
         if self.x && self.y {
             self.x_inv*(particle.position[0]-self.x_bound) >= 0.
-            && self.y_inv*(particle.position[2]-self.y_bound) >= 0.
+            && self.y_inv*(-particle.position[2]-self.y_bound) >= 0.
         } else if self.x {
             self.x_inv*(particle.position[0]-self.x_bound) >= 0.
         } else if self.y {
-            self.y_inv*(particle.position[2]-self.y_bound) >= 0.
+            self.y_inv*(-particle.position[2]-self.y_bound) >= 0.
         } else {
             true
         }
@@ -261,13 +261,14 @@ impl UIControls {
         };
         let cut_x = row![
             Toggler::new(self.cut.x)
-                .label("Cut by x ")
+                .label("Show half-space for:")
                 .on_toggle(|_| Message::CutXToggle),
-            button("F").on_press(Message::CutXFlip).width(30).height(28),
-            button("+").on_press(Message::CutXBoundChanged(1.)).width(30).height(28),
-            button("-").on_press(Message::CutXBoundChanged(-1.)).width(30).height(28),
-            text(format!(" Cut condition: x {x_condition} ")),
+            text(format!(" x {x_condition} ")),
             text(self.cut.x_bound),
+            text(" "),
+            button("I").on_press(Message::CutXFlip).width(28).height(28),
+            button("+").on_press(Message::CutXBoundChanged(1.)).width(28).height(28),
+            button("-").on_press(Message::CutXBoundChanged(-1.)).width(28).height(28),
         ]
         .width(500);
         let y_condition = if self.cut.y_inverse {
@@ -277,17 +278,18 @@ impl UIControls {
         };
         let cut_y = row![
             Toggler::new(self.cut.y)
-                .label("Cut by y")
+                .label("Show half-space for:")
                 .on_toggle(|_| Message::CutYToggle),
             // slider(0.0..=10.0, self.cut.y_bound, move |bound| {
             //     Message::CutYBoundChanged(bound)
             // })
             // .step(0.1),
-            button("F").on_press(Message::CutYFlip).width(30).height(28),
-            button("+").on_press(Message::CutYBoundChanged(1.)).width(30).height(28),
-            button("-").on_press(Message::CutYBoundChanged(-1.)).width(30).height(28),
-            text(format!(" Cut condition: y {y_condition} ")),
-            text(self.cut.y_bound)
+            text(format!(" y {y_condition} ")),
+            text(self.cut.y_bound),
+            text(" "),
+            button("I").on_press(Message::CutYFlip).width(28).height(28),
+            button("+").on_press(Message::CutYBoundChanged(1.)).width(28).height(28),
+            button("-").on_press(Message::CutYBoundChanged(-1.)).width(28).height(28),
         ]
         .width(500);
 

@@ -132,7 +132,14 @@ pub trait ParticleQ3 {
     fn add_density(&mut self, density: f64);
     fn pressure(&self) -> f64;
     fn set_pressure(&mut self, pressure: f64);
-    fn color(&self) -> Self::Color;
+}
+
+pub trait Initializable {
+    fn new(
+        position: [Vector3<f64>; 2],
+        velocity: Vector3<f64>,
+        mass: f64,
+    ) -> Self;
 }
 
 pub trait GridParticle {
@@ -151,9 +158,6 @@ pub struct Particle3D {
     /// density (necessary for sph fluid)
     density: f64,
     pressure: f64,
-    /// RGB-color values between 0.0 and 1.0
-    custom_color: bool,
-    color: [f32; 3],
     disabled: bool,
     /// neighbors
     pub neighbors: Vec<usize>,
@@ -231,31 +235,14 @@ impl ParticleQ3 for Particle3D {
     fn set_pressure(&mut self, pressure: f64) {
         self.pressure = pressure;
     }
-    fn color(&self) -> [f32; 3] {
-        self.color
-    }
 }
 
-impl GridParticle for Particle3D {
-    fn get_distance(&self, other: &Vector3<f64>) -> f64 {
-        ((self.position.now().x-other.x).powi(2)
-            +(self.position.now().y-other.y).powi(2)
-            +(self.position.now().z-other.z).powi(2)).sqrt()
-    }
-}
-
-impl Particle3D {
-    pub fn new(
-        position: [Vector3<f64>; 2],
-        velocity: Vector3<f64>,
-        mass: f64,
-        color: Option<[f32; 3]>,
-    ) -> Self {
-        let (custom_color, color) = if let Some(color) = color {
-            (true, color)
-        } else {
-            (false, [0.0,0.0,1.0])
-        };
+impl Initializable for Particle3D {
+    fn new(
+            position: [Vector3<f64>; 2],
+            velocity: Vector3<f64>,
+            mass: f64,
+        ) -> Self {
         Self {
             position: Q3::new(position[0], position[1]),
             velocity: Q3::new(velocity, Vector3::default()),
@@ -263,8 +250,6 @@ impl Particle3D {
             mass,
             density: f64::default(),
             pressure: f64::default(),
-            custom_color,
-            color,
             disabled: false,
             neighbors: vec![],
             boundary_neighbors: vec![],
@@ -274,14 +259,18 @@ impl Particle3D {
             a_times_d_l: Vector3::default()
         }
     }
+}
 
-    pub fn update_color(&mut self) {
-        if !self.custom_color {
-            let whiteness = f64::min(self.vel().now().norm()/10., 1.);
-            self.color = [ whiteness as f32, whiteness as f32, 1. ];
-        }
+impl GridParticle for Particle3D {
+    fn get_distance(&self, other: &Vector3<f64>) -> f64 {
+        // ((self.position.now().x-other.x).powi(2)
+        //     +(self.position.now().y-other.y).powi(2)
+        //     +(self.position.now().z-other.z).powi(2)).sqrt()
+        (self.position.now()-other).norm()
     }
+}
 
+impl Particle3D {
     pub fn set_neighbors(&mut self, neighbors: Vec<usize>) {
         self.neighbors = neighbors;
     }
@@ -308,9 +297,20 @@ impl Particle3D {
 #[derive(Debug, Clone)]
 pub struct BoundaryParticle3D {
     position: Vector3<f64>,
-    // mass: f64,
-    /// RGB-color values between 0.0 and 1.0
-    color: [f32; 3],
+    mass: f64,
+}
+
+impl Initializable for BoundaryParticle3D {
+    fn new(
+            position: [Vector3<f64>; 2],
+            _: Vector3<f64>,
+            mass: f64,
+        ) -> Self {
+        Self {
+            position: position[0],
+            mass,
+        }
+    }
 }
 
 impl GridParticle for BoundaryParticle3D {
@@ -320,28 +320,16 @@ impl GridParticle for BoundaryParticle3D {
 }
 
 impl BoundaryParticle3D {
-    pub fn new(
-        position: Vector3<f64>,
-        // mass: f64,
-        color: [f32; 3],
-    ) -> Self {
-        Self {
-            position,
-            // mass,
-            color,
-        }
-    }
-
     pub fn pos(&self) -> Vector3<f64> {
         self.position
     }
 
-    // fn mass(&self) -> f64 {
-    //     self.mass
-    // }
+    pub fn set_mass(&mut self, mass: f64) {
+        self.mass = mass;
+    }
 
-    pub fn color(&self) -> [f32; 3] {
-        self.color
+    pub fn mass(&self) -> f64 {
+        self.mass
     }
 }
 
@@ -354,8 +342,8 @@ impl From<SerParticle3D> for Particle3D {
             mass: particle.mass,
             density: particle.density,
             pressure: particle.pressure,
-            custom_color: particle.custom_color,
-            color: particle.color,
+            // custom_color: particle.custom_color,
+            // color: particle.color,
             disabled: particle.disabled,
             neighbors: particle.neighbors,
             boundary_neighbors: particle.boundary_neighbors,
@@ -377,9 +365,6 @@ pub struct SerParticle3D {
     /// density (necessary for sph fluid)
     density: f64,
     pressure: f64,
-    /// RGB-color values between 0.0 and 1.0
-    custom_color: bool,
-    color: [f32; 3],
     disabled: bool,
     /// neighbors
     pub neighbors: Vec<usize>,
@@ -401,8 +386,6 @@ impl From<Particle3D> for SerParticle3D {
             mass: particle.mass,
             density: particle.density,
             pressure: particle.pressure,
-            custom_color: particle.custom_color,
-            color: particle.color,
             disabled: particle.disabled,
             neighbors: particle.neighbors,
             boundary_neighbors: particle.boundary_neighbors,

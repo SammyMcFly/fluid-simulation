@@ -1,39 +1,39 @@
 # Scene configuration file
 
 [parameters]
-buffer_length_limit = 500000
-time_inc = 0.0001
-viscosity = 0.2
+buffer_length_limit = 20
+time_inc = 0.01
+viscosity = 0.3
 stiffness = 15000000.0
 integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 rest_density = 900.0 # rest density of fluid
 rest_density_grid_spacing = 0.8 # (not hot swappable)
 smoothing_length = 0.8 # (not hot swappable)
-disable_particles_below = -20
+disable_particles_below = -30
 
 [light]
-position = [ 2.0, 10.0, 2.0 ] # (not hot swappable)
+position = [ 2.0, 30.0, 2.0 ] # (not hot swappable)
 
 [scene]
 type = "NoLidCube"
 
 [scene.parameters.particles]
-n_particles_x = 3
-n_particles_y = 1
-n_particles_z = 1
-x_offset = -0.8
-y_offset = 0.8
-z_offset = 2.4
-particle_spacing = 0.8
+n_particles_x = 9
+n_particles_y = 9
+n_particles_z = 25
+x_offset = 1.0
+y_offset = 1.0
+z_offset = 3.0
+particle_spacing = 0.795
 
 [scene.parameters.boundary_particles]
-n_floor_particles_x = 5
-n_floor_particles_y = 3
-n_floor_particles_z = 2
-wall_height = 6 # wall is at the edge but above floor
+n_floor_particles_x = 12
+n_floor_particles_y = 12
+n_floor_particles_z = 1
+wall_height = 35 # wall is at the edge but above floor
 x_wall_thickness = 1
-y_wall_thickness = 0
-x_offset = -1.6
+y_wall_thickness = 1
+x_offset = 0.0
 y_offset = 0.0
 z_offset = 0.0
 particle_spacing = 0.8

@@ -34,6 +34,15 @@ pub struct InstanceRaw {
     // normal: [[f32; 3]; 3],
 }
 
+impl InstanceRaw {
+    pub fn new(
+        model: [[f32; 4]; 4],
+        color: [f32; 3],
+    ) -> Self {
+        Self { model, color, }
+    }
+}
+
 pub trait VertexBufferLayout {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
 }

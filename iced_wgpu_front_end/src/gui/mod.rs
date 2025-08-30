@@ -40,6 +40,8 @@ mod camera;
 mod controls;
 use controls::UIControls;
 
+use crate::gui::model::InstanceRaw;
+
 
 
 
@@ -77,7 +79,7 @@ impl winit::application::ApplicationHandler for StateApplication {
         let particles = self.controls.lock().unwrap().particle_positions.pop_front().unwrap();
         let boundary_particles = self.controls.lock().unwrap().boundary_particle_positions.pop_front().unwrap();
         let update_messages: controls::Message = controls::Message::AverageDensityChanged(self.controls.lock().unwrap().average_density.pop_front().unwrap());
-        let sphere_size = self.controls.lock().unwrap().particle_size();
+        let sphere_size = self.controls.lock().unwrap().particle_diameter();
         let light_position = self.controls.lock().unwrap().light_position();
         self.state = Some(State::new(window, particles, boundary_particles, sphere_size, light_position, update_messages));
         self.last_render_time = Some(std::time::Instant::now());
@@ -440,7 +442,18 @@ impl State {
     }
 
     fn create_instance_buffer(device: &Device, instances: &[super::mediation::Instance]) -> wgpu::Buffer {
-        let instance_data = instances.iter().map(super::mediation::Instance::to_raw).collect::<Vec<_>>();
+        let instance_data = if instances.is_empty() {
+            vec![InstanceRaw::new(
+                [
+                    [1.0,0.0,0.0,0.0],
+                    [0.0,1.0,0.0,0.0],
+                    [0.0,0.0,1.0,0.0],
+                    [0.0, 0.0, 0.0, 1.0]
+                ],
+                [0., 1., 0.,],)]
+        } else {
+            instances.iter().map(super::mediation::Instance::to_raw).collect::<Vec<_>>()
+        };
 
         device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
