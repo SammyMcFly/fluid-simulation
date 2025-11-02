@@ -175,6 +175,7 @@ impl System3D {
         system
     }
 
+    /// Calculate and set pseudo mass of all boundary particles
     fn init_boundary_mass(&mut self) {
         for boundary_particle_index in 0..self.boundary_particles.len() {
             // add inverse volume for every boundary neighbor
@@ -195,6 +196,7 @@ impl System3D {
         }
     }
 
+    /// Store the current state of all fluid particles to a file
     pub fn save_state(&self, file_path: &str) -> std::io::Result<()> {
         let ron_string = ron::to_string(&self.get_serializable_particles()).unwrap();
         let mut file = std::fs::File::create(file_path)?;
@@ -260,6 +262,7 @@ impl System3D {
         average_density
     }
 
+    /// Perform neighbor search for all fluid particles
     fn update_particle_neighbors(&mut self) {
         // for particle_index in 0..self.particles.len() {
         //     if self.particles[particle_index].is_enabled() {
@@ -284,6 +287,7 @@ impl System3D {
         });
     }
 
+    /// Calculate and update density for all particles for the current point in time
     fn update_density(&mut self) {
         // for particle_index in 0..self.particles.len() {
         //     if self.particles[particle_index].is_enabled() {
@@ -335,6 +339,7 @@ impl System3D {
         });
     }
 
+    /// Calculate and update pressure for all particles for the current point in time
     fn update_pressure(&mut self) {
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
@@ -642,7 +647,7 @@ impl System3D {
 
     /// Update uniform grid and disabled particles
     fn update(&mut self) {
-        // disable irrelevant particles (NOTE: Disabled particles must not be connected via spring)
+        // disable irrelevant particles: particles below threshold (NOTE: Disabled particles must not be connected via spring)
         for particle in &mut self.particles {
             if particle.pos().now()[2] < self.properties.disable_particles_below {
                 particle.disable();
