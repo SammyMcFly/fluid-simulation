@@ -2,8 +2,8 @@
 
 [parameters]
 buffer_length_limit = 3000 # 3000
-time_inc = 0.005
-viscosity = 2.0
+time_inc = 0.001
+viscosity = 0.6
 stiffness = 15000000.0
 integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 rest_density = 900.0 # rest density of fluid
@@ -12,7 +12,7 @@ smoothing_length = 0.8 # (not hot swappable)
 disable_particles_below = -30
 
 [light]
-position = [ 2.0, 30.0, 2.0 ] # (not hot swappable)
+position = [ 20.0, 100.0, 60.0 ] # (not hot swappable)
 
 [scene]
 type = "Spiral"
@@ -21,7 +21,7 @@ type = "Spiral"
 base = [0.0, 0.0, 0.0]
 
 [scene.parameters.fluid_particles]
-number_of_particles = 20000
+number_of_particles = 19000
 
 [scene.parameters.boundary]
 length = 50

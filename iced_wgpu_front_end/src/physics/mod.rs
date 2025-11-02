@@ -71,7 +71,6 @@ pub enum PropagationMethod {
 #[derive(Debug, Clone)]
 pub struct SystemProperties {
     time_inc: f64,
-    particle_mass: f64,
     /// Smooting length h
     smoothing_length: f64,
     /// disable particles below this threshold
@@ -103,7 +102,6 @@ impl SystemProperties {
         let average_density = 0.;
         Self {
             time_inc,
-            particle_mass: rest_density*rest_density_grid_spacing.powi(3),
             smoothing_length,
             disable_particles_below,
             rest_density,
@@ -441,7 +439,7 @@ impl System3D {
         //                 *(self.particles[particle_index].pressure()/self.particles[particle_index].density().powi(2) + self.particles[neighbor].pressure()/self.particles[neighbor].density().powi(2))
         //                 *(self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
         //             self.particles[particle_index].add_acc(acc);
-        //             // test_kernel_gradient += acc;
+        //             // test_kernel_gradient += (self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
         //         }
         //         // add pressure acceleration from boundary particles
         //         for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
@@ -454,7 +452,7 @@ impl System3D {
         //                 *self.particles[particle_index].pressure()*(1./self.particles[particle_index].density().powi(2)+1./self.properties.rest_density.powi(2))
         //                 *(self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
         //             self.particles[particle_index].add_acc(acc);
-        //             // test_kernel_gradient += acc;
+        //             // test_kernel_gradient += (self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
         //         }
         //         // debug!("kernel gradient: {}", test_kernel_gradient);
         //     }
@@ -472,7 +470,7 @@ impl System3D {
                         *(particle.pressure()/particle.density().powi(2) + immutable_clone_of_particles[neighbor].pressure()/immutable_clone_of_particles[neighbor].density().powi(2))
                         *(self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
                     particle.add_acc(acc);
-                    // test_kernel_gradient += acc;
+                    // test_kernel_gradient += (self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
                 }
                 // add pressure acceleration from boundary particles
                 for &boundary_neighbor in &particle.boundary_neighbors.clone() {
@@ -485,7 +483,7 @@ impl System3D {
                         *particle.pressure()*(1./particle.density().powi(2)+1./self.properties.rest_density.powi(2))
                         *(self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
                     particle.add_acc(acc);
-                    // test_kernel_gradient += acc;
+                    // test_kernel_gradient += (self.properties.kernel_gradient_fn)(distance, self.properties.smoothing_length, direction);
                 }
                 // debug!("kernel gradient: {}", test_kernel_gradient);
             }
@@ -659,8 +657,9 @@ impl System3D {
         self.properties.average_density = self.calc_average_mass_density();
         // debug!("{}, {}", self.properties.average_density, self.properties.rest_density);
         // self.properties.max_speed =
-        // let cfl_coeff = self.calc_max_speed()*self.properties.time_inc/self.properties.rest_density_grid_spacing;
-        // debug!("cfl coefficient: {}", cfl_coeff);
+        let max_speed = self.calc_max_speed();
+        let cfl_coeff = max_speed*self.properties.time_inc/self.properties.rest_density_grid_spacing;
+        debug!("time: {}, cfl coefficient: {}, max speed: {}", self.time(), cfl_coeff, max_speed);
         if let Some(ms) = &self.measurement_series {
             let measurement = measure::Measurement {
                 time: self.time(),

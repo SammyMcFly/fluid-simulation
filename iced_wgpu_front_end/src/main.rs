@@ -44,7 +44,7 @@ mod measure;
 #[command(version, about, long_about = None)]
 struct Args {
     /// File path to input .toml file with scene info
-    #[arg(default_value = "./scene_config.toml")] // short, long,
+    // #[arg(default_value = "./scene_config.toml")] // short, long,
     config: String,
     /// File path to file with state of all particles of a system, where to start simulating from
     #[arg(short, long, default_value_t=String::from(""))]

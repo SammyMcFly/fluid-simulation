@@ -277,9 +277,9 @@ impl Scene for Spiral {
     }
 
     fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Vec<Particle3D> {
-        let fluid_body_width = self.boundary.inner_width1-2;
+        let fluid_body_width = self.boundary.inner_width1-3;
         let fluid_body_length = self.boundary.inner_length1-1;
-        let fluid_body_base = Vector3::from(self.base)+Vector3::new(1.*rest_density_grid_spacing, 1.*rest_density_grid_spacing, 1.*rest_density_grid_spacing);
+        let fluid_body_base = Vector3::from(self.base)+Vector3::new(1.1*rest_density_grid_spacing, 1.1*rest_density_grid_spacing, 1.1*rest_density_grid_spacing);
 
         let fluid_body_height = self.fluid_particles.number_of_particles/fluid_body_width/fluid_body_length;
         // init particles

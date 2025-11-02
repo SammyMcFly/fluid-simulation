@@ -61,5 +61,5 @@ rustc-hash = "2.1.1"
 rayon = "1.10"
 
 # for profiling with flamegraph
-[profile.release]
-debug = true
+# [profile.release]
+# debug = true
