@@ -1,10 +1,12 @@
-use cgmath::*;
-use tracing::debug;
+use cgmath::{Matrix4, SquareMatrix, Point3, Rad, Vector3, InnerSpace, perspective};
 use iced_winit::winit::event::*;
 use iced_winit::winit::dpi::PhysicalPosition;
 use iced_winit::winit::keyboard::KeyCode;
 use std::time::Duration;
 use std::f32::consts::FRAC_PI_2;
+
+#[cfg(feature = "logging")]
+use tracing::debug;
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -149,32 +151,32 @@ impl CameraController {
         match key {
             KeyCode::KeyW | KeyCode::ArrowUp => {
                 self.amount_forward = amount;
-                if state == ElementState::Pressed { debug!("Up pressed"); }
+                if state == ElementState::Pressed && cfg!(feature = "logging") {debug!("Up pressed");}
                 true
             }
             KeyCode::KeyS | KeyCode::ArrowDown => {
                 self.amount_backward = amount;
-                if state == ElementState::Pressed { debug!("Down pressed"); }
+                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Down pressed"); }
                 true
             }
             KeyCode::KeyA | KeyCode::ArrowLeft => {
                 self.amount_left = amount;
-                if state == ElementState::Pressed { debug!("Left pressed"); }
+                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Left pressed"); }
                 true
             }
             KeyCode::KeyD | KeyCode::ArrowRight => {
                 self.amount_right = amount;
-                if state == ElementState::Pressed { debug!("Right pressed"); }
+                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Right pressed"); }
                 true
             }
             KeyCode::Space => {
                 self.amount_up = amount;
-                if state == ElementState::Pressed { debug!("Space pressed"); }
+                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Space pressed"); }
                 true
             }
             KeyCode::ShiftLeft => {
                 self.amount_down = amount;
-                if state == ElementState::Pressed { debug!("Shift pressed"); }
+                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Shift pressed"); }
                 true
             }
             _ => false,
@@ -190,7 +192,9 @@ impl CameraController {
     }
 
     pub fn process_scroll(&mut self, delta: &MouseScrollDelta) {
-        debug!("Scrolled {:?}", delta);
+        if cfg!(feature = "logging") {
+            debug!("Scrolled {:?}", delta);
+        }
         self.scroll = match delta {
             // I'm assuming a line is about 100 pixels
             MouseScrollDelta::LineDelta(_, scroll) => -scroll * 100.0,

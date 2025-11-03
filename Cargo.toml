@@ -3,44 +3,43 @@ name = "rusty_fluid_solver"
 version = "0.1.0"
 edition = "2024"
 
-[dev-dependencies]
-criterion ={ version = "0.5.1", features = ["html_reports"] }
+[features]
+# Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
+default = ["logging", "parallel", "local_pressure"]
 
-[[bench]]
-name = "bench_System1D_inc_time"
-harness = false
+# Features
+logging = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
+parallel = ["dep:rayon"]
+implicit_euler = []
+springs = []
+local_pressure = []
+splitting = ["local_pressure"]
+global_pressure = []
+
+# [dev-dependencies]
+# criterion ={ version = "0.5.1", features = ["html_reports"] }
+
+# [[bench]]
+# name = "bench_System1D_inc_time"
+# harness = false
+
+# for profiling with flamegraph
+# [profile.release]
+# debug = true
 
 [dependencies]
 # linear algebra
 nalgebra = "0.33.2"
 cgmath = "0.18"
 
+# numer handling
 num-traits = "0.2.19"
 
-# logging
-tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
-tracing-appender = "0.2.3"
+# Faster hash map for uniform grid
+rustc-hash = "2.1.1"
 
 # command line parser
 clap = {version = "4.5.23", features = ["derive"] }
-
-# visualization
-# iced = "0.13.1"
-iced_widget = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4",  package = "iced_widget", features = ["wgpu"]}
-iced_wgpu = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_wgpu" }
-iced_winit = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_winit" }
-
-# load sphere for visualization
-tobj = { version = "4.0.2", default-features = false, features = ["async"]}
-
-bytemuck = { version = "1.20.0", features = [ "derive" ] }
-
-pollster = "0.4.0"
-
-anyhow = "1.0.93"
-fs_extra = "1.3"
-glob = "0.3.1"
 
 # parsing file content
 serde = { version = "1.0", features = ["derive"] }
@@ -54,12 +53,28 @@ csv = "1.3"
 # loading .toml files
 toml = "0.8"
 
-# hash map for uniform grid
-rustc-hash = "2.1.1"
+# visualization
+## iced = "0.13.1"
+iced_widget = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4",  package = "iced_widget", features = ["wgpu"]}
+iced_wgpu = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_wgpu" }
+iced_winit = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_winit" }
 
-# multithreading of for loops
-rayon = "1.10"
+## load sphere for visualization
+tobj = { version = "4.0.2", default-features = false, features = ["async"]}
 
-# for profiling with flamegraph
-# [profile.release]
-# debug = true
+bytemuck = { version = "1.20.0", features = [ "derive" ] }
+
+pollster = "0.4.0"
+
+anyhow = "1.0.93"
+fs_extra = "1.3"
+glob = "0.3.1"
+
+# optional
+## logging
+tracing = { version = "0.1.41", optional = true }
+tracing-subscriber = { version = "0.3.19", optional = true }
+tracing-appender = { version = "0.2.3", optional = true }
+
+## multithreading of for loops
+rayon = { version = "1.10", optional = true }

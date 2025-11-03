@@ -15,18 +15,19 @@
 //! - cargo flamegraph -- ./scene_config.toml
 use std::thread;
 use std::sync::{Arc, Mutex};
-
-use tracing::info;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::FmtSubscriber;
-// use tracing::debug; // , error, info, span, trace, warn};
 use clap::Parser;
-
 use iced_winit::winit::{
-    // event::WindowEvent,
     event_loop::{ControlFlow, EventLoop},
-    // keyboard::ModifiersState,
 };
+
+#[cfg(feature = "logging")]
+use tracing::info;
+#[cfg(feature = "logging")]
+use tracing::level_filters::LevelFilter;
+#[cfg(feature = "logging")]
+use tracing_subscriber::FmtSubscriber;
+// #[cfg(feature = "logging")]
+// use tracing::debug; // , error, info, span, trace, warn};
 
 use crate::measure::MeasurementSeries;
 use crate::physics::System3D;
@@ -37,6 +38,9 @@ mod mediation;
 mod setup;
 mod measure;
 
+
+#[cfg(all(feature = "local_pressure", feature = "global_pressure"))]
+compile_error!("Features `local_pressure` und `global_pressure` schließen sich gegenseitig aus.");
 
 
 /// Simple fluid solver written in rust
@@ -57,10 +61,9 @@ struct Args {
     measurement_file: String,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // parse args
-    let args = Args::parse();
-    // init logging
+/// Init logging
+#[cfg(feature = "logging")]
+fn init_logging(args: &Args) {
     let severity_level = match &args.log[..] {
         "TRACE" => LevelFilter::TRACE,
         "DEBUG" => LevelFilter::DEBUG,
@@ -69,7 +72,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "ERROR" => LevelFilter::ERROR,
         _ => LevelFilter::OFF,
     };
-    // init logging
     let subscriber = FmtSubscriber::builder()
         .with_max_level(severity_level)
         .with_writer(std::io::stdout)
@@ -79,6 +81,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
         // .with(debug_log);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // parse args
+    let args = Args::parse();
+
+    if cfg!(feature = "logging") {
+        init_logging(&args);
+    }
 
     let measurement_series = if !args.measurement_file.is_empty() {
         Some(Arc::new(Mutex::new(MeasurementSeries::default())))

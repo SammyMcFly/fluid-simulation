@@ -2,9 +2,6 @@
 //!
 //! Frontend is based on wgpu and winit.
 //!
-// use iced_winit::program::Message;
-use tracing::{debug, info}; // error, trace, warn
-
 use std::sync::{Arc, Mutex};
 
 use iced_winit::winit;
@@ -17,9 +14,10 @@ use iced_winit::core::renderer;
 use iced_winit::core::time::Instant;
 use iced_winit::core::window;
 use iced_winit::core::{Event, Font, Pixels, Size, Theme};
-// use iced_winit::futures;
 use iced_winit::winit::keyboard::ModifiersState;
 use iced_winit::runtime::user_interface::{self, UserInterface};
+// use iced_winit::futures;
+// use iced_winit::program::Message;
 
 use iced_wgpu::{Engine, Renderer};
 use iced_wgpu::wgpu::{
@@ -33,6 +31,11 @@ use iced_wgpu::wgpu;
 use pollster::FutureExt;
 
 use cgmath::prelude::*;
+
+#[cfg(feature = "logging")]
+use tracing::{
+    info,
+}; // error, trace, warn, debug,
 
 pub mod model;
 use model::{DrawLight, DrawModel, VertexBufferLayout, ToRaw};
@@ -92,7 +95,9 @@ impl winit::application::ApplicationHandler for StateApplication {
         if window.id() == id && !self.state.as_mut().unwrap().input(&event) {
             match event {
                 WindowEvent::CloseRequested => {
-                    info!("The close button was pressed; stopping");
+                    if cfg!(feature = "logging") {
+                        info!("The close button was pressed; stopping");
+                    }
                     self.controls.lock().unwrap().terminate_connection();
                     event_loop.exit();
                 },
@@ -578,7 +583,9 @@ impl State {
             self.depth_texture = model::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
             self.projection.resize(new_size.width, new_size.height);
             self.surface.configure(&self.device, &self.config);
-            info!("Resized to {:?}", new_size)
+            if cfg!(feature = "logging") {
+                info!("Resized to {:?}", new_size)
+            }
         }
     }
 
@@ -671,7 +678,9 @@ impl State {
         match key {
             winit::keyboard::KeyCode::KeyK => {
                 if *state == winit::event::ElementState::Pressed {
-                    debug!("K pressed");
+                    // if cfg!(feature = "logging") {
+                    //     debug!("K pressed");
+                    // }
                     self.uicontrols.display_state.toggle();
                     true
                 } else {
@@ -680,7 +689,9 @@ impl State {
             }
             winit::keyboard::KeyCode::KeyR => {
                 if *state == winit::event::ElementState::Pressed {
-                    debug!("R pressed");
+                    // if cfg!(feature = "logging") {
+                    //     debug!("R pressed");
+                    // }
                     self.uicontrols.update(controls::Message::RequestReset);
                     true
                 } else {

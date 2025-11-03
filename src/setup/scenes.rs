@@ -4,6 +4,7 @@ use nalgebra::Vector3;
 use crate::physics::particle::Initializable;
 
 use crate::physics::particle::{Particle3D, BoundaryParticle3D};
+#[cfg(feature = "springs")]
 use crate::physics::spring::Spring;
 use super::Scene;
 
@@ -109,6 +110,7 @@ impl Scene for NoLidCube {
         particles
     }
 
+    #[cfg(feature = "springs")]
     fn get_springs(&self) -> Vec<Spring> {
         // init springs (Note: Consider not disabling particles)
         let mut springs = vec![];
@@ -294,6 +296,7 @@ impl Scene for Spiral {
         ).fetch::<Particle3D>(rest_density, rest_density_grid_spacing)
     }
 
+    #[cfg(feature = "springs")]
     fn get_springs(&self) -> Vec<Spring> {
         // init springs (Note: Consider not disabling particles)
         let mut springs = vec![];

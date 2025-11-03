@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 
 use super::physics::particle::{Particle3D, SerParticle3D, BoundaryParticle3D};
+#[cfg(feature = "springs")]
 use super::physics::spring::Spring;
 use super::physics::{SystemProperties, PropagationMethod, cubic_b_spline_3d, cubic_b_spline_3d_gradient};
 use super::mediation;
@@ -58,6 +59,7 @@ impl Scene for SceneVariant {
             Self::Spiral(variant) => variant.get_fluid(rest_density, rest_density_grid_spacing),
         }
     }
+    #[cfg(feature = "springs")]
     fn get_springs(&self) -> Vec<Spring> {
         match self {
             Self::NoLidCube(variant) => variant.get_springs(),
@@ -75,6 +77,7 @@ impl Scene for SceneVariant {
 trait Scene {
     fn get_boundary(&self, rest_density_grid_spacing: f64) -> Vec<BoundaryParticle3D>;
     fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Vec<Particle3D>;
+    #[cfg(feature = "springs")]
     fn get_springs(&self) -> Vec<Spring>;
     fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64;
 }
@@ -83,6 +86,7 @@ trait Scene {
 pub struct System3DConfig {
     pub particles: Vec<Particle3D>,
     pub boundary_particles: Vec<BoundaryParticle3D>,
+    #[cfg(feature = "springs")]
     pub springs: Vec<Spring>,
     pub system_properties: SystemProperties,
     pub controls: Arc<Mutex<super::mediation::IntermediateControls>>,
@@ -130,12 +134,21 @@ impl System3DConfigConstructor {
         &mut self,
         particles: Vec<Particle3D>,
         boundary_particles: Vec<BoundaryParticle3D>,
+        #[cfg(feature = "springs")]
         springs: Vec<Spring>,
         system_properties: SystemProperties,
         controls: Arc<Mutex<super::mediation::IntermediateControls>>,
         measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
     ) {
-        self.build = Some(System3DConfig { particles, boundary_particles, springs, system_properties, controls, measurement_series, });
+        self.build = Some(System3DConfig {
+            particles,
+            boundary_particles,
+            #[cfg(feature = "springs")]
+            springs,
+            system_properties,
+            controls,
+            measurement_series,
+        });
     }
 
     pub fn new(
@@ -163,6 +176,7 @@ impl System3DConfigConstructor {
         // load boundary
         let boundary_particles = constructor.config.scene.get_boundary(constructor.config.parameters.rest_density_grid_spacing);
         // load springs
+        #[cfg(feature = "springs")]
         let springs = constructor.config.scene.get_springs();
 
         // hand over time_inc
@@ -180,6 +194,7 @@ impl System3DConfigConstructor {
         constructor.build(
             particles,
             boundary_particles,
+            #[cfg(feature = "springs")]
             springs,
             system_properties,
             controls,

@@ -1,8 +1,7 @@
 //! Module provides the necessary entities for a uniform grid implementation
 //!
 use nalgebra::Vector3;
-// use std::collections::HashMap;
-use rustc_hash::FxHashMap;
+use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
 use super::particle::{ParticleQ3, GridParticle};
 

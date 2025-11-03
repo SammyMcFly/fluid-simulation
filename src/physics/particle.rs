@@ -1,8 +1,11 @@
-// use tracing::{debug, error, info, span, trace, warn};
 use nalgebra::Vector3;
 use serde::{Serialize, Deserialize};
 
+// #[cfg(feature = "logging")]
+// use tracing::{debug, error, info, span, trace, warn};
 
+
+/// Struct that represents the natural Numbers modulo 3
 #[derive(Debug, Clone, Copy)]
 struct Cycle3(usize); // Cycle<static u8>
 
@@ -168,9 +171,13 @@ pub struct Particle3D {
     /// boundary neighbors
     pub boundary_neighbors: Vec<usize>,
     /// implicit euler variables
+    #[cfg(feature = "implicit_euler")]
     pub d_l: Vector3<f64>,
+    #[cfg(feature = "implicit_euler")]
     pub r_l: Vector3<f64>,
+    #[cfg(feature = "implicit_euler")]
     pub alpha_l: f64,
+    #[cfg(feature = "implicit_euler")]
     pub a_times_d_l: Vector3<f64>,
 }
 
@@ -257,9 +264,13 @@ impl Initializable for Particle3D {
             disabled: false,
             neighbors: vec![],
             boundary_neighbors: vec![],
+            #[cfg(feature = "implicit_euler")]
             d_l: Vector3::default(),
+            #[cfg(feature = "implicit_euler")]
             r_l: Vector3::default(),
+            #[cfg(feature = "implicit_euler")]
             alpha_l: f64::default(),
+            #[cfg(feature = "implicit_euler")]
             a_times_d_l: Vector3::default()
         }
     }
@@ -351,9 +362,13 @@ impl From<SerParticle3D> for Particle3D {
             disabled: particle.disabled,
             neighbors: particle.neighbors,
             boundary_neighbors: particle.boundary_neighbors,
+            #[cfg(feature = "implicit_euler")]
             d_l: particle.d_l.into(),
+            #[cfg(feature = "implicit_euler")]
             r_l: particle.r_l.into(),
+            #[cfg(feature = "implicit_euler")]
             alpha_l: particle.alpha_l,
+            #[cfg(feature = "implicit_euler")]
             a_times_d_l: particle.a_times_d_l.into(),
         }
     }
@@ -375,9 +390,13 @@ pub struct SerParticle3D {
     /// boundary neighbors
     pub boundary_neighbors: Vec<usize>,
     /// implicit euler variables
+    #[cfg(feature = "implicit_euler")]
     pub d_l: [f64; 3],
+    #[cfg(feature = "implicit_euler")]
     pub r_l: [f64; 3],
+    #[cfg(feature = "implicit_euler")]
     pub alpha_l: f64,
+    #[cfg(feature = "implicit_euler")]
     pub a_times_d_l: [f64; 3],
 }
 
@@ -393,9 +412,13 @@ impl From<Particle3D> for SerParticle3D {
             disabled: particle.disabled,
             neighbors: particle.neighbors,
             boundary_neighbors: particle.boundary_neighbors,
+            #[cfg(feature = "implicit_euler")]
             d_l: particle.d_l.into(),
+            #[cfg(feature = "implicit_euler")]
             r_l: particle.r_l.into(),
+            #[cfg(feature = "implicit_euler")]
             alpha_l: particle.alpha_l,
+            #[cfg(feature = "implicit_euler")]
             a_times_d_l: particle.a_times_d_l.into(),
         }
     }
