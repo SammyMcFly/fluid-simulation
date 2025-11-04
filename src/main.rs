@@ -87,9 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // parse args
     let args = Args::parse();
 
-    if cfg!(feature = "logging") {
-        init_logging(&args);
-    }
+    #[cfg(feature = "logging")]
+    init_logging(&args);
 
     let measurement_series = if !args.measurement_file.is_empty() {
         Some(Arc::new(Mutex::new(MeasurementSeries::default())))
@@ -203,6 +202,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // save measurements
     if let Some(ms) = measurement_series {
         ms.lock().unwrap().save(&args.measurement_file)?;
+        #[cfg(feature = "logging")]
         info!("Saved measurements to {}", &args.measurement_file);
         println!("Saved measurements to {}", &args.measurement_file);
     }

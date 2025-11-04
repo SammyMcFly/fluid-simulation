@@ -10,7 +10,7 @@ default = ["logging", "parallel", "local_pressure"]
 # Features
 logging = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
 parallel = ["dep:rayon"]
-implicit_euler = []
+implicit_euler = ["springs"]
 springs = []
 local_pressure = []
 splitting = ["local_pressure"]

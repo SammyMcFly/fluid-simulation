@@ -9,6 +9,7 @@ use nalgebra::{Matrix3, Vector3};
 use num_traits::identities::Zero;
 use serde::Deserialize;
 use std::io::Write;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 // #[cfg(feature = "logging")]
@@ -443,6 +444,7 @@ impl System3D {
     }
 
     /// Calculate viscosity acceleration at current time and add it to respective particles
+    #[cfg(feature = "parallel")]
     fn add_viscosity_acceleration(&mut self) {
         let immutable_clone_of_particles = self.particles.clone();
         self.particles.par_iter_mut().for_each(|particle| {

@@ -151,32 +151,38 @@ impl CameraController {
         match key {
             KeyCode::KeyW | KeyCode::ArrowUp => {
                 self.amount_forward = amount;
-                if state == ElementState::Pressed && cfg!(feature = "logging") {debug!("Up pressed");}
+                #[cfg(feature = "logging")]
+                if state == ElementState::Pressed {debug!("Up pressed");}
                 true
             }
             KeyCode::KeyS | KeyCode::ArrowDown => {
                 self.amount_backward = amount;
-                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Down pressed"); }
+                #[cfg(feature = "logging")]
+                if state == ElementState::Pressed { debug!("Down pressed"); }
                 true
             }
             KeyCode::KeyA | KeyCode::ArrowLeft => {
                 self.amount_left = amount;
-                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Left pressed"); }
+                #[cfg(feature = "logging")]
+                if state == ElementState::Pressed { debug!("Left pressed"); }
                 true
             }
             KeyCode::KeyD | KeyCode::ArrowRight => {
                 self.amount_right = amount;
-                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Right pressed"); }
+                #[cfg(feature = "logging")]
+                if state == ElementState::Pressed { debug!("Right pressed"); }
                 true
             }
             KeyCode::Space => {
                 self.amount_up = amount;
-                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Space pressed"); }
+                #[cfg(feature = "logging")]
+                if state == ElementState::Pressed { debug!("Space pressed"); }
                 true
             }
             KeyCode::ShiftLeft => {
                 self.amount_down = amount;
-                if state == ElementState::Pressed && cfg!(feature = "logging") { debug!("Shift pressed"); }
+                #[cfg(feature = "logging")]
+                if state == ElementState::Pressed { debug!("Shift pressed"); }
                 true
             }
             _ => false,
@@ -192,9 +198,8 @@ impl CameraController {
     }
 
     pub fn process_scroll(&mut self, delta: &MouseScrollDelta) {
-        if cfg!(feature = "logging") {
-            debug!("Scrolled {:?}", delta);
-        }
+        #[cfg(feature = "logging")]
+        debug!("Scrolled {:?}", delta);
         self.scroll = match delta {
             // I'm assuming a line is about 100 pixels
             MouseScrollDelta::LineDelta(_, scroll) => -scroll * 100.0,

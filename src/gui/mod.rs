@@ -95,9 +95,8 @@ impl winit::application::ApplicationHandler for StateApplication {
         if window.id() == id && !self.state.as_mut().unwrap().input(&event) {
             match event {
                 WindowEvent::CloseRequested => {
-                    if cfg!(feature = "logging") {
-                        info!("The close button was pressed; stopping");
-                    }
+                    #[cfg(feature = "logging")]
+                    info!("The close button was pressed; stopping");
                     self.controls.lock().unwrap().terminate_connection();
                     event_loop.exit();
                 },
@@ -583,9 +582,8 @@ impl State {
             self.depth_texture = model::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
             self.projection.resize(new_size.width, new_size.height);
             self.surface.configure(&self.device, &self.config);
-            if cfg!(feature = "logging") {
-                info!("Resized to {:?}", new_size)
-            }
+            #[cfg(feature = "logging")]
+            info!("Resized to {:?}", new_size)
         }
     }
 
