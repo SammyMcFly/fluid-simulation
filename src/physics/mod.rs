@@ -476,6 +476,9 @@ impl System3D {
     /// Calculate pressure acceleration at current time and add it to respective particles
     #[cfg(not(feature = "parallel"))]
     fn add_pressure_acceleration(&mut self) {
+        // compute pressure
+        self.update_pressure();
+        // computer pressure acceleration
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
                 // let mut test_kernel_gradient = Vector3::zero();
@@ -512,6 +515,9 @@ impl System3D {
     /// Calculate pressure acceleration at current time and add it to respective particles
     #[cfg(feature = "parallel")]
     fn add_pressure_acceleration(&mut self) {
+        // compute pressure
+        self.update_pressure();
+        // computer pressure acceleration
         let immutable_clone_of_particles = self.particles.clone();
         self.particles.par_iter_mut().for_each(|particle| {
             if particle.is_enabled() {
@@ -547,19 +553,8 @@ impl System3D {
         });
     }
 
-    /// Calculate acceleration at current time
-    ///
-    /// Supports: Gravity, spring force, viscosity and pressure acceleration
-    fn calc_acceleration(&mut self) {
-        // update neighbors field of all fluid particles
-        self.update_particle_neighbors();
-        // compute density and pressure
-        self.update_density();
-        self.update_pressure();
-        // reset acceleration
-        for particle in &mut self.particles {
-            particle.set_acc(Vector3::zero());
-        }
+    /// Calculate non-pressure accelerations and add them to each particles acceleration
+    fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
         self.add_gravity();
         // add spring acceleration
@@ -567,6 +562,22 @@ impl System3D {
         self.add_spring_acceleration();
         // add viscosity acceleration
         self.add_viscosity_acceleration();
+    }
+
+    /// Calculate acceleration at current time
+    ///
+    /// Supports: Gravity, spring force, viscosity and pressure acceleration
+    fn calc_acceleration(&mut self) {
+        // update neighbors field of all fluid particles
+        self.update_particle_neighbors();
+        // compute density
+        self.update_density();
+        // reset acceleration
+        for particle in &mut self.particles {
+            particle.set_acc(Vector3::zero());
+        }
+        // add non-pressure acceleration
+        self.add_non_pressure_acceleration();
         // add pressure acceleration
         self.add_pressure_acceleration();
     }
