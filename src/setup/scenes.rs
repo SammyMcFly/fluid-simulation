@@ -96,7 +96,13 @@ impl Scene for NoLidCube {
         for i in 0..self.particles.n_particles_x {
             for j in 0..self.particles.n_particles_y {
                 for k in 0..self.particles.n_particles_z {
-                    let x = (i as f64)*self.particles.particle_spacing+self.particles.x_offset;
+                    // do shift every second level
+                    let shift = if k % 2 == 1 {
+                        self.particles.particle_spacing/2.
+                    } else {
+                        0.
+                    };
+                    let x = (i as f64)*self.particles.particle_spacing+self.particles.x_offset+shift;
                     let y = (j as f64)*self.particles.particle_spacing+self.particles.y_offset;
                     let z = (k as f64)*self.particles.particle_spacing+self.particles.z_offset;
                     let particle = Particle3D::new(
@@ -400,8 +406,14 @@ impl Cube {
     fn fetch<T: Initializable>(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Vec<T> {
         let mut particles = vec![];
         for i in 0..self.length3 {
+            // do shift every second level
+            let shift = if i % 2 == 1 {
+                Vector3::new(rest_density_grid_spacing/2., 0., 0.)
+            } else {
+                Vector3::zeros()
+            };
             particles.extend(Square::new(
-                self.base+self.direction3*((i as f64)*rest_density_grid_spacing),
+                self.base+shift+self.direction3*((i as f64)*rest_density_grid_spacing),
                 self.direction1,
                 self.direction2,
                 self.length1,

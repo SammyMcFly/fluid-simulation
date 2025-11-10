@@ -54,7 +54,7 @@ struct Args {
     #[arg(short, long, default_value_t=String::from(""))]
     state: String,
     /// Log severity level (Options: TRACE, DEBUG, INFO, WARN, ERROR, OFF)
-    #[arg(short, long, default_value_t=String::from("OFF"))]
+    #[arg(short, long, default_value_t=String::from("DEBUG"))]
     log: String,
     /// Store measurements to .csv file
     #[arg(short, long, default_value_t=String::from(""))]

@@ -5,13 +5,14 @@ edition = "2024"
 
 [features]
 # Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
-default = ["logging", "parallel", "local_pressure"]
+default = ["logging", "parallel", "pseudo_mass_boundary", "global_pressure"]
 
 # Features
 logging = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
 parallel = ["dep:rayon"]
 implicit_euler = ["springs"]
 springs = []
+pseudo_mass_boundary = []
 local_pressure = []
 splitting = ["local_pressure"]
 global_pressure = []

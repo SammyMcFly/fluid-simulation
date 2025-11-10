@@ -25,13 +25,19 @@ pub struct Setup {
 pub struct Parameters {
     pub buffer_length_limit: u32,
     pub time_inc: f64,
-    pub viscosity: f64,
-    pub stiffness: f64,
     pub integration_scheme: PropagationMethod,
     pub rest_density: f64,
     pub rest_density_grid_spacing: f64,
     pub smoothing_length: f64,
     pub disable_particles_below: f64,
+    pub viscosity: f64,
+    pub boundary_pressure_acceleration_weighting: f64,
+    #[cfg(feature = "local_pressure")]
+    pub stiffness: f64,
+    #[cfg(feature = "global_pressure")]
+    pub relaxation_factor: f64,
+    #[cfg(feature = "global_pressure")]
+    pub min_diagonal_element: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,7 +130,13 @@ impl System3DConfigConstructor {
             self.config.parameters.disable_particles_below,
             self.config.scene.calc_fluid_depth(self.config.parameters.rest_density_grid_spacing),
             self.config.parameters.viscosity,
+            self.config.parameters.boundary_pressure_acceleration_weighting,
+            #[cfg(feature = "local_pressure")]
             self.config.parameters.stiffness,
+            #[cfg(feature = "global_pressure")]
+            self.config.parameters.relaxation_factor,
+            #[cfg(feature = "global_pressure")]
+            self.config.parameters.min_diagonal_element,
             cubic_b_spline_3d,
             cubic_b_spline_3d_gradient
         )

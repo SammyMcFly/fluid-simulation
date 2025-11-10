@@ -81,7 +81,10 @@ impl winit::application::ApplicationHandler for StateApplication {
         // let instances = self.queue.lock().unwrap().pop_front().unwrap();
         let particles = self.controls.lock().unwrap().particle_positions.pop_front().unwrap();
         let boundary_particles = self.controls.lock().unwrap().boundary_particle_positions.pop_front().unwrap();
-        let update_messages: controls::Message = controls::Message::AverageDensityChanged(self.controls.lock().unwrap().average_density.pop_front().unwrap());
+        let mut update_messages: Vec<controls::Message> = vec![
+            controls::Message::AverageDensityChanged(self.controls.lock().unwrap().average_density.pop_front().unwrap())
+        ];
+        update_messages.push(controls::Message::RestDensityChanged(self.controls.lock().unwrap().get_rest_density()));
         let sphere_size = self.controls.lock().unwrap().particle_diameter();
         let light_position = self.controls.lock().unwrap().light_position();
         self.state = Some(State::new(window, particles, boundary_particles, sphere_size, light_position, update_messages));
@@ -246,7 +249,7 @@ impl State {
         particles: Vec<super::mediation::Instance>,
         boundary_particles: Vec<super::mediation::Instance>,
         sphere_size: f32, light_position: [f32; 3],
-        message: controls::Message,
+        messages: Vec<controls::Message>,
     ) -> Self {
         let window_arc = Arc::new(window);
 
@@ -353,7 +356,9 @@ impl State {
 
         // Initialize GUI controls
         let mut controls = UIControls::new();
-        controls.update(message);
+        for message in messages {
+            controls.update(message);
+        }
 
         Self {
             window: window_arc,

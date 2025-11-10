@@ -108,6 +108,10 @@ where
     }
 }
 
+pub trait Positional {
+    fn pos_now(&self) -> Vector3<f64>;
+}
+
 pub trait ParticleQ3 {
     type Pos;
     type Vel;
@@ -149,9 +153,6 @@ pub trait Initializable {
     ) -> Self;
 }
 
-pub trait GridParticle {
-    fn get_distance(&self, other: &Vector3<f64>) -> f64;
-}
 
 // # 3D Implementation
 
@@ -170,7 +171,17 @@ pub struct Particle3D {
     pub neighbors: Vec<usize>,
     /// boundary neighbors
     pub boundary_neighbors: Vec<usize>,
-    /// implicit euler variables
+    // local pressure with splitting variable
+    #[cfg(feature = "splitting")]
+    pub pred_density: f64,
+    // global pressure solver variables
+    #[cfg(feature = "global_pressure")]
+    pub s_f: f64,
+    #[cfg(feature = "global_pressure")]
+    pub a_ff: f64,
+    #[cfg(feature = "global_pressure")]
+    pub pressure_acc_f: Vector3<f64>,
+    // implicit euler variables
     #[cfg(feature = "implicit_euler")]
     pub d_l: Vector3<f64>,
     #[cfg(feature = "implicit_euler")]
@@ -179,6 +190,12 @@ pub struct Particle3D {
     pub alpha_l: f64,
     #[cfg(feature = "implicit_euler")]
     pub a_times_d_l: Vector3<f64>,
+}
+
+impl Positional for Particle3D {
+    fn pos_now(&self) -> Vector3<f64> {
+        self.position.now()
+    }
 }
 
 impl ParticleQ3 for Particle3D {
@@ -264,6 +281,14 @@ impl Initializable for Particle3D {
             disabled: false,
             neighbors: vec![],
             boundary_neighbors: vec![],
+            #[cfg(feature = "splitting")]
+            pred_density: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            s_f: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            a_ff: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            pressure_acc_f: Vector3::default(),
             #[cfg(feature = "implicit_euler")]
             d_l: Vector3::default(),
             #[cfg(feature = "implicit_euler")]
@@ -276,15 +301,6 @@ impl Initializable for Particle3D {
     }
 }
 
-impl GridParticle for Particle3D {
-    fn get_distance(&self, other: &Vector3<f64>) -> f64 {
-        // ((self.position.now().x-other.x).powi(2)
-        //     +(self.position.now().y-other.y).powi(2)
-        //     +(self.position.now().z-other.z).powi(2)).sqrt()
-        (self.position.now()-other).norm()
-    }
-}
-
 impl Particle3D {
     pub fn set_neighbors(&mut self, neighbors: Vec<usize>) {
         self.neighbors = neighbors;
@@ -294,17 +310,16 @@ impl Particle3D {
         self.boundary_neighbors = boundary_neighbors;
     }
 
-    /// Direction from particle1 towards particle2
-    pub fn get_direction(&self, other: &Vector3<f64>) -> Vector3<f64> {
-        self.position.now()-other
-    }
-
     pub fn is_enabled(&self) -> bool {
         !self.disabled
     }
 
     pub fn disable(&mut self) {
         self.disabled = true;
+    }
+
+    pub fn set_mass(&mut self, mass: f64) {
+        self.mass = mass;
     }
 }
 
@@ -313,6 +328,14 @@ impl Particle3D {
 pub struct BoundaryParticle3D {
     position: Vector3<f64>,
     mass: f64,
+    #[cfg(feature = "global_pressure")]
+    velocity: Vector3<f64>,
+}
+
+impl Positional for BoundaryParticle3D {
+    fn pos_now(&self) -> Vector3<f64> {
+        self.position
+    }
 }
 
 impl Initializable for BoundaryParticle3D {
@@ -324,13 +347,9 @@ impl Initializable for BoundaryParticle3D {
         Self {
             position: position[0],
             mass,
+            #[cfg(feature = "global_pressure")]
+            velocity: Vector3::zeros(),
         }
-    }
-}
-
-impl GridParticle for BoundaryParticle3D {
-    fn get_distance(&self, other: &Vector3<f64>) -> f64 {
-        (self.position-other).norm()
     }
 }
 
@@ -345,6 +364,11 @@ impl BoundaryParticle3D {
 
     pub fn mass(&self) -> f64 {
         self.mass
+    }
+
+    #[cfg(feature = "global_pressure")]
+    pub fn vel(&self) -> Vector3<f64> {
+        self.velocity
     }
 }
 
@@ -362,14 +386,22 @@ impl From<SerParticle3D> for Particle3D {
             disabled: particle.disabled,
             neighbors: particle.neighbors,
             boundary_neighbors: particle.boundary_neighbors,
+            #[cfg(feature = "splitting")]
+            pred_density: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            s_f: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            a_ff: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            pressure_acc_f: Vector3::default(),
             #[cfg(feature = "implicit_euler")]
-            d_l: particle.d_l.into(),
+            d_l: Vector3::default(),
             #[cfg(feature = "implicit_euler")]
-            r_l: particle.r_l.into(),
+            r_l: Vector3::default(),
             #[cfg(feature = "implicit_euler")]
-            alpha_l: particle.alpha_l,
+            alpha_l: f64::default(),
             #[cfg(feature = "implicit_euler")]
-            a_times_d_l: particle.a_times_d_l.into(),
+            a_times_d_l: Vector3::default()
         }
     }
 }
@@ -389,15 +421,6 @@ pub struct SerParticle3D {
     pub neighbors: Vec<usize>,
     /// boundary neighbors
     pub boundary_neighbors: Vec<usize>,
-    /// implicit euler variables
-    #[cfg(feature = "implicit_euler")]
-    pub d_l: [f64; 3],
-    #[cfg(feature = "implicit_euler")]
-    pub r_l: [f64; 3],
-    #[cfg(feature = "implicit_euler")]
-    pub alpha_l: f64,
-    #[cfg(feature = "implicit_euler")]
-    pub a_times_d_l: [f64; 3],
 }
 
 impl From<Particle3D> for SerParticle3D {
@@ -412,14 +435,6 @@ impl From<Particle3D> for SerParticle3D {
             disabled: particle.disabled,
             neighbors: particle.neighbors,
             boundary_neighbors: particle.boundary_neighbors,
-            #[cfg(feature = "implicit_euler")]
-            d_l: particle.d_l.into(),
-            #[cfg(feature = "implicit_euler")]
-            r_l: particle.r_l.into(),
-            #[cfg(feature = "implicit_euler")]
-            alpha_l: particle.alpha_l,
-            #[cfg(feature = "implicit_euler")]
-            a_times_d_l: particle.a_times_d_l.into(),
         }
     }
 }

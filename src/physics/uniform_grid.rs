@@ -3,7 +3,8 @@
 use nalgebra::Vector3;
 use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
-use super::particle::{ParticleQ3, GridParticle};
+use super::particle::{Positional, ParticleQ3};
+use super::distance;
 
 
 type UniformGridCell = Vector3<i32>;
@@ -29,9 +30,11 @@ impl UniformGrid {
 
     pub fn populate(&mut self, particles: &[super::particle::Particle3D]) {
         for (i, particle) in particles.iter().enumerate() {
-            let cell = self.get_cell(&particle.pos().now());
-            let cell_hash = Self::hash(cell.x, cell.y, cell.z);
-            self.hash_map.entry(cell_hash).or_default().push(i);
+            if particle.is_enabled() {
+                let cell = self.get_cell(&particle.pos().now());
+                let cell_hash = Self::hash(cell.x, cell.y, cell.z);
+                self.hash_map.entry(cell_hash).or_default().push(i);
+            }
         }
     }
 
@@ -79,7 +82,7 @@ impl UniformGrid {
     pub fn get_particles_in_kernel_range(
         &self,
         position: &Vector3<f64>,
-        particles: &[impl GridParticle],
+        particles: &[impl Positional],
     ) -> Vec<usize> {
         let mut particles_in_kernel_range = Vec::new();
         let cell = self.get_cell(position);
@@ -92,7 +95,7 @@ impl UniformGrid {
                     if let Some(indices) = self.hash_map.get(&hash) {
                         for &j in indices {
                             // Distance check
-                            if particles[j].get_distance(position) < 2.*self.cell_size {
+                            if distance(&particles[j].pos_now(), position) < 2.*self.cell_size {
                                 particles_in_kernel_range.push(j);
                             }
                         }

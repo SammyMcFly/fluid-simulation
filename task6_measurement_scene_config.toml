@@ -3,13 +3,18 @@
 [parameters]
 buffer_length_limit = 10000
 time_inc = 0.001
-viscosity = 1.0
-stiffness = 15000000.0
 integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 rest_density = 900.0 # rest density of fluid
 rest_density_grid_spacing = 0.8 # (not hot swappable)
 smoothing_length = 0.8 # (not hot swappable)
 disable_particles_below = -30
+viscosity = 1.0
+boundary_pressure_acceleration_weighting = 0.7 # gamma
+# local pressure
+stiffness = 15000000.0 # k
+# global pressure
+relaxation_factor = 0.5 # omega
+min_diagonal_element = 1e-25 # epsilon
 
 [light]
 position = [ 2.0, 30.0, 2.0 ] # (not hot swappable)

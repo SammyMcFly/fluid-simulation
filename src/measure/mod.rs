@@ -10,6 +10,7 @@ pub struct Measurement {
     pub density: f64,
     // Average kinetic energy
     pub kinetic_energy: f64,
+    #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
     pub viscosity: f64,
     /// Fluid depth measured in number of particles
