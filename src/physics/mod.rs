@@ -3,8 +3,8 @@
 //! Contains all necessary components to initialize a scene and simulate the trajectories
 //! of its containing particles by propagating the system time.
 //!
+use std::thread;
 use std::sync::{Arc, Mutex};
-
 use nalgebra::{Matrix3, Vector3};
 use num_traits::identities::Zero;
 use serde::Deserialize;
@@ -1498,4 +1498,72 @@ impl<N: Copy + std::ops::Mul<N, Output=N> + Zero> Outer for Vector3<N> {
             self[2]*other[1],
             self[2]*other[2])
     }
+}
+
+pub fn run_system_in_thread(
+    mut system_at_time_0: System3D,
+    mut buffer_length: u32,
+    mut int_scheme: PropagationMethod,
+    controls: Arc<Mutex<crate::mediation::IntermediateControls>>,
+    state: String,
+    config: String,
+    moved_measurement_series: Option<Arc<Mutex<crate::measure::MeasurementSeries>>>,
+) ->  thread::JoinHandle<()> {
+    thread::spawn(move || {
+        // clone simulation system for time propagation (keep clone of initial state)
+        let mut system = system_at_time_0.clone();
+        loop {
+            if controls.lock().unwrap().is_connection_terminated() {
+                break;
+            }
+            {
+                if controls.lock().unwrap().is_saving_requested() {
+                    if system.save_state("state.ron").is_ok() {
+                        println!("Successfully saved state!");
+                    } else {
+                        println!("Failed to save state!");
+                    }
+                    controls.lock().unwrap().saving_done();
+                }
+                if controls.lock().unwrap().is_reset_requested() {
+                    // reload simulation system
+                    if !state.is_empty() {
+                        match setup::System3DConfigConstructor::new(&config, Some(&state), controls.clone(), moved_measurement_series.clone()) {
+                            Ok((sys_conf, buf_len, scheme)) => {
+                                (system_at_time_0, buffer_length, int_scheme) = (System3D::new(sys_conf.finish()), buf_len, scheme);
+                                system = system_at_time_0.clone();
+                            },
+                            _ => {
+                                system = system_at_time_0.clone();
+                                println!("Invalid state or scene file!");
+                            },
+                        }
+                    } else {
+                        match setup::System3DConfigConstructor::new(&config, None, controls.clone(), moved_measurement_series.clone()) {
+                            Ok((sys_conf, buf_len, scheme)) => {
+                                (system_at_time_0, buffer_length, int_scheme) = (System3D::new(sys_conf.finish()), buf_len, scheme);
+                                system = system_at_time_0.clone();
+                            },
+                            _ => {
+                                system = system_at_time_0.clone();
+                                println!("Invalid scene file!");
+                            },
+                        };
+                    }
+                    controls.lock().unwrap().particle_positions.clear();
+                    controls.lock().unwrap().boundary_particle_positions.clear();
+                    controls.lock().unwrap().queue_for_visualization(&system.particles, &system.boundary_particles, system.get_average_mass_density());
+                    controls.lock().unwrap().reset_done();
+                } else if controls.lock().unwrap().particle_positions.len() >= buffer_length {
+                    // thread::sleep(std::time::Duration::from_millis(300));
+                    continue;
+                // } else if system.controls.lock().unwrap().particle_positions.len() >= 300 { // for profiling
+                //     break;
+                } else {
+                    system.inc_time(&int_scheme);
+                    controls.lock().unwrap().queue_for_visualization(&system.particles, &system.boundary_particles, system.get_average_mass_density());
+                }
+            }
+        }
+    })
 }

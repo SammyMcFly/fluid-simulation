@@ -1,7 +1,7 @@
 # Scene configuration file
 
 [parameters] # General parameters
-buffer_length_limit = 100
+buffer_length_limit = 1000
 time_inc = 0.01
 integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 rest_density = 900.0 # rest density of fluid

@@ -13,7 +13,6 @@
 //!
 //! flamegraph profiling:
 //! - cargo flamegraph -- ./scene_config.toml
-use std::thread;
 use std::sync::{Arc, Mutex};
 use clap::Parser;
 use iced_winit::winit::{
@@ -29,9 +28,6 @@ use tracing_subscriber::FmtSubscriber;
 // #[cfg(feature = "logging")]
 // use tracing::debug; // , error, info, span, trace, warn};
 
-use crate::measure::MeasurementSeries;
-use crate::physics::System3D;
-
 pub mod physics;
 mod gui;
 mod mediation;
@@ -43,6 +39,7 @@ mod measure;
 compile_error!("Only one of the features `local_pressure` and `global_pressure` can be activated at the same time.");
 #[cfg(all(not(feature = "local_pressure"), not(feature = "global_pressure")))]
 compile_error!("One of the features `local_pressure` and `global_pressure` must be activated.");
+
 
 
 /// Simple fluid solver written in rust
@@ -93,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logging(&args);
 
     let measurement_series = if !args.measurement_file.is_empty() {
-        Some(Arc::new(Mutex::new(MeasurementSeries::default())))
+        Some(Arc::new(Mutex::new(measure::MeasurementSeries::default())))
     } else {
         None
     };
@@ -105,84 +102,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let controls_front_end = controls.clone();
 
     // load simulation system
-    let (mut system_at_time_0, mut buffer_length, mut int_scheme) = if !args.state.is_empty() {
+    let (system_at_time_0, buffer_length, int_scheme) = if !args.state.is_empty() {
         if let Ok((sys_conf, buf_len, int_scheme)) = setup::System3DConfigConstructor::new(&args.config, Some(&args.state), controls.clone(), measurement_series.clone()) {
-            (System3D::new(sys_conf.finish()), buf_len, int_scheme)
+            (physics::System3D::new(sys_conf.finish()), buf_len, int_scheme)
         } else {
             println!("Invalid state file!");
             let (sys_conf, buf_len, int_scheme) = setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), measurement_series.clone())
                 .expect("Invalid scene file!");
-            (System3D::new(sys_conf.finish()), buf_len, int_scheme)
+            (physics::System3D::new(sys_conf.finish()), buf_len, int_scheme)
         }
     } else {
         let (sys_conf, buf_len, int_scheme) = setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), measurement_series.clone())
             .expect("Invalid scene file!");
-        (System3D::new(sys_conf.finish()), buf_len, int_scheme)
+        (physics::System3D::new(sys_conf.finish()), buf_len, int_scheme)
     };
     // pass on initial position for visualization
     {
         controls.lock().unwrap().queue_for_visualization(&system_at_time_0.particles, &system_at_time_0.boundary_particles, system_at_time_0.get_average_mass_density());
     }
-    // system_at_time_0.queue_for_visualization();
 
     // run simulation in separate thread: Calculate new positions if queue not full
-    let handle = thread::spawn(move || {
-        // clone simulation system for time propagation (keep clone of initial state)
-        let mut system = system_at_time_0.clone();
-        loop {
-            if controls.lock().unwrap().is_connection_terminated() {
-                break;
-            }
-            {
-                if controls.lock().unwrap().is_saving_requested() {
-                    if system.save_state("state.ron").is_ok() {
-                        println!("Successfully saved state!");
-                    } else {
-                        println!("Failed to save state!");
-                    }
-                    controls.lock().unwrap().saving_done();
-                }
-                if controls.lock().unwrap().is_reset_requested() {
-                    // reload simulation system
-                    if !args.state.is_empty() {
-                        match setup::System3DConfigConstructor::new(&args.config, Some(&args.state), controls.clone(), moved_measurement_series.clone()) {
-                            Ok((sys_conf, buf_len, scheme)) => {
-                                (system_at_time_0, buffer_length, int_scheme) = (System3D::new(sys_conf.finish()), buf_len, scheme);
-                                system = system_at_time_0.clone();
-                            },
-                            _ => {
-                                system = system_at_time_0.clone();
-                                println!("Invalid state or scene file!");
-                            },
-                        }
-                    } else {
-                        match setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), moved_measurement_series.clone()) {
-                            Ok((sys_conf, buf_len, scheme)) => {
-                                (system_at_time_0, buffer_length, int_scheme) = (System3D::new(sys_conf.finish()), buf_len, scheme);
-                                system = system_at_time_0.clone();
-                            },
-                            _ => {
-                                system = system_at_time_0.clone();
-                                println!("Invalid scene file!");
-                            },
-                        };
-                    }
-                    controls.lock().unwrap().particle_positions.clear();
-                    controls.lock().unwrap().boundary_particle_positions.clear();
-                    controls.lock().unwrap().queue_for_visualization(&system.particles, &system.boundary_particles, system.get_average_mass_density());
-                    controls.lock().unwrap().reset_done();
-                } else if controls.lock().unwrap().particle_positions.len() >= buffer_length {
-                    // thread::sleep(std::time::Duration::from_millis(300));
-                    continue;
-                // } else if system.controls.lock().unwrap().particle_positions.len() >= 300 { // for profiling
-                //     break;
-                } else {
-                    system.inc_time(&int_scheme);
-                    controls.lock().unwrap().queue_for_visualization(&system.particles, &system.boundary_particles, system.get_average_mass_density());
-                }
-            }
-        }
-    });
+    let handle = physics::run_system_in_thread(
+        system_at_time_0,
+        buffer_length,
+        int_scheme,
+        controls,
+        args.state,
+        args.config,
+        moved_measurement_series,
+    );
 
     let event_loop = EventLoop::new().unwrap();
 

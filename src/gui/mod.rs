@@ -38,12 +38,10 @@ use tracing::{
 }; // error, trace, warn, debug,
 
 pub mod model;
-use model::{DrawLight, DrawModel, VertexBufferLayout, ToRaw};
+use model::{DrawLight, DrawModel, VertexBufferLayout, ToRaw, InstanceRaw};
 mod camera;
 mod controls;
 use controls::UIControls;
-
-use crate::gui::model::InstanceRaw;
 
 
 
@@ -770,12 +768,6 @@ impl State {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(
-                                // wgpu::Color {
-                                //     r: 0.9,
-                                //     g: 0.9,
-                                //     b: 0.9,
-                                //     a: 1.0,
-                                // }
                                 wgpu::Color {
                                     r: self.uicontrols.background_color().r as f64,
                                     g: self.uicontrols.background_color().g as f64,
