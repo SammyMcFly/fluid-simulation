@@ -31,6 +31,7 @@ pub struct Parameters {
     pub smoothing_length: f64,
     pub disable_particles_below: f64,
     pub viscosity: f64,
+    #[cfg(feature = "pseudo_mass_boundary")]
     pub boundary_pressure_acceleration_weighting: f64,
     #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
@@ -130,6 +131,7 @@ impl System3DConfigConstructor {
             self.config.parameters.disable_particles_below,
             self.config.scene.calc_fluid_depth(self.config.parameters.rest_density_grid_spacing),
             self.config.parameters.viscosity,
+            #[cfg(feature = "pseudo_mass_boundary")]
             self.config.parameters.boundary_pressure_acceleration_weighting,
             #[cfg(feature = "local_pressure")]
             self.config.parameters.stiffness,
