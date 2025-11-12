@@ -40,7 +40,9 @@ mod measure;
 
 
 #[cfg(all(feature = "local_pressure", feature = "global_pressure"))]
-compile_error!("Features `local_pressure` und `global_pressure` schließen sich gegenseitig aus.");
+compile_error!("Only one of the features `local_pressure` and `global_pressure` can be activated at the same time.");
+#[cfg(all(not(feature = "local_pressure"), not(feature = "global_pressure")))]
+compile_error!("One of the features `local_pressure` and `global_pressure` must be activated.");
 
 
 /// Simple fluid solver written in rust

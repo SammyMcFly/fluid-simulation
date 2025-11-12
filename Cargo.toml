@@ -5,7 +5,8 @@ edition = "2024"
 
 [features]
 # Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
-default = ["logging", "parallel", "pseudo_mass_boundary", "global_pressure"]
+default = ["logging", "global_pressure"]
+# default = ["logging", "parallel", "global_pressure"]
 
 # Features
 logging = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]

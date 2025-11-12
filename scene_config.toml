@@ -1,14 +1,14 @@
 # Scene configuration file
 
 [parameters] # General parameters
-buffer_length_limit = 10000
+buffer_length_limit = 100
 time_inc = 0.01
 integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 rest_density = 900.0 # rest density of fluid
 rest_density_grid_spacing = 0.8 # (not hot swappable)
 smoothing_length = 0.8 # (not hot swappable)
 disable_particles_below = -30
-viscosity = 0.7
+viscosity = 0.2
 # pseudo_mass_boundary
 boundary_pressure_acceleration_weighting = 0.7 # gamma
 # local pressure
@@ -35,10 +35,10 @@ particle_spacing = 0.85
 [scene.parameters.boundary_particles]
 n_floor_particles_x = 30
 n_floor_particles_y = 30
-n_floor_particles_z = 1
+n_floor_particles_z = 2
 wall_height = 50 # wall is at the edge but above floor
-x_wall_thickness = 1
-y_wall_thickness = 1
+x_wall_thickness = 2
+y_wall_thickness = 2
 x_offset = -2.0
 y_offset = -2.0
 z_offset = -3.0
