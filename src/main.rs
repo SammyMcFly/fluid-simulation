@@ -13,26 +13,21 @@
 //!
 //! flamegraph profiling:
 //! - cargo flamegraph -- ./scene_config.toml
-use std::sync::{Arc, Mutex};
-use clap::Parser;
-use iced_winit::winit::{
-    event_loop::{ControlFlow, EventLoop},
-};
 
-#[cfg(feature = "logging")]
-use tracing::info;
+use clap::Parser;
+use iced_winit::winit::event_loop::{ControlFlow, EventLoop};
+
+// #[cfg(feature = "logging")]
+// use tracing::info; // debug, error, info, span, trace, warn};
 #[cfg(feature = "logging")]
 use tracing::level_filters::LevelFilter;
 #[cfg(feature = "logging")]
 use tracing_subscriber::FmtSubscriber;
-// #[cfg(feature = "logging")]
-// use tracing::debug; // , error, info, span, trace, warn};
 
-pub mod physics;
-mod gui;
-mod mediation;
-mod setup;
-mod measure;
+
+mod app;
+
+use app::messages::WorkerMessage;
 
 
 #[cfg(all(feature = "local_pressure", feature = "global_pressure"))]
@@ -47,17 +42,16 @@ compile_error!("One of the features `local_pressure` and `global_pressure` must 
 #[command(version, about, long_about = None)]
 struct Args {
     /// File path to input .toml file with scene info
-    // #[arg(default_value = "./scene_config.toml")] // short, long,
-    config: String,
+    config: Option<String>,
     /// File path to file with state of all particles of a system, where to start simulating from
-    #[arg(short, long, default_value_t=String::from(""))]
-    state: String,
+    #[arg(short, long)]
+    state: Option<String>,
     /// Log severity level (Options: TRACE, DEBUG, INFO, WARN, ERROR, OFF)
-    #[arg(short, long, default_value_t=String::from("DEBUG"))]
+    #[arg(short, long, default_value_t=String::from("INFO"))]
     log: String,
     /// Store measurements to .csv file
-    #[arg(short, long, default_value_t=String::from(""))]
-    measurement_file: String,
+    #[arg(short, long,)]
+    measurement_file: Option<String>,
 }
 
 /// Init logging
@@ -89,50 +83,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "logging")]
     init_logging(&args);
 
-    let measurement_series = if !args.measurement_file.is_empty() {
-        Some(Arc::new(Mutex::new(measure::MeasurementSeries::default())))
-    } else {
-        None
-    };
-    let moved_measurement_series = measurement_series.clone();
+    // // init queue and controls connecting simulation backend with graphics front end
+    // let controls = Arc::new(Mutex::new(mediation::IntermediateControls::default()));
+    // // clone controls for graphics front end
+    // let controls_front_end = controls.clone();
 
-    // init queue and controls connecting simulation backend with graphics front end
-    let controls = Arc::new(Mutex::new(mediation::IntermediateControls::default()));
-    // clone controls for graphics front end
-    let controls_front_end = controls.clone();
 
-    // load simulation system
-    let (system_at_time_0, buffer_length, int_scheme) = if !args.state.is_empty() {
-        if let Ok((sys_conf, buf_len, int_scheme)) = setup::System3DConfigConstructor::new(&args.config, Some(&args.state), controls.clone(), measurement_series.clone()) {
-            (physics::System3D::new(sys_conf.finish()), buf_len, int_scheme)
-        } else {
-            println!("Invalid state file!");
-            let (sys_conf, buf_len, int_scheme) = setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), measurement_series.clone())
-                .expect("Invalid scene file!");
-            (physics::System3D::new(sys_conf.finish()), buf_len, int_scheme)
-        }
-    } else {
-        let (sys_conf, buf_len, int_scheme) = setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), measurement_series.clone())
-            .expect("Invalid scene file!");
-        (physics::System3D::new(sys_conf.finish()), buf_len, int_scheme)
-    };
-    // pass on initial position for visualization
-    {
-        controls.lock().unwrap().queue_for_visualization(&system_at_time_0.particles, &system_at_time_0.boundary_particles, system_at_time_0.get_average_mass_density());
-    }
+    // // load simulation system
+    // let measurement_series = if !args.measurement_file.is_empty() {
+    //     Some(Arc::new(Mutex::new(backend::measure::MeasurementSeries::default())))
+    // } else {
+    //     None
+    // };
+    // let moved_measurement_series = measurement_series.clone();
+    // let (system_at_time_0, buffer_length, int_scheme) = if !args.state.is_empty() {
+    //     if let Ok((sys_conf, buf_len, int_scheme)) = backend::setup::System3DConfigConstructor::new(&args.config, Some(&args.state), controls.clone(), measurement_series.clone()) {
+    //         (backend::sph::System3D::new(sys_conf.finish()), buf_len, int_scheme)
+    //     } else {
+    //         println!("Invalid state file!");
+    //         let (sys_conf, buf_len, int_scheme) = backend::setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), measurement_series.clone())
+    //             .expect("Invalid scene file!");
+    //         (backend::sph::System3D::new(sys_conf.finish()), buf_len, int_scheme)
+    //     }
+    // } else {
+    //     let (sys_conf, buf_len, int_scheme) = backend::setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), measurement_series.clone())
+    //         .expect("Invalid scene file!");
+    //     (backend::sph::System3D::new(sys_conf.finish()), buf_len, int_scheme)
+    // };
+    // // pass on initial position for visualization
+    // {
+    //     controls.lock().unwrap().queue_for_visualization(&system_at_time_0.particles, &system_at_time_0.boundary_particles, system_at_time_0.get_average_mass_density());
+    // }
 
-    // run simulation in separate thread: Calculate new positions if queue not full
-    let handle = physics::run_system_in_thread(
-        system_at_time_0,
-        buffer_length,
-        int_scheme,
-        controls,
-        args.state,
-        args.config,
-        moved_measurement_series,
-    );
+    // // run simulation in separate thread: Calculate new positions if queue not full
+    // let handle = backend::run_system_in_thread(
+    //     system_at_time_0,
+    //     buffer_length,
+    //     int_scheme,
+    //     controls,
+    //     args.state,
+    //     args.config,
+    //     moved_measurement_series,
+    // );
 
-    let event_loop = EventLoop::new().unwrap();
+    let event_loop = EventLoop::<WorkerMessage>::with_user_event()
+        .build()
+        .expect("Failed to build event loop!");
 
     // ControlFlow::Poll continuously runs the event loop, even if the OS hasn't
     // dispatched any events. This is ideal for games and similar applications.
@@ -143,18 +139,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // input, and uses significantly less power/CPU time than ControlFlow::Poll.
     // event_loop.set_control_flow(ControlFlow::Wait);
 
-    let mut app = gui::StateApplication::new(controls_front_end);
+    let mut app = app::StateApplication::new(&event_loop, args);
 
     let _ = event_loop.run_app(&mut app);
 
-    handle.join().expect("Couldn't join simulation thread");
+    // handle.join().expect("Couldn't join simulation thread");
 
-    // save measurements
-    if let Some(ms) = measurement_series {
-        ms.lock().unwrap().save(&args.measurement_file)?;
-        #[cfg(feature = "logging")]
-        info!("Saved measurements to {}", &args.measurement_file);
-        println!("Saved measurements to {}", &args.measurement_file);
-    }
+    // // save measurements
+    // if let Some(ms) = measurement_series {
+    //     ms.lock().unwrap().save(&args.measurement_file)?;
+    //     #[cfg(feature = "logging")]
+    //     info!("Saved measurements to {}", &args.measurement_file);
+    //     println!("Saved measurements to {}", &args.measurement_file);
+    // }
     Ok(())
 }

@@ -43,6 +43,9 @@ rustc-hash = "2.1.1"
 # command line parser
 clap = {version = "4.5.51", features = ["derive"] }
 
+# for communication between threads
+crossbeam = "0.8.4"
+
 # parsing file content
 serde = { version = "1.0", features = ["derive"] }
 
@@ -56,7 +59,6 @@ csv = "1.4"
 toml = "0.9"
 
 # visualization
-## iced = "0.13.1"
 iced_widget = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4",  package = "iced_widget", features = ["wgpu"]}
 iced_wgpu = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_wgpu" }
 iced_winit = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_winit" }
