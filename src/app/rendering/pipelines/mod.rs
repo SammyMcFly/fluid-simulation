@@ -1,4 +1,4 @@
-//!
+//! Pipelines
 //!
 use iced_wgpu::wgpu;
 

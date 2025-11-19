@@ -1,4 +1,4 @@
-//!
+//! Frame control
 //!
 
 pub struct FrameControl {

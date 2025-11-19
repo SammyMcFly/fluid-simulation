@@ -1,4 +1,4 @@
-//!
+//! Lighting module
 //!
 use iced_wgpu::wgpu;
 use iced_wgpu::wgpu::util::DeviceExt;

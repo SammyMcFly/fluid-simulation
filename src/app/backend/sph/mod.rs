@@ -24,7 +24,7 @@ pub mod uniform_grid;
 
 use crate::app::backend::TimeStepInfo;
 
-use super::measure;
+// use super::measure;
 
 use super::setup;
 
@@ -100,7 +100,6 @@ pub struct SystemProperties {
     average_density: f64,
     fluid_depth: f64,
     viscosity: f64,
-    #[cfg(feature = "pseudo_mass_boundary")]
     boundary_pressure_acceleration_weighting: f64,
     #[cfg(feature = "local_pressure")]
     stiffness: f64,
@@ -113,6 +112,7 @@ pub struct SystemProperties {
 }
 
 impl SystemProperties {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         time_inc: f64,
         rest_density: f64,
@@ -121,7 +121,6 @@ impl SystemProperties {
         disable_particles_below: f64,
         fluid_depth: f64,
         viscosity: f64,
-        #[cfg(feature = "pseudo_mass_boundary")]
         boundary_pressure_acceleration_weighting: f64,
         #[cfg(feature = "local_pressure")]
         stiffness: f64,
@@ -142,7 +141,6 @@ impl SystemProperties {
             average_density,
             fluid_depth,
             viscosity,
-            #[cfg(feature = "pseudo_mass_boundary")]
             boundary_pressure_acceleration_weighting,
             #[cfg(feature = "local_pressure")]
             stiffness,
@@ -702,9 +700,6 @@ impl System3D {
                 // add pressure acceleration from boundary particles
                 for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
                     // select weighting
-                    #[cfg(not(feature = "pseudo_mass_boundary"))]
-                    let weighting = 1.;
-                    #[cfg(feature = "pseudo_mass_boundary")]
                     let weighting = self.properties.boundary_pressure_acceleration_weighting;
                     // select density
                     #[cfg(all(not(feature = "splitting"), not(feature = "global_pressure")))]
@@ -770,9 +765,6 @@ impl System3D {
                 // add pressure acceleration from boundary particles
                 for &boundary_neighbor in &particle.boundary_neighbors.clone() {
                     // select weighting
-                    #[cfg(not(feature = "pseudo_mass_boundary"))]
-                    let weighting = 1.;
-                    #[cfg(feature = "pseudo_mass_boundary")]
                     let weighting = self.properties.boundary_pressure_acceleration_weighting;
                     // select density
                     #[cfg(all(not(feature = "splitting"), not(feature = "global_pressure")))]
@@ -863,9 +855,6 @@ impl System3D {
                     // let particle_density = self.particles[particle_index].density();
 
                     // select weighting
-                    #[cfg(not(feature = "pseudo_mass_boundary"))]
-                    let weighting = 1.;
-                    #[cfg(feature = "pseudo_mass_boundary")]
                     let weighting = self.properties.boundary_pressure_acceleration_weighting;
 
                     int_var -= 2.*weighting
@@ -948,9 +937,6 @@ impl System3D {
                         // let particle_density = self.particles[particle_index].density();
 
                         // select weighting
-                        #[cfg(not(feature = "pseudo_mass_boundary"))]
-                        let weighting = 1.;
-                        #[cfg(feature = "pseudo_mass_boundary")]
                         let weighting = self.properties.boundary_pressure_acceleration_weighting;
 
                         let acc = -weighting
@@ -1088,9 +1074,6 @@ impl System3D {
                     // let particle_density = particle.density();
 
                     // select weighting
-                    #[cfg(not(feature = "pseudo_mass_boundary"))]
-                    let weighting = 1.;
-                    #[cfg(feature = "pseudo_mass_boundary")]
                     let weighting = self.properties.boundary_pressure_acceleration_weighting;
 
                     int_var -= 2.*weighting
@@ -1174,9 +1157,6 @@ impl System3D {
                         // let particle_density = particle.density();
 
                         // select weighting
-                        #[cfg(not(feature = "pseudo_mass_boundary"))]
-                        let weighting = 1.;
-                        #[cfg(feature = "pseudo_mass_boundary")]
                         let weighting = self.properties.boundary_pressure_acceleration_weighting;
 
                         let acc = -weighting

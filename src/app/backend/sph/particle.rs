@@ -448,5 +448,9 @@ impl SerParticle3D {
     pub fn vel_now(&self) -> [f64; 3] {
         self.velocity[0]
     }
+
+    pub fn is_enabled(&self) -> bool {
+        !self.disabled
+    }
 }
 

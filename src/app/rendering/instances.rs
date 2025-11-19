@@ -1,4 +1,4 @@
-//!
+//! Instance definition and store for instances
 //!
 use std::collections::VecDeque;
 use iced_wgpu::wgpu;
@@ -10,7 +10,7 @@ use iced_wgpu::wgpu::util::DeviceExt;
 // }; // error, trace, warn, debug, info,
 
 use crate::app::rendering::model::ToRaw;
-use crate::app::backend::{SimulationInfo, TimeStepInfo};
+use crate::app::backend::TimeStepInfo;
 use crate::app::backend::sph::particle::Positional;
 use crate::app::rendering::ui::controls::ParticleColor;
 
@@ -23,7 +23,7 @@ pub struct Instance {
     pub color: [f32; 3],
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StagingSettings {
     cut: super::controls::Cut,
     is_boundary_hidden: bool,
@@ -43,7 +43,7 @@ impl StagingSettings {
 }
 
 pub struct InstanceStore {
-    pub rendered_info: Option<TimeStepInfo>,
+    pub staged_info: Option<TimeStepInfo>,
     staging_settings: Option<StagingSettings>,
     pub rendered_instances: Option<Vec<Instance>>,
     pub buffer: wgpu::Buffer,
@@ -58,7 +58,7 @@ impl InstanceStore {
         let instance_buffer = Self::create_instance_buffer(gpu_context, rendered_instances.as_deref());
 
         Self {
-            rendered_info: None,
+            staged_info: None,
             staging_settings: None,
             rendered_instances,
             buffer: instance_buffer,
@@ -74,6 +74,7 @@ impl InstanceStore {
         let instance_data = if let Some(inst) = instances && !inst.is_empty() {
             inst.iter().map(Instance::to_raw).collect::<Vec<_>>()
         } else {
+            // println!("is none or empty!");
             vec![super::model::InstanceRaw::new(
                 [
                     [1.0,0.0,0.0,0.0],
@@ -94,23 +95,16 @@ impl InstanceStore {
         )
     }
 
-    pub fn update_length_limit(&mut self, info: &SimulationInfo) {
-        self.length_limit = info.buffer_length_limit;
-    }
-
-    fn info_to_instances(
-        &mut self,
-        cut: &super::controls::Cut,
-        is_boundary_hidden: bool,
-        particle_color: &ParticleColor,
-        boundary_particle_color: &ParticleColor,
-    ) {
-        if let Some(info) = &self.rendered_info {
+    fn info_to_instances(&mut self,) {
+        if let Some(info) = &self.staged_info {
             let info = info.clone();
+            let settings = self.staging_settings.as_ref().unwrap().clone();
             self.rendered_instances = Some(info.fluid.into_iter().filter(|particle| {
-                cut.cut(particle)
+                settings.cut.cut(particle)
+            }).filter(|particle| {
+                particle.is_enabled()
             }).map(|particle| {
-                let color = match particle_color {
+                let color = match settings.particle_color {
                     ParticleColor::VelocityGraded => {
                         let whiteness = f64::min(
                             (particle.vel_now()[0].powi(2)+particle.vel_now()[1].powi(2)+particle.vel_now()[2].powi(2)).powf(0.5)/10.,
@@ -118,7 +112,7 @@ impl InstanceStore {
                         );
                         [ whiteness as f32, whiteness as f32, 1. ]
                     },
-                    ParticleColor::FixedColor(color) => *color,
+                    ParticleColor::FixedColor(color) => color,
                 };
                 Instance {
                     // flip y and z coordinate
@@ -126,11 +120,11 @@ impl InstanceStore {
                     color,
                 }
             }).collect());
-            if !is_boundary_hidden {
+            if !settings.is_boundary_hidden {
                 self.rendered_instances.as_mut().unwrap().extend(info.boundary.into_iter().filter(|particle| {
-                    cut.cut(particle)
+                    settings.cut.cut(particle)
                 }).map(|particle| {
-                    let color = match boundary_particle_color {
+                    let color = match settings.boundary_particle_color {
                     ParticleColor::VelocityGraded => {
                             #[cfg(not(feature = "global_pressure"))]
                             let vel = 0.;
@@ -139,7 +133,7 @@ impl InstanceStore {
                             let whiteness = f64::min(vel/10., 1.,);
                             [ whiteness as f32, whiteness as f32, 1. ]
                         },
-                        ParticleColor::FixedColor(color) => *color,
+                        ParticleColor::FixedColor(color) => color,
                     };
                     Instance {
                         // flip y and z coordinate
@@ -156,12 +150,12 @@ impl InstanceStore {
     }
 
     pub fn get_info(&self) -> Option<TimeStepInfo> {
-        self.rendered_info.clone()
+        self.staged_info.clone()
     }
 
     /// Get time increment
     pub fn get_time_inc(&self) -> f32 {
-        if let Some(info) = &self.rendered_info {
+        if let Some(info) = &self.staged_info {
             info.time_inc
         } else {
             0.
@@ -173,12 +167,11 @@ impl InstanceStore {
         gpu_context: &super::gpu_context::GpuContext,
         staging_settings: &StagingSettings,
     ) {
-        if let Some(sta_set) = &self.staging_settings {
-            if *staging_settings != *sta_set {
-                self.staging_settings = Some(sta_set.clone());
-                self.info_to_instances(&staging_settings.cut, staging_settings.is_boundary_hidden, &staging_settings.particle_color, &staging_settings.boundary_particle_color);
-                self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
-            }
+        if let Some(sta_set) = &self.staging_settings && *staging_settings != *sta_set {
+            // println!("not eq \n{:?}, \n{:?}", *staging_settings, *sta_set);
+            self.staging_settings = Some(staging_settings.clone());
+            self.info_to_instances();
+            self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
         }
     }
 
@@ -187,7 +180,7 @@ impl InstanceStore {
         gpu_context: &super::gpu_context::GpuContext,
         staging_settings: &StagingSettings,
         take: usize,
-    ) -> Result<usize, ()>{
+    ) -> Option<usize>{
         let mut taken = 0;
         if take >= 1 {
             // skip instances
@@ -199,35 +192,30 @@ impl InstanceStore {
             }
             // take instance
             if let Some(ts_info) = self.info_queue.pop_front() {
-                self.rendered_info = Some(ts_info);
+                self.staged_info = Some(ts_info);
                 self.staging_settings = Some(staging_settings.clone());
-                self.info_to_instances(
-                    &staging_settings.cut,
-                    staging_settings.is_boundary_hidden,
-                    &staging_settings.particle_color,
-                    &staging_settings.boundary_particle_color,
-                );
+                self.info_to_instances();
                 self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
-                Ok(taken+1)
+                Some(taken+1)
             } else {
-                Err(())
+                None
             }
         } else {
-            Err(())
+            None
         }
     }
 
     pub fn clear(&mut self, gpu_context: &super::gpu_context::GpuContext) {
         self.info_queue.clear();
 
-        self.rendered_info = None;
+        self.staged_info = None;
         self.staging_settings = None;
         self.rendered_instances = None;
         self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
     }
 
     pub fn is_empty(&self) -> bool {
-        self.rendered_info.is_none()
+        self.staged_info.is_none()
     }
 
     pub fn queue_len(&self) -> usize {

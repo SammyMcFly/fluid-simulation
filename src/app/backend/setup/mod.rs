@@ -33,7 +33,6 @@ pub struct Parameters {
     pub smoothing_length: f64,
     pub disable_particles_below: f64,
     pub viscosity: f64,
-    #[cfg(feature = "pseudo_mass_boundary")]
     pub boundary_pressure_acceleration_weighting: f64,
     #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
@@ -133,7 +132,6 @@ impl System3DConfigConstructor {
             self.config.parameters.disable_particles_below,
             self.config.scene.calc_fluid_depth(self.config.parameters.rest_density_grid_spacing),
             self.config.parameters.viscosity,
-            #[cfg(feature = "pseudo_mass_boundary")]
             self.config.parameters.boundary_pressure_acceleration_weighting,
             #[cfg(feature = "local_pressure")]
             self.config.parameters.stiffness,
@@ -194,7 +192,7 @@ impl System3DConfigConstructor {
             rest_density: constructor.config.parameters.rest_density as f32,
             light_position: constructor.config.light.position,
             particle_color: ParticleColor::default(),
-            boundary_particle_color: ParticleColor::default(),
+            boundary_particle_color: ParticleColor::FixedColor([0.; 3]),
             integration_scheme: constructor.config.parameters.integration_scheme.clone(),
             buffer_length_limit: constructor.config.parameters.buffer_length_limit,
         };

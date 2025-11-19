@@ -42,14 +42,15 @@ impl StateApplication {
         }));
 
         // send commands to backend depending on user input (args)
-        if args.config.is_some() {
+        // if args.config.is_some() {
             to_worker.send(WorkerCommand::Simulate {
-                config: args.config.unwrap(),
+                // config: args.config.unwrap(),
+                config: args.config,
                 state: args.state.clone(),
                 measure: args.measurement_file.clone(),
                 finish_time: None,
             }).unwrap();
-        }
+        // }
 
         Self {
             state: Option::default(),
@@ -119,7 +120,15 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                 self.state.as_mut().unwrap().received_new_time_step(ts_info);
             },
             WorkerMessage::SimulationLoaded(sim_info) => {
-                self.state.as_mut().unwrap().new_simulation(sim_info, &self.to_worker);
+                self.state.as_mut().unwrap().new_simulation(sim_info.clone());
+                // tell backend to simulate and return "buffer_length_limit" number
+                // of states in time,
+                // minus 1 for the initial state that is sent immediately, anyway,
+                // any will be registered as new state:
+                // it will be dequeued and a replacement will be requested automatically
+                self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
+                    sim_info.buffer_length_limit-1
+                )).unwrap();
             },
             WorkerMessage::SavedState => (),
             // WorkerMessage::SavedMeasurement => (),

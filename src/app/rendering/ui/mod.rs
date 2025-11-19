@@ -118,6 +118,7 @@ impl UIState {
     }
 
     pub fn process_keyboard(&mut self, key: &winit::keyboard::KeyCode, state: &winit::event::ElementState) {
+        #![allow(clippy::single_match)]
         match key {
             winit::keyboard::KeyCode::KeyK => {
                 if *state == winit::event::ElementState::Pressed {

@@ -16,7 +16,7 @@ impl ModelAssets {
         particle_diameter: f32,
     ) -> Result<Self, tobj::LoadError> {
         Ok(Self {
-            sphere_mesh: Model::load_model("./src/gui/rendering/model/sphere.obj", gpu_context, particle_diameter)?,
+            sphere_mesh: Model::load_model("./src/app/rendering/model/sphere.obj", gpu_context, particle_diameter)?,
         })
     }
 }

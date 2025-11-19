@@ -42,7 +42,8 @@ compile_error!("One of the features `local_pressure` and `global_pressure` must 
 #[command(version, about, long_about = None)]
 struct Args {
     /// File path to input .toml file with scene info
-    config: Option<String>,
+    #[arg(default_value_t=String::from("scene_config.toml"))]
+    config: String,
     /// File path to file with state of all particles of a system, where to start simulating from
     #[arg(short, long)]
     state: Option<String>,
@@ -83,49 +84,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "logging")]
     init_logging(&args);
 
-    // // init queue and controls connecting simulation backend with graphics front end
-    // let controls = Arc::new(Mutex::new(mediation::IntermediateControls::default()));
-    // // clone controls for graphics front end
-    // let controls_front_end = controls.clone();
-
-
-    // // load simulation system
-    // let measurement_series = if !args.measurement_file.is_empty() {
-    //     Some(Arc::new(Mutex::new(backend::measure::MeasurementSeries::default())))
-    // } else {
-    //     None
-    // };
-    // let moved_measurement_series = measurement_series.clone();
-    // let (system_at_time_0, buffer_length, int_scheme) = if !args.state.is_empty() {
-    //     if let Ok((sys_conf, buf_len, int_scheme)) = backend::setup::System3DConfigConstructor::new(&args.config, Some(&args.state), controls.clone(), measurement_series.clone()) {
-    //         (backend::sph::System3D::new(sys_conf.finish()), buf_len, int_scheme)
-    //     } else {
-    //         println!("Invalid state file!");
-    //         let (sys_conf, buf_len, int_scheme) = backend::setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), measurement_series.clone())
-    //             .expect("Invalid scene file!");
-    //         (backend::sph::System3D::new(sys_conf.finish()), buf_len, int_scheme)
-    //     }
-    // } else {
-    //     let (sys_conf, buf_len, int_scheme) = backend::setup::System3DConfigConstructor::new(&args.config, None, controls.clone(), measurement_series.clone())
-    //         .expect("Invalid scene file!");
-    //     (backend::sph::System3D::new(sys_conf.finish()), buf_len, int_scheme)
-    // };
-    // // pass on initial position for visualization
-    // {
-    //     controls.lock().unwrap().queue_for_visualization(&system_at_time_0.particles, &system_at_time_0.boundary_particles, system_at_time_0.get_average_mass_density());
-    // }
-
-    // // run simulation in separate thread: Calculate new positions if queue not full
-    // let handle = backend::run_system_in_thread(
-    //     system_at_time_0,
-    //     buffer_length,
-    //     int_scheme,
-    //     controls,
-    //     args.state,
-    //     args.config,
-    //     moved_measurement_series,
-    // );
-
     let event_loop = EventLoop::<WorkerMessage>::with_user_event()
         .build()
         .expect("Failed to build event loop!");
@@ -143,14 +101,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ = event_loop.run_app(&mut app);
 
-    // handle.join().expect("Couldn't join simulation thread");
-
-    // // save measurements
-    // if let Some(ms) = measurement_series {
-    //     ms.lock().unwrap().save(&args.measurement_file)?;
-    //     #[cfg(feature = "logging")]
-    //     info!("Saved measurements to {}", &args.measurement_file);
-    //     println!("Saved measurements to {}", &args.measurement_file);
-    // }
     Ok(())
 }

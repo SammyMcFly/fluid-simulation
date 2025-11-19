@@ -1,4 +1,4 @@
-//!
+//! GPU related code
 //!
 use std::sync::Arc;
 use iced_winit::winit;

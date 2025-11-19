@@ -84,12 +84,7 @@ impl PlaybackState {
     }
 
     pub fn is_playing(&self) -> bool {
-        match self {
-            Self::Resumed => {
-                true
-            },
-            _ => false,
-        }
+        matches!(self, Self::Resumed)
     }
 }
 

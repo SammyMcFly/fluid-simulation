@@ -15,8 +15,9 @@ use crate::app::messages::WorkerMessage;
 
 pub mod sph;
 pub mod setup;
-pub mod measure;
 pub mod commands;
+// pub mod measure;
+
 
 
 

@@ -62,46 +62,6 @@ pub struct AppState {
     pub ui: ui::UIState,
     pub messages: Vec<UserInput>,
     pub frame: frame_control::FrameControl,
-
-
-    // surface: wgpu::Surface<'static>,
-    // device: Device,
-    // queue: Queue,
-    // config: SurfaceConfiguration,
-    // depth_texture: model::Texture,
-
-    // sphere: model::Model,
-
-    // particles: Vec<super::mediation::Instance>,
-    // boundary_particles: Vec<super::mediation::Instance>,
-    // rendered_instances: Vec<super::mediation::Instance>,
-    // rendered_instance_buffer: wgpu::Buffer,
-
-    // camera: camera::Camera,
-    // projection: camera::Projection,
-    // camera_controller: camera::CameraController,
-
-    // camera_uniform: camera::CameraUniform,
-    // camera_buffer: wgpu::Buffer,
-    // camera_bind_group: wgpu::BindGroup,
-
-
-    // light_uniform: model::LightUniform,
-    // light_buffer: wgpu::Buffer,
-    // light_bind_group: BindGroup,
-
-    // render_pipeline: RenderPipeline,
-    // light_render_pipeline: RenderPipeline,
-
-    // renderer: Renderer,
-
-    // uicontrols: UIControls,
-    // events: Vec<Event>,
-    // cache: user_interface::Cache,
-    // modifiers: ModifiersState,
-    // cursor: mouse::Cursor,
-    // mouse_right_button_pressed: bool,
-    // clipboard: Clipboard,
 }
 
 impl AppState {
@@ -116,35 +76,10 @@ impl AppState {
             window_arc.scale_factor(),
         );
 
-
-        // let instance = Self::create_gpu_instance();
-        // let surface = instance.create_surface(window_arc.clone()).unwrap();
-        // let adapter = Self::create_adapter(instance, &surface);
-        // let (device, queue) = Self::create_device(&adapter);
-        // let surface_caps = surface.get_capabilities(&adapter);
-        // let config = Self::create_surface_config(size, surface_caps);
-        // surface.configure(&device, &config);
-        // let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
         let gpu = gpu_context::GpuContext::new(window_arc.clone(), size);
 
-        // let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
-        // let projection = camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
-        // let camera_controller = camera::CameraController::new(4.0, 0.4);
-
-        // let mut camera_uniform = camera::CameraUniform::default(); // edit?
-        // camera_uniform.update_view_proj(&camera, &projection);
-
-        // let camera_buffer = Self::create_uniform_buffer(&device, camera_uniform, "Camera Buffer");
-
-        // let camera_bind_group_layout = Self::create_bind_group_layout(&device, "camera_bind_group_layout");
-        // let camera_bind_group = Self::create_bind_group(&device, &camera_bind_group_layout, &camera_buffer, "camera_bind_group");
         let camera = camera::CameraBundle::new(&gpu, CAMERA_POSITION, YAW, PITCH, SPEED, SENSITIVITY, FOVY, ZNEAR, ZFAR);
 
-        // let light_uniform = model::LightUniform::new(light_position); // edit?
-
-        // let light_buffer = Self::create_uniform_buffer(&device, light_uniform, "Light Buffer");
-        // let light_bind_group_layout = Self::create_bind_group_layout(&device, "light_bind_group_layout");
-        // let light_bind_group = Self::create_bind_group(&device, &light_bind_group_layout, &light_buffer, "light_bind_group");
         let light = lighting::LightBundle::new(&gpu, LIGHT_POSITION, LIGHT_COLOR);
 
         let pipelines = pipelines::Pipelines::new(
@@ -154,46 +89,6 @@ impl AppState {
             Some(gpu_context::Texture::DEPTH_FORMAT),
             &[model::ModelVertex::desc(), model::InstanceRaw::desc()],
         );
-        // let render_pipeline = {
-        //     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        //         label: Some("Render Pipeline Layout"),
-        //         bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
-        //         push_constant_ranges: &[],
-        //     });
-        //     let shader = wgpu::ShaderModuleDescriptor {
-        //         label: Some("Normal Shader"),
-        //         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        //     };
-        //     Self::create_render_pipeline(
-        //         &device,
-        //         &layout,
-        //         config.format,
-        //         Some(Texture::DEPTH_FORMAT),
-        //         &[model::ModelVertex::desc(), model::InstanceRaw::desc()],
-        //         shader,
-        //     )
-        // };
-
-
-        // let light_render_pipeline = {
-        //     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        //         label: Some("Light Pipeline Layout"),
-        //         bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
-        //         push_constant_ranges: &[],
-        //     });
-        //     let shader = wgpu::ShaderModuleDescriptor {
-        //         label: Some("Light Shader"),
-        //         source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
-        //     };
-        //     Self::create_render_pipeline(
-        //         &device,
-        //         &layout,
-        //         config.format,
-        //         Some(Texture::DEPTH_FORMAT),
-        //         &[model::ModelVertex::desc()],
-        //         shader,
-        //     )
-        // };
 
         // let sphere = model::load_model("./src/gui/model/sphere.obj", &device, sphere_size).unwrap();
         let particle_diameter = 1.0;
@@ -293,6 +188,7 @@ impl AppState {
         self.ui.cache = interface.into_cache();
     }
 
+    #[allow(clippy::single_match)]
     fn process_keyboard(&mut self, event: &winit::event::WindowEvent,) {
         match event {
             WindowEvent::KeyboardInput {
@@ -324,119 +220,6 @@ impl AppState {
         self.camera.process_device_event(event, self.ui.mouse_right_button_pressed);
     }
 
-    // /// modify State's state depending on input
-    // pub fn input(&mut self, event: &WindowEvent) -> bool {
-        // // Map window event to iced event
-        // if let Some(event) = iced_winit::conversion::window_event(
-        //     event.clone(),
-        //     self.window.scale_factor(),
-        //     self.ui.modifiers,
-        // ) {
-        //     self.ui.events.push(event);
-        // }
-        // // If there are events pending
-        // if !self.ui.events.is_empty() {
-        //     self.process_events()
-        // }
-        // match event {
-        //     WindowEvent::KeyboardInput {
-        //         event:
-        //             winit::event::KeyEvent {
-        //                 physical_key: winit::keyboard::PhysicalKey::Code(key),
-        //                 state,
-        //                 ..
-        //             },
-        //         ..
-        //     } => {
-        //         self.camera.as_mut().unwrap().controller.process_keyboard(*key, *state) || self.process_keyboard(key, state)
-        //     },
-            // WindowEvent::MouseWheel { delta, .. } => {
-            //     self.camera.as_mut().unwrap().controller.process_scroll(delta);
-            //     true
-            // }
-    //         WindowEvent::MouseInput {
-    //             button: winit::event::MouseButton::Right,
-    //             state,
-    //             ..
-    //         } => {
-    //             self.ui.mouse_right_button_pressed = *state == winit::event::ElementState::Pressed;
-    //             true
-    //         }
-    //         WindowEvent::CursorMoved { position, .. } => {
-    //             self.ui.cursor =
-    //                 iced_winit::core::mouse::Cursor::Available(iced_winit::conversion::cursor_position(
-    //                     *position,
-    //                     self.viewport.scale_factor(),
-    //                 ));
-    //             true
-    //         }
-    //         WindowEvent::ModifiersChanged(new_modifiers) => {
-    //             self.ui.modifiers = new_modifiers.state();
-    //             true
-    //         }
-    //         _ => false,
-    //     }
-    // }
-    //     self.ui.view = self.ui.view();
-    //     // Process events
-    //     let mut interface = UserInterface::build(
-    //         self.ui.controls.view(),
-    //         self.viewport.logical_size(),
-    //         std::mem::take(&mut self.ui.cache),
-    //         &mut self.ui.renderer,
-    //     );
-
-    //     let mut messages = Vec::new();
-
-    //     let _ = interface.update(
-    //         &self.ui.events,
-    //         self.ui.cursor,
-    //         &mut self.ui.renderer,
-    //         &mut self.ui.clipboard,
-    //         &mut messages,
-    //     );
-
-    //     self.ui.events.clear();
-    //     self.ui.cache = interface.into_cache();
-
-    //     // update our UI with any messages
-    //     for message in messages {
-    //         self.ui.controls.update(message);
-    //     }
-
-    //     // and request a redraw
-    //     self.window.request_redraw();
-    // }
-
-    // // TODO move and unify this into/with controls
-    // fn process_keyboard(&mut self, key: &winit::keyboard::KeyCode, state: &winit::event::ElementState) -> bool {
-    //     match key {
-    //         winit::keyboard::KeyCode::KeyK => {
-    //             if *state == winit::event::ElementState::Pressed {
-    //                 // if cfg!(feature = "logging") {
-    //                 //     debug!("K pressed");
-    //                 // }
-    //                 self.ui.controls.play_pause.toggle();
-    //                 true
-    //             } else {
-    //                 false
-    //             }
-    //         }
-    //         winit::keyboard::KeyCode::KeyR => {
-    //             if *state == winit::event::ElementState::Pressed {
-    //                 // if cfg!(feature = "logging") {
-    //                 //     debug!("R pressed");
-    //                 // }
-    //                 self.ui.controls.update(super::ui::UserInput::RequestReset);
-    //                 true
-    //             } else {
-    //                 false
-    //             }
-    //         }
-    //         _ => false,
-    //     }
-    // }
-
     /// Update buffer for next rendering step (consider new state of State)
     pub fn update(
         &mut self,
@@ -459,7 +242,7 @@ impl AppState {
                 UserInput::StepInTime => {
                     self.frame.step();
                     #[cfg(feature = "logging")]
-                    info!("Step in time");
+                    debug!("Pressed Step!");
                 }
                 UserInput::RequestReset => {
                     to_worker.send(WorkerCommand::Reset).unwrap();
@@ -479,6 +262,8 @@ impl AppState {
                 },
                 UserInput::ToggleDisplayState => {
                     self.frame.reset_steps();
+                    #[cfg(feature = "logging")]
+                    debug!("Toggled Play/Pause!");
                     // control is update in ui.update not here
                 }
                 _ => (),
@@ -503,7 +288,7 @@ impl AppState {
 
 
 
-    pub fn new_simulation(&mut self, info: SimulationInfo, to_worker: &Sender<WorkerCommand>,) {
+    pub fn new_simulation(&mut self, info: SimulationInfo,) {
         match model::ModelAssets::new(&self.gpu, info.particle_diameter) {
             Ok(model) => self.model = model,
             Err(e) => panic!("Failed to load sphere: {}", e),
@@ -511,13 +296,8 @@ impl AppState {
         self.camera.reset(&self.gpu);
         self.light.set_light(&self.gpu, info.light_position, LIGHT_COLOR);
         self.instances = instances::InstanceStore::new(&self.gpu, info.buffer_length_limit);
-        self.instances.update_length_limit(&info);
         self.ui.new_simulation(info);
-        self.frame.step();
-
-        to_worker.send(WorkerCommand::AddTimeStepsToCompute(
-            self.instances.length_limit-self.instances.queue_len()
-        )).unwrap();
+        self.frame.reset();
     }
 
     // might panic
@@ -551,7 +331,7 @@ impl AppState {
             self.ui.controls.boundary_particle_color,
         );
         // get next rendered instances
-        if let Ok(taken) = self.instances.stage_next(
+        if let Some(taken) = self.instances.stage_next(
             &self.gpu,
             &staging_settings,
             take,

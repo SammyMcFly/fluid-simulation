@@ -274,6 +274,7 @@ pub struct CameraBundle {
 }
 
 impl CameraBundle {
+    #![allow(clippy::too_many_arguments)]
     pub fn new<
         V: Into<Point3<f32>> + Clone,
         Y: Into<Rad<f32>> + Clone,
@@ -395,6 +396,7 @@ impl CameraBundle {
     }
 
     pub fn process_device_event(&mut self, event: &winit::event::DeviceEvent, mouse_right_button_pressed: bool,) {
+        #[allow(clippy::single_match)]
         match event {
             DeviceEvent::MouseMotion{ delta, } => {
                 if mouse_right_button_pressed {
@@ -421,7 +423,7 @@ impl CameraBundle {
 
     pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext,) {
         self.camera = Camera::new(self.params.position, self.params.yaw, self.params.pitch);
-        self.projection = Projection::new(gpu_context.config.width, gpu_context.config.height, cgmath::Deg(45.0), 0.1, 100.0);
+        self.projection = Projection::new(gpu_context.config.width, gpu_context.config.height, self.params.fovy, self.params.znear, self.params.zfar);
         self.controller = CameraController::new(self.params.speed, self.params.sensitivity);
 
         self.uniform = CameraUniform::default(); // edit?
