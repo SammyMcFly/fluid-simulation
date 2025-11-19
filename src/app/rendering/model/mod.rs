@@ -3,6 +3,10 @@ use iced_wgpu::wgpu::util::DeviceExt;
 use iced_wgpu::wgpu;
 
 
+// Include the .obj file inside the binary so there is no dependency at runtime
+const SPHERE_DATA: &str = include_str!("sphere.obj");
+
+
 
 pub struct ModelAssets {
     pub sphere_mesh: Model,
@@ -16,7 +20,7 @@ impl ModelAssets {
         particle_diameter: f32,
     ) -> Result<Self, tobj::LoadError> {
         Ok(Self {
-            sphere_mesh: Model::load_model("./src/app/rendering/model/sphere.obj", gpu_context, particle_diameter)?,
+            sphere_mesh: Model::load_model(gpu_context, particle_diameter)?,
         })
     }
 }
@@ -150,24 +154,21 @@ pub struct Model {
 
 impl Model {
     pub fn load_model(
-        file_name: &str,
         gpu_context: &super::gpu_context::GpuContext,
         scaling: f32,
     ) -> Result<Model, tobj::LoadError> {
-        // let obj_text = load_string(file_name).await?;
-        // let obj_cursor = Cursor::new(obj_text);
-        // let mut obj_reader = BufReader::new(obj_cursor);
-
-        let (models, _) = tobj::load_obj(
-            file_name,
+        let mut cursor = std::io::Cursor::new(SPHERE_DATA.as_bytes());
+        let (models, _) = tobj::load_obj_buf(
+            &mut cursor,
             &tobj::LoadOptions {
                 triangulate: true,
                 single_index: true,
                 ..Default::default()
             },
-        ).expect("Failed to OBJ load file");
-
-        // let mut materials = Vec::new();
+            |_mtl_path: &std::path::Path| -> Result<(Vec<tobj::Material>, std::collections::HashMap<String, usize>), tobj::LoadError> {
+                Ok((Vec::new(), std::collections::HashMap::new()))
+            },
+        )?;
 
         let meshes = models
             .into_iter()
@@ -203,18 +204,18 @@ impl Model {
                     .collect::<Vec<_>>();
 
                 let vertex_buffer = gpu_context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(&format!("{:?} Vertex Buffer", file_name)),
+                    label: Some("Sphere Index Buffer"),
                     contents: bytemuck::cast_slice(&vertices),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
                 let index_buffer = gpu_context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(&format!("{:?} Index Buffer", file_name)),
+                    label: Some("Sphere Index Buffer"),
                     contents: bytemuck::cast_slice(&m.mesh.indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
 
                 Mesh {
-                    name: file_name.to_string(),
+                    name: "sphere".to_string(),
                     vertex_buffer,
                     index_buffer,
                     num_elements: m.mesh.indices.len() as u32,
