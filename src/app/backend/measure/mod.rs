@@ -25,34 +25,40 @@ pub struct Measurement {
 }
 
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct MeasurementSeries {
-    length: u32,
+    /// Container for intermediate storage of measurements
     queue: VecDeque<Measurement>,
+    /// File path to store measurement series to
+    file_path: String,
 }
 
 impl MeasurementSeries {
+    pub fn new(file: &str) -> Self {
+        Self { queue: VecDeque::default(), file_path: file.to_string() }
+    }
+    pub fn get_path(&self) -> String {
+        self.file_path.clone()
+    }
     pub fn push_back(&mut self, value: Measurement) {
-        self.length += 1;
         self.queue.push_back(value);
     }
-    pub fn pop_front(&mut self) -> Option<Measurement> {
-        self.length -= 1;
-        self.queue.pop_front()
-    }
+    // pub fn pop_front(&mut self) -> Option<Measurement> {
+    //     self.queue.pop_front()
+    // }
     pub fn clear(&mut self) {
-        self.length = 0;
         self.queue.clear();
     }
-    pub fn is_empty(&self) -> bool {
-        self.length == 0
-    }
-    pub fn len(&self) -> u32 {
-        self.length
-    }
-    pub fn save(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let file_path = std::path::Path::new(path);
-
+    // pub fn is_empty(&self) -> bool {
+    //     self.queue.is_empty()
+    // }
+    // pub fn len(&self) -> usize {
+    //     self.queue.len()
+    // }
+    pub fn save(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let file_path = std::path::Path::new(&self.file_path);
+        // convert to global path
+        let file_path = std::fs::canonicalize(file_path)?;
         // Get the parent directory
         if let Some(parent) = file_path.parent() {
             // Create the parent directory if it doesn't exist
@@ -63,11 +69,9 @@ impl MeasurementSeries {
         }
         let file = std::fs::File::create(file_path)?;
         let mut wtr = csv::Writer::from_writer(file);
-
         for measurement in &self.queue {
             wtr.serialize(measurement)?;
         }
-
         wtr.flush()?;
         Ok(())
     }

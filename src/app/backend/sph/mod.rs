@@ -22,11 +22,11 @@ use spring::*;
 
 pub mod uniform_grid;
 
-use crate::app::backend::TimeStepInfo;
-
-// use super::measure;
-
+use super::TimeStepInfo;
+use super::measure;
 use super::setup;
+
+
 
 /// Calculate the distance between two 3D points
 pub fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
@@ -162,13 +162,13 @@ impl SystemProperties {
 #[derive(Debug, Clone)]
 pub struct System3D {
     /// Collection of all fluid particles
-    pub particles: Vec<Particle3D>,
+    particles: Vec<Particle3D>,
     /// Uniform grid for fluid particles
     ///
     /// Accelerates neighbor search
     particle_grid: uniform_grid::UniformGrid,
     /// Collection of all boundary (not moving) particles
-    pub boundary_particles: Vec<BoundaryParticle3D>,
+    boundary_particles: Vec<BoundaryParticle3D>,
     /// Uniform grid for boundary particles
     ///
     /// Accelerates neighbor search
@@ -183,7 +183,6 @@ pub struct System3D {
     time_steps_propagated: u64,
     /// Properties of the system
     properties: SystemProperties,
-    // measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
 }
 
 impl System3D {
@@ -208,8 +207,6 @@ impl System3D {
         system.init_boundary_mass();
         // Update uniform grid
         system.update();
-        // take initial measurement
-        system.measure();
         system
     }
 
@@ -249,11 +246,11 @@ impl System3D {
         }
     }
 
-    pub fn _get_time_increment(&self) -> f64 {
-        self.properties.time_increment
-    }
+    // pub fn get_time_increment(&self) -> f64 {
+    //     self.properties.time_increment
+    // }
 
-    pub fn _time(&self) -> f64 {
+    pub fn time(&self) -> f64 {
         (self.time_steps_propagated as f64)*self.properties.time_increment
     }
 
@@ -275,7 +272,7 @@ impl System3D {
     }
 
     /// Calculate average kinetic energy for all fluid particles
-    fn _calc_average_kinetic_energy(&self) -> f64 {
+    fn calc_average_kinetic_energy(&self) -> f64 {
         let mut average_kin_energy = 0.;
         let mut count = 0.;
         for particle in &self.particles {
@@ -1395,8 +1392,6 @@ impl System3D {
         self.time_steps_propagated += 1;
         // Update uniform grid
         self.update();
-        // Measure (physical) quantities at current time step
-        self.measure();
     }
 
     /// Update particle properties and uniform grid
@@ -1418,7 +1413,8 @@ impl System3D {
         self.calc_acceleration();
     }
 
-    fn measure(&mut self) {
+    /// Measure (physical) quantities at current time step
+    pub fn push_back_measurement(&mut self, series: &mut measure::MeasurementSeries) {
         self.properties.average_density = self.calc_average_mass_density();
         // if cfg!(feature = "logging") {
         //     debug!("{}, {}", self.properties.average_density, self.properties.rest_density);
@@ -1427,29 +1423,20 @@ impl System3D {
         //     debug!("time: {}, cfl coefficient: {}, max speed: {}", self.time(), cfl_coeff, max_speed);
         // }
 
-        // if let Some(ms) = &self.measurement_series {
-        //     let measurement = measure::Measurement {
-        //         time: self.time(),
-        //         density: self.properties.average_density/self.properties.rest_density,
-        //         kinetic_energy: self.calc_average_kinetic_energy(),
-        //         #[cfg(feature = "local_pressure")]
-        //         stiffness: self.properties.stiffness,
-        //         viscosity: self.properties.viscosity,
-        //         fluid_depth: self.properties.fluid_depth,
-        //         rest_density_grid_spacing: self.properties.rest_density_grid_spacing,
-        //         smoothing_length: self.properties.smoothing_length,
-        //         rest_density: self.properties.rest_density,
-        //         time_step_size: self.properties.time_inc,
-        //     };
-        //     ms.lock().unwrap().push_back(measurement);
-        // }
+        series.push_back(measure::Measurement {
+            time: self.time(),
+            density: self.properties.average_density/self.properties.rest_density,
+            kinetic_energy: self.calc_average_kinetic_energy(),
+            #[cfg(feature = "local_pressure")]
+            stiffness: self.properties.stiffness,
+            viscosity: self.properties.viscosity,
+            fluid_depth: self.properties.fluid_depth,
+            rest_density_grid_spacing: self.properties.rest_density_grid_spacing,
+            smoothing_length: self.properties.smoothing_length,
+            rest_density: self.properties.rest_density,
+            time_step_size: self.properties.time_increment,
+        });
     }
-
-    // pub fn get_average_mass_density(&self) -> f32 { // todo: remove?
-    //     // #[cfg(feature = "logging")]
-    //     // debug!("average mass density: {}", self.properties.average_density as f32);
-    //     self.properties.average_density as f32
-    // }
 
     fn get_serializable_particles(&self) -> Vec<SerParticle3D> {
         self.particles.clone().into_iter().map(|p| p.into()).collect()

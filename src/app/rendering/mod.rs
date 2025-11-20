@@ -11,7 +11,6 @@ use iced_wgpu::graphics::Viewport;
 
 #[cfg(feature = "logging")]
 use tracing::{
-    info,
     debug,
 }; // error, trace, warn, debug, info,
 
@@ -140,7 +139,7 @@ impl AppState {
             self.camera.projection.resize(new_size.width, new_size.height);
             self.gpu.surface.configure(&self.gpu.device, &self.gpu.config,);
             #[cfg(feature = "logging")]
-            info!("Resized to {:?}", new_size)
+            debug!("Resized to {:?}", new_size)
         }
     }
 
@@ -253,7 +252,7 @@ impl AppState {
                 UserInput::RequestSaving => {
                     if !self.instances.is_empty() {
                         to_worker.send(
-                            WorkerCommand::Save {
+                            WorkerCommand::SaveState {
                                 particles: self.instances.get_info().unwrap().fluid,
                                 filepath: "./state.ron".to_string()
                             }

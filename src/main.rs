@@ -13,7 +13,6 @@
 //!
 //! flamegraph profiling:
 //! - cargo flamegraph -- ./scene_config.toml
-
 use clap::Parser;
 use iced_winit::winit::event_loop::{ControlFlow, EventLoop};
 
@@ -23,7 +22,6 @@ use iced_winit::winit::event_loop::{ControlFlow, EventLoop};
 use tracing::level_filters::LevelFilter;
 #[cfg(feature = "logging")]
 use tracing_subscriber::FmtSubscriber;
-
 
 mod app;
 
@@ -42,8 +40,8 @@ compile_error!("One of the features `local_pressure` and `global_pressure` must 
 #[command(version, about, long_about = None)]
 struct Args {
     /// File path to input .toml file with scene info
-    #[arg(default_value_t=String::from("scene_config.toml"))]
-    config: String,
+    // #[arg(default_value_t=String::from("scene_config.toml"))]
+    config: Option<String>,
     /// File path to file with state of all particles of a system, where to start simulating from
     #[arg(short, long)]
     state: Option<String>,
@@ -53,6 +51,12 @@ struct Args {
     /// Store measurements to .csv file
     #[arg(short, long,)]
     measurement_file: Option<String>,
+    /// Time at which the simulation is automatically ended
+    #[arg(short, long,)]
+    finish_time: Option<f64>,
+    /// Exit when finished
+    #[arg(short, long,)]
+    exit: bool,
 }
 
 /// Init logging

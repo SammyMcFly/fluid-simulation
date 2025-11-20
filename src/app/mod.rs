@@ -2,9 +2,9 @@
 //!
 //!
 //! Is based on wgpu and winit.
-use iced_winit::winit::event_loop::EventLoop;
 use crossbeam::{channel, channel::Sender};
 use iced_winit::winit;
+use iced_winit::winit::event_loop::EventLoop;
 use iced_winit::winit::event::{WindowEvent, DeviceEvent};
 
 #[cfg(feature = "logging")]
@@ -28,6 +28,8 @@ pub struct StateApplication {
     state: Option<AppState>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     to_worker: Sender<WorkerCommand>,
+    /// Exit upon reaching the simulations finish time
+    exit: bool,
 }
 
 impl StateApplication {
@@ -42,20 +44,21 @@ impl StateApplication {
         }));
 
         // send commands to backend depending on user input (args)
-        // if args.config.is_some() {
+        if args.config.is_some() {
             to_worker.send(WorkerCommand::Simulate {
-                // config: args.config.unwrap(),
-                config: args.config,
+                config: args.config.unwrap(),
+                // config: args.config,
                 state: args.state.clone(),
                 measure: args.measurement_file.clone(),
-                finish_time: None,
+                finish_time: args.finish_time,
             }).unwrap();
-        // }
+        }
 
         Self {
             state: Option::default(),
             worker_handle: handle,
             to_worker,
+            exit: args.exit,
         }
     }
 }
@@ -114,7 +117,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
         self.state.as_mut().unwrap().process_device_event(&event);
     }
 
-    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: WorkerMessage) {
+    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: WorkerMessage) {
         match event {
             WorkerMessage::TimeIncFinished(ts_info) => {
                 self.state.as_mut().unwrap().received_new_time_step(ts_info);
@@ -131,12 +134,18 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                 )).unwrap();
             },
             WorkerMessage::SavedState => (),
-            // WorkerMessage::SavedMeasurement => (),
+            WorkerMessage::SavedMeasurement => (),
             WorkerMessage::FinishedResetting => {
                 self.state.as_mut().unwrap().continue_after_reset();
             },
-            // WorkerMessage::FinishedMeasurement => (),
-            WorkerMessage::Error(_e) => (), // todo: handle/print error
+            WorkerMessage::ReachedFinishTime => {
+                if self.exit {
+                    event_loop.exit();
+                }
+            },
+            WorkerMessage::Error(e) => {
+                println!("Backend error: {e}");
+            }, // todo: handle/print error in ui
         }
     }
 

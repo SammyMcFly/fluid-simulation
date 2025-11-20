@@ -7,8 +7,8 @@ pub enum WorkerMessage {
     TimeIncFinished(TimeStepInfo),
     SimulationLoaded(SimulationInfo),
     SavedState,
-    // SavedMeasurement,
+    SavedMeasurement,
     FinishedResetting,
-    // FinishedMeasurement,
+    ReachedFinishTime,
     Error(String),
 }
