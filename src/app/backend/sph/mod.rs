@@ -105,6 +105,8 @@ pub struct SystemProperties {
     #[cfg(feature = "local_pressure")]
     stiffness: f64,
     #[cfg(feature = "global_pressure")]
+    solver_iterations: usize,
+    #[cfg(feature = "global_pressure")]
     relaxation_factor: f64,
     #[cfg(feature = "global_pressure")]
     min_diagonal_element: f64,
@@ -127,6 +129,8 @@ impl SystemProperties {
         #[cfg(feature = "local_pressure")]
         stiffness: f64,
         #[cfg(feature = "global_pressure")]
+        solver_iterations: usize,
+        #[cfg(feature = "global_pressure")]
         relaxation_factor: f64,
         #[cfg(feature = "global_pressure")]
         min_diagonal_element: f64,
@@ -147,6 +151,8 @@ impl SystemProperties {
             boundary_pressure_acceleration_weighting,
             #[cfg(feature = "local_pressure")]
             stiffness,
+            #[cfg(feature = "global_pressure")]
+            solver_iterations,
             #[cfg(feature = "global_pressure")]
             relaxation_factor,
             #[cfg(feature = "global_pressure")]
@@ -915,7 +921,7 @@ impl System3D {
         #[cfg(feature = "logging")]
         let mut particle_print_list = Vec::new();
         // Solve linear equation system until a sufficiently accurate result is obtained
-        for _solver_iteration in 0..5 {
+        for _solver_iteration in 0..self.properties.solver_iterations {
             // compute pressure acceleration
             for particle_index in 0..self.particles.len() {
                 if self.particles[particle_index].is_enabled() {
@@ -1148,7 +1154,7 @@ impl System3D {
             }
         });
         // Solve linear equation system until a sufficiently accurate result is obtained
-        for _solver_iteration in 0..5 {
+        for _solver_iteration in 0..self.properties.solver_iterations {
             // compute pressure acceleration
             let immutable_clone_of_particles = self.particles.clone();
             self.particles.par_iter_mut().for_each(|particle| {

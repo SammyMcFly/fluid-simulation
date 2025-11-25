@@ -14,6 +14,7 @@ boundary_pressure_acceleration_weighting = 0.7 # gamma
 # local pressure
 stiffness = 15000000.0 # k
 # global pressure
+solver_iterations = 5
 relaxation_factor = 0.5 # omega
 min_diagonal_element = 1e-25 # epsilon
 

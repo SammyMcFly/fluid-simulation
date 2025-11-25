@@ -38,6 +38,8 @@ pub struct Parameters {
     #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
     #[cfg(feature = "global_pressure")]
+    solver_iterations: usize,
+    #[cfg(feature = "global_pressure")]
     pub relaxation_factor: f64,
     #[cfg(feature = "global_pressure")]
     pub min_diagonal_element: f64,
@@ -137,6 +139,8 @@ impl System3DConfigConstructor {
             self.config.parameters.boundary_pressure_acceleration_weighting,
             #[cfg(feature = "local_pressure")]
             self.config.parameters.stiffness,
+            #[cfg(feature = "global_pressure")]
+            self.config.parameters.solver_iterations,
             #[cfg(feature = "global_pressure")]
             self.config.parameters.relaxation_factor,
             #[cfg(feature = "global_pressure")]

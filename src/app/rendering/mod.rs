@@ -33,9 +33,9 @@ use ui::UserInput;
 
 
 
-const CAMERA_POSITION: (f32, f32, f32) = (-20.0, 30.0, -20.0);
-const YAW: cgmath::Deg<f32> = cgmath::Deg(45.0);
-const PITCH: cgmath::Deg<f32> = cgmath::Deg(-20.0);
+const CAMERA_POSITION: (f32, f32, f32) = (-10.0, 40.0, -30.0);
+const YAW: cgmath::Deg<f32> = cgmath::Deg(90.0);
+const PITCH: cgmath::Deg<f32> = cgmath::Deg(-30.0);
 const SPEED: f32 = 50.0;
 const SENSITIVITY: f32 = 5.0;
 const FOVY: cgmath::Deg<f32> = cgmath::Deg(45.0);
