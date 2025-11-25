@@ -12,7 +12,8 @@ pub struct Measurement {
     pub kinetic_energy: f64,
     #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
-    pub viscosity: f64,
+    pub fluid_viscosity: f64,
+    pub boundary_viscosity: f64,
     /// Fluid depth measured in number of particles
     pub fluid_depth: f64,
     /// Grid spacing when particles are ordered in a cubic grid at rest density
@@ -46,9 +47,9 @@ impl MeasurementSeries {
     // pub fn pop_front(&mut self) -> Option<Measurement> {
     //     self.queue.pop_front()
     // }
-    pub fn clear(&mut self) {
-        self.queue.clear();
-    }
+    // pub fn clear(&mut self) {
+    //     self.queue.clear();
+    // }
     // pub fn is_empty(&self) -> bool {
     //     self.queue.is_empty()
     // }

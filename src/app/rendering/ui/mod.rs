@@ -136,11 +136,11 @@ impl UIState {
         self.controls.update(&message);
     }
 
-    pub fn new_simulation(&mut self, info: crate::app::backend::SimulationInfo) {
+    pub fn new_simulation(&mut self, info: crate::app::backend::SimulationParameters) {
         self.controls.new_simulation(info);
     }
 
-    pub fn update_time_step_info(&mut self, queue_len: usize, info: &Option<crate::app::backend::TimeStepInfo>,) {
+    pub fn update_time_step_info(&mut self, queue_len: usize, info: Option<&crate::app::backend::TimeStepInfo>,) {
         self.controls.update_time_step_info(queue_len, info);
     }
 

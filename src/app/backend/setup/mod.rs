@@ -5,7 +5,7 @@ mod scenes;
 
 use serde::Deserialize;
 
-use super::SimulationInfo;
+use super::SimulationParameters;
 
 use super::sph::particle::{Particle3D, SerParticle3D, BoundaryParticle3D};
 #[cfg(feature = "springs")]
@@ -32,7 +32,8 @@ pub struct Parameters {
     pub rest_density_grid_spacing: f64,
     pub smoothing_length: f64,
     pub disable_particles_below: f64,
-    pub viscosity: f64,
+    pub fluid_viscosity: f64,
+    pub boundary_viscosity: f64,
     pub boundary_pressure_acceleration_weighting: f64,
     #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
@@ -131,7 +132,8 @@ impl System3DConfigConstructor {
             self.config.parameters.smoothing_length,
             self.config.parameters.disable_particles_below,
             self.config.scene.calc_fluid_depth(self.config.parameters.rest_density_grid_spacing),
-            self.config.parameters.viscosity,
+            self.config.parameters.fluid_viscosity,
+            self.config.parameters.boundary_viscosity,
             self.config.parameters.boundary_pressure_acceleration_weighting,
             #[cfg(feature = "local_pressure")]
             self.config.parameters.stiffness,
@@ -170,7 +172,7 @@ impl System3DConfigConstructor {
         particle_state_file_path: Option<&str>,
         // controls: Arc<Mutex<mediation::IntermediateControls>>,
         // measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
-    ) -> Result<(Self, SimulationInfo), Box<dyn std::error::Error>> {
+    ) -> Result<(Self, SimulationParameters), Box<dyn std::error::Error>> {
         // load config file
         let mut constructor = Self::load_config(config_file_path)?;
 
@@ -187,7 +189,7 @@ impl System3DConfigConstructor {
         #[cfg(feature = "springs")]
         let springs = constructor.config.scene.get_springs();
 
-        let sim_info = SimulationInfo {
+        let sim_info = SimulationParameters {
             particle_diameter: constructor.config.parameters.rest_density_grid_spacing as f32,
             rest_density: constructor.config.parameters.rest_density as f32,
             light_position: constructor.config.light.position,

@@ -135,8 +135,18 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             },
             WorkerMessage::SavedState => (),
             WorkerMessage::SavedMeasurement => (),
-            WorkerMessage::FinishedResetting => {
-                self.state.as_mut().unwrap().continue_after_reset();
+            WorkerMessage::FinishedResetting(sim_info) => {
+                if let Some(state) = &mut self.state {
+                    state.continue_after_reset(sim_info);
+                    // tell backend to simulate and return "buffer_length_limit" number
+                    // of states in time,
+                    // minus 1 for the initial state that is sent immediately, anyway,
+                    // any will be registered as new state:
+                    // it will be dequeued and a replacement will be requested automatically
+                    self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
+                        state.instances.length_limit-1
+                    )).unwrap();
+                }
             },
             WorkerMessage::ReachedFinishTime => {
                 if self.exit {

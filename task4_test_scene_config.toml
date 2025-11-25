@@ -1,16 +1,16 @@
 # Scene configuration file
 
 [parameters]
-buffer_length_limit = 5
-time_inc = 0.0001
+buffer_length_limit = 1
+time_inc = 0.005
 integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 rest_density = 900.0 # rest density of fluid
 rest_density_grid_spacing = 0.8 # (not hot swappable)
 smoothing_length = 0.8 # (not hot swappable)
 disable_particles_below = -20
-viscosity = 1.0
-# pseudo_mass_boundary
-boundary_pressure_acceleration_weighting = 0.7 # gamma
+fluid_viscosity = 0.2
+boundary_viscosity = 0.2
+boundary_pressure_acceleration_weighting = 1.0 # gamma
 # local pressure
 stiffness = 15000000.0 # k
 # global pressure
@@ -41,7 +41,7 @@ x_wall_thickness = 1
 y_wall_thickness = 1
 x_offset = -1.7
 y_offset = -0.85
-z_offset = -1.0
+z_offset = -10.0
 particle_spacing = 0.8
 
 # [springs]

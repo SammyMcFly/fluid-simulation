@@ -194,13 +194,13 @@ impl RenderControls {
         }
     }
 
-    pub fn new_simulation(&mut self, info: crate::app::backend::SimulationInfo) {
+    pub fn new_simulation(&mut self, info: crate::app::backend::SimulationParameters) {
         self.particle_color = info.particle_color;
         self.boundary_particle_color = info.boundary_particle_color;
         self.info.update_simulation_info(info);
     }
 
-    pub fn update_time_step_info(&mut self, queue_len: usize, info: &Option<crate::app::backend::TimeStepInfo>) {
+    pub fn update_time_step_info(&mut self, queue_len: usize, info: Option<&crate::app::backend::TimeStepInfo>) {
         self.info.update_time_step_info(queue_len, info);
     }
 

@@ -27,7 +27,7 @@ use model::VertexBufferLayout;
 use model::DrawLight;
 use model::DrawModel;
 
-use super::backend::{SimulationInfo, TimeStepInfo, commands::WorkerCommand};
+use super::backend::{SimulationParameters, TimeStepInfo, commands::WorkerCommand};
 use ui::controls;
 use ui::UserInput;
 
@@ -245,15 +245,12 @@ impl AppState {
                 }
                 UserInput::RequestReset => {
                     to_worker.send(WorkerCommand::Reset).unwrap();
-                    to_worker.send(WorkerCommand::AddTimeStepsToCompute(
-                        self.instances.length_limit-self.instances.queue_len()
-                    )).unwrap();
                 },
                 UserInput::RequestSaving => {
                     if !self.instances.is_empty() {
                         to_worker.send(
                             WorkerCommand::SaveState {
-                                particles: self.instances.get_info().unwrap().fluid,
+                                particles: self.instances.get_info().unwrap().fluid.clone(),
                                 filepath: "./state.ron".to_string()
                             }
                         ).unwrap()
@@ -287,7 +284,7 @@ impl AppState {
 
 
 
-    pub fn new_simulation(&mut self, info: SimulationInfo,) {
+    pub fn new_simulation(&mut self, info: SimulationParameters,) {
         match model::ModelAssets::new(&self.gpu, info.particle_diameter) {
             Ok(model) => self.model = model,
             Err(e) => panic!("Failed to load sphere: {}", e),
@@ -304,8 +301,13 @@ impl AppState {
         self.instances.store(info);
     }
 
-    pub fn continue_after_reset(&mut self) {
-        self.instances.clear(&self.gpu);
+    pub fn continue_after_reset(&mut self, info: SimulationParameters,) {
+        match model::ModelAssets::new(&self.gpu, info.particle_diameter) {
+            Ok(model) => self.model = model,
+            Err(e) => panic!("Failed to load sphere: {}", e),
+        }
+        self.instances.reset(&self.gpu, info.buffer_length_limit);
+        self.ui.new_simulation(info);
         self.frame.reset();
     }
 
@@ -320,9 +322,9 @@ impl AppState {
     /// - setting time of this rendering
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         // select
-        let take = self.frame.take_the_xth_element(&self.ui.controls.play_pause);
-        #[cfg(feature = "logging")]
-        debug!("take: {}", take);
+        let take = self.frame.take_which_element(&self.ui.controls.play_pause);
+        // #[cfg(feature = "logging")]
+        // debug!("take: {}", take);
         let staging_settings = instances::StagingSettings::new(
             self.ui.controls.get_cut().clone(),
             self.ui.controls.is_boundary_hidden(),
@@ -335,8 +337,8 @@ impl AppState {
             &staging_settings,
             take,
         ) {
-            #[cfg(feature = "logging")]
-            debug!("taken: {}", taken);
+            // #[cfg(feature = "logging")]
+            // debug!("taken: {}", taken);
             self.frame.rendering_new_sim_state_now();
             self.frame.steps_dequeued(taken);
             self.frame.set_time_increment(self.instances.get_time_inc());
@@ -349,7 +351,7 @@ impl AppState {
                 self.frame.rendering_new_sim_state_now();
             }
         }
-        self.ui.update_time_step_info(self.instances.queue_len(), &self.instances.get_info(),);
+        self.ui.update_time_step_info(self.instances.queue_len(), self.instances.get_info(),);
 
         // prepare rendering
         let frame = self.gpu.surface.get_current_texture()?;

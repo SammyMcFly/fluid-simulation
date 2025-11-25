@@ -1,14 +1,14 @@
 //! Messages to front end
-use super::backend::{TimeStepInfo, SimulationInfo};
+use super::backend::{TimeStepInfo, SimulationParameters};
 
 
 
 pub enum WorkerMessage {
     TimeIncFinished(TimeStepInfo),
-    SimulationLoaded(SimulationInfo),
+    SimulationLoaded(SimulationParameters),
     SavedState,
     SavedMeasurement,
-    FinishedResetting,
+    FinishedResetting(SimulationParameters),
     ReachedFinishTime,
     Error(String),
 }

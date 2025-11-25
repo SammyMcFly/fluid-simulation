@@ -54,7 +54,7 @@ impl FrameControl {
         self.time_steps_dequeued += num;
     }
 
-    pub fn take_the_xth_element(&mut self, playback_state: &super::ui::controls::PlaybackState) -> usize {
+    pub fn take_which_element(&mut self, playback_state: &super::ui::controls::PlaybackState) -> usize {
         if playback_state.is_playing() {
             return (self.last_sim_state_render_time.elapsed().as_secs_f32() / self.time_increment) as usize
         } else if self.steps_to_do > 0 {

@@ -116,7 +116,7 @@ impl InstanceStore {
                 };
                 Instance {
                     // flip y and z coordinate
-                    position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[2] as f32, particle.pos_now()[1] as f32),
+                    position: nalgebra::Vector3::new(-particle.pos_now()[0] as f32, particle.pos_now()[2] as f32, particle.pos_now()[1] as f32),
                     color,
                 }
             }).collect());
@@ -137,7 +137,7 @@ impl InstanceStore {
                     };
                     Instance {
                         // flip y and z coordinate
-                        position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[2] as f32, particle.pos_now()[1] as f32),
+                        position: nalgebra::Vector3::new(-particle.pos_now()[0] as f32, particle.pos_now()[2] as f32, particle.pos_now()[1] as f32),
                         color,
                     }
                 }).collect::<Vec<Instance>>());
@@ -149,8 +149,12 @@ impl InstanceStore {
         self.info_queue.push_back(info);
     }
 
-    pub fn get_info(&self) -> Option<TimeStepInfo> {
-        self.staged_info.clone()
+    pub fn get_info(&self) -> Option<&TimeStepInfo> {
+        if let Some(info) = &self.staged_info {
+            Some(info)
+        } else {
+            None
+        }
     }
 
     /// Get time increment
@@ -205,13 +209,14 @@ impl InstanceStore {
         }
     }
 
-    pub fn clear(&mut self, gpu_context: &super::gpu_context::GpuContext) {
+    pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext, length_limit: usize) {
         self.info_queue.clear();
 
         self.staged_info = None;
         self.staging_settings = None;
         self.rendered_instances = None;
         self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
+        self.length_limit = length_limit;
     }
 
     pub fn is_empty(&self) -> bool {

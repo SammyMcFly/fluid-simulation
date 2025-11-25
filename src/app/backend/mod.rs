@@ -6,7 +6,7 @@ use iced_winit::winit::event_loop::EventLoopProxy;
 use crossbeam::channel::Receiver;
 
 #[cfg(feature = "logging")]
-use tracing::{error, info, debug}; // debug, error, info, span, trace, warn,
+use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
 use commands::WorkerCommand;
 use sph::particle::{SerParticle3D, BoundaryParticle3D};
@@ -41,7 +41,7 @@ fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std::io:
 }
 
 #[derive(Debug, Clone)]
-pub struct SimulationInfo {
+pub struct SimulationParameters {
     // particle size
     pub particle_diameter: f32,
     // rest density
@@ -58,7 +58,7 @@ pub struct SimulationInfo {
     pub buffer_length_limit: usize,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TimeStepInfo {
     // hand over time_inc
     pub time_inc: f32,
@@ -75,32 +75,30 @@ pub struct TimeStepInfo {
 /// - allows resetting the system to the initial state
 /// - optionally: memorizes all taken measurements, stores them at the end
 struct Simulation {
-    initial_system: sph::System3D,
+    // initial_system: sph::System3D,
     system: sph::System3D,
-    info: SimulationInfo,
+    parameters: SimulationParameters,
     measurements: Option<measure::MeasurementSeries>,
 }
 
 impl Simulation {
     /// Try to load simulation and return initial state
     fn load(
-        config: &str,
-        state_file: Option<&str>,
-        measurement_file: Option<&str>,
+        simulation_load_info: &SimulationLoadInfo,
     ) -> Result<(TimeStepInfo, Simulation), String> {
         match setup::System3DConfigConstructor::new(
-            config,
-            state_file,
+            &simulation_load_info.config_file_path,
+            simulation_load_info.state_file_path.as_deref(),
         ) {
             Ok((sys_conf, sim_info)) => {
                 let initial_system = sph::System3D::new(sys_conf.finish());
-                let measurement_series = measurement_file.map(measure::MeasurementSeries::new);
+                let measurement_series = simulation_load_info.measurement_file_path.as_deref().map(measure::MeasurementSeries::new);
                 #[cfg(feature = "logging")]
                 info!("Loaded new simulation!");
                 let mut sim: Simulation = Self {
-                    initial_system: initial_system.clone(),
+                    // initial_system: initial_system.clone(),
                     system: initial_system,
-                    info: sim_info,
+                    parameters: sim_info,
                     measurements: measurement_series,
                 };
                 if let Some(meas) = &mut sim.measurements {
@@ -116,17 +114,11 @@ impl Simulation {
         }
     }
     fn get_next_time_step(&mut self) -> TimeStepInfo {
-        self.system.step_forward_in_time(&self.info.integration_scheme);
+        self.system.step_forward_in_time(&self.parameters.integration_scheme);
         if let Some(meas) = &mut self.measurements {
             self.system.push_back_measurement(meas);
         }
         self.system.get_time_step_info()
-    }
-    fn reset(&mut self) {
-        if let Some(meas) = &mut self.measurements {
-            meas.clear();
-        }
-        self.system = self.initial_system.clone();
     }
     fn time(&self) -> f64 {
         self.system.time()
@@ -155,14 +147,22 @@ enum SimulationState {
     Paused,
 }
 
+#[derive(Clone)]
+struct SimulationLoadInfo {
+    config_file_path: String,
+    state_file_path: Option<String>,
+    measurement_file_path: Option<String>,
+}
+
 /// Struct that does:
 /// - wraps the [[Simulation]], in case one is loaded
 /// - holds the info if new time steps are currently computed or not
 #[derive(Default)]
 struct SimulationController {
     state: SimulationState,
-    compute_timesteps: usize,
+    timesteps_to_compute: usize,
     finish_time: Option<f64>,
+    simulation_load_info: Option<SimulationLoadInfo>,
     simulation: Option<Simulation>,
 }
 
@@ -170,14 +170,13 @@ impl SimulationController {
     /// Try to load simulation and return initial state
     fn load_simulation(
         &mut self,
-        config: &str,
-        state: Option<&str>,
-        measure: Option<&str>,
+        simulation_load_info: SimulationLoadInfo,
         finish_time: Option<f64>,
     ) -> Result<TimeStepInfo, String>{
-        self.compute_timesteps = 0;
+        self.timesteps_to_compute = 0;
         self.finish_time = finish_time;
-        match Simulation::load(config, state, measure) {
+        self.simulation_load_info = Some(simulation_load_info);
+        match Simulation::load(self.simulation_load_info.as_ref().unwrap()) {
             Ok((initial_state, sim)) => {
                 self.simulation = Some(sim);
                 Ok(initial_state)
@@ -186,7 +185,7 @@ impl SimulationController {
         }
     }
     fn compute_more_timesteps(&mut self, num: usize) {
-        self.compute_timesteps += num;
+        self.timesteps_to_compute += num;
     }
     fn compute(&mut self) {
         self.state = SimulationState::Computing;
@@ -196,19 +195,13 @@ impl SimulationController {
     }
     /// Calculate next time step depending on state
     fn get_next_time_step(&mut self) -> Option<TimeStepInfo> {
-        if self.state == SimulationState::Computing && self.compute_timesteps > 0 {
+        if self.state == SimulationState::Computing && self.timesteps_to_compute > 0 {
             self.simulation.as_mut().map(|sim| {
-                self.compute_timesteps -= 1;
+                self.timesteps_to_compute -= 1;
                 sim.get_next_time_step()
             })
         } else {
             None
-        }
-    }
-    fn reset(&mut self) {
-        self.compute_timesteps = 0;
-        if let Some(sim) = &mut self.simulation {
-            sim.reset();
         }
     }
     fn has_reached_finish_time(&self) -> bool {
@@ -237,13 +230,15 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                 WorkerCommand::Simulate { config, state, measure, finish_time } => {
                     // load system
                     match simulation_controller.load_simulation(
-                        &config,
-                        state.as_deref(),
-                        measure.as_deref(),
+                        SimulationLoadInfo {
+                            config_file_path: config,
+                            state_file_path: state,
+                            measurement_file_path: measure,
+                        },
                         finish_time,
                     ) {
                         Ok(initial_state) => {
-                            let _ = to_ui.send_event(WorkerMessage::SimulationLoaded(simulation_controller.simulation.as_ref().unwrap().info.clone()));
+                            let _ = to_ui.send_event(WorkerMessage::SimulationLoaded(simulation_controller.simulation.as_ref().unwrap().parameters.clone()));
                             // send initial state
                             let _ = to_ui.send_event(WorkerMessage::TimeIncFinished(initial_state));
                         },
@@ -254,8 +249,8 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     simulation_controller.compute();
                 }
                 WorkerCommand::AddTimeStepsToCompute(num) => {
-                    #[cfg(feature = "logging")]
-                    debug!("compute: {}", num);
+                    // #[cfg(feature = "logging")]
+                    // debug!("compute: {}", num);
                     simulation_controller.compute_more_timesteps(num);
                 },
                 WorkerCommand::SaveState { particles, filepath } => {
@@ -283,15 +278,30 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                 WorkerCommand::Reset => {
                     #[cfg(feature = "logging")]
                     info!("Reset simulation!");
-                    simulation_controller.reset();
-                    let _ = to_ui.send_event(WorkerMessage::FinishedResetting);
+                    // reload system
+                    if let Some(info) = &simulation_controller.simulation_load_info {
+                        match simulation_controller.load_simulation(
+                            info.clone(),
+                            simulation_controller.finish_time,
+                        ) {
+                            Ok(initial_state) => {
+                                let _ = to_ui.send_event(WorkerMessage::FinishedResetting(simulation_controller.simulation.as_ref().unwrap().parameters.clone()));
+                                // send initial state
+                                let _ = to_ui.send_event(WorkerMessage::TimeIncFinished(initial_state));
+                            },
+                            Err(e) => {
+                                let _ = to_ui.send_event(WorkerMessage::Error(e));
+                            },
+                        }
+                        simulation_controller.compute();
+                    }
                 },
                 WorkerCommand::Stop => {
                     #[cfg(feature = "logging")]
                     info!("Stopped simulation!");
                     let save_message = if let Err(e) = simulation_controller.stop() {
                         #[cfg(feature = "logging")]
-                        error!("Failed to save measurement!");
+                        error!("Failed saving measurement!");
                         WorkerMessage::Error(e)
                     } else {
                         // #[cfg(feature = "logging")]

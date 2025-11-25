@@ -45,9 +45,6 @@ struct Args {
     /// File path to file with state of all particles of a system, where to start simulating from
     #[arg(short, long)]
     state: Option<String>,
-    /// Log severity level (Options: TRACE, DEBUG, INFO, WARN, ERROR, OFF)
-    #[arg(short, long, default_value_t=String::from("INFO"))]
-    log: String,
     /// Store measurements to .csv file
     #[arg(short, long,)]
     measurement_file: Option<String>,
@@ -57,6 +54,9 @@ struct Args {
     /// Exit when finished
     #[arg(short, long,)]
     exit: bool,
+    /// Log severity level (Options: TRACE, DEBUG, INFO, WARN, ERROR, OFF)
+    #[arg(short, long, default_value_t=String::from("INFO"))]
+    log: String,
 }
 
 /// Init logging
