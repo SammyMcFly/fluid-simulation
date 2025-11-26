@@ -8,6 +8,7 @@ pub enum WorkerCommand {
         config: String,
         state: Option<String>,
         measure: Option<String>,
+        start_time: Option<f64>,
         finish_time: Option<f64>,
     },
     AddTimeStepsToCompute(usize),

@@ -48,9 +48,15 @@ struct Args {
     /// Store measurements to .csv file
     #[arg(short, long,)]
     measurement_file: Option<String>,
+    /// Time at which the measurement is startet
+    #[arg(short, long,)]
+    start_time: Option<f64>,
     /// Time at which the simulation is automatically ended
     #[arg(short, long,)]
     finish_time: Option<f64>,
+    /// Resume playback at start
+    #[arg(short, long,)]
+    resume: bool,
     /// Exit when finished
     #[arg(short, long,)]
     exit: bool,

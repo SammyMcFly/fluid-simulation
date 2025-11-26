@@ -122,9 +122,15 @@ impl RenderControls {
     pub fn new(
         particle_color: ParticleColor,
         boundary_particle_color: ParticleColor,
+        start_resumed: bool,
     ) -> Self {
+        let play_pause = if start_resumed {
+            PlaybackState::Resumed
+        } else {
+            PlaybackState::Paused
+        };
         Self {
-            play_pause: PlaybackState::Paused,
+            play_pause,
             // reset: false,
             // save_state: false,
             particle_color,

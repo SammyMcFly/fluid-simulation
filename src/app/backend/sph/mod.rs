@@ -10,7 +10,7 @@ use serde::Deserialize;
 use rayon::prelude::*;
 
 // #[cfg(feature = "logging")]
-use tracing::{info, debug}; // debug, error, info, span, trace, warn,
+use tracing::{debug}; // debug, error, info, span, trace, warn,
 
 pub mod particle;
 use particle::*;
@@ -967,7 +967,8 @@ impl System3D {
                 }
             }
             // perform solver iteration for all fluid particles
-            let mut average_predicted_density_error = Vec::new();
+            let mut average_predicted_density_error = 0.;
+            let mut count: u64 = 0;
             for particle_index in 0..self.particles.len() {
                 if self.particles[particle_index].is_enabled() {
                     // calculate the divergence of the velocity change due to the pressure acceleration: a_dot_p_f
@@ -1001,8 +1002,9 @@ impl System3D {
                     }
                     // Add to predicted density error
                     if self.particles[particle_index].s_f < 0. {
-                        average_predicted_density_error.push((a_dot_p_f - self.particles[particle_index].s_f).abs());
+                        average_predicted_density_error += (a_dot_p_f - self.particles[particle_index].s_f).abs();
                     }
+                    count += 1;
                     #[cfg(feature = "logging")]
                     let _predicted_density_error = a_dot_p_f - self.particles[particle_index].s_f;
                     #[cfg(feature = "logging")]
@@ -1027,7 +1029,7 @@ impl System3D {
                     // }
                 }
             }
-            let average_predicted_density_error = average_predicted_density_error.iter().sum::<f64>()/(average_predicted_density_error.len() as f64);
+            let average_predicted_density_error = average_predicted_density_error/(count as f64);
             #[cfg(feature = "logging")]
             if print_flag {
                 info!("average_predicted_density_error: {average_predicted_density_error}");
@@ -1237,22 +1239,26 @@ impl System3D {
                     // Calculate and send absolute value of predicted density error
                     if particle.s_f < 0. {
                         sender.send((a_dot_p_f - particle.s_f).abs()).unwrap();
+                    } else {
+                        sender.send(0.).unwrap();
                     }
                 }
             });
             // accumulate average_predicted_density_error
             let handle = std::thread::spawn(move || {
-                let mut average_predicted_density_error = Vec::new();
+                let mut average_predicted_density_error = 0.;
+                let mut count: u64 = 0;
                 for value in receiver.iter() {
-                    average_predicted_density_error.push(value);
+                    average_predicted_density_error += value;
+                    count += 1;
                 }
-                average_predicted_density_error.iter().sum::<f64>()/(average_predicted_density_error.len() as f64)
+                average_predicted_density_error/(count as f64)
             });
-            let average_predicted_density_error = handle.join().unwrap();
+            let predicted_density_error = 100.*(handle.join().unwrap()/self.properties.rest_density);
             #[cfg(feature = "logging")]
             debug!("_solver_iteration {}", _solver_iteration);
             #[cfg(feature = "logging")]
-            debug!("average_predicted_density_error: {average_predicted_density_error}");
+            debug!("average_relative_predicted_density_error (%): {predicted_density_error}");
         }
     }
 
@@ -1466,7 +1472,7 @@ impl System3D {
 
         let max_speed = self._calc_max_speed();
         #[cfg(feature = "logging")]
-        info!("cfl number: {}", self.properties.time_increment*max_speed/self.properties.rest_density_grid_spacing)
+        debug!("cfl number: {}", self.properties.time_increment*max_speed/self.properties.rest_density_grid_spacing)
     }
 
     /// Measure (physical) quantities at current time step

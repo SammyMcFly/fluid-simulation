@@ -6,7 +6,7 @@ use iced_winit::winit::event_loop::EventLoopProxy;
 use crossbeam::channel::Receiver;
 
 #[cfg(feature = "logging")]
-use tracing::{error, info}; // debug, error, info, span, trace, warn,
+use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
 use commands::WorkerCommand;
 use sph::particle::{SerParticle3D, BoundaryParticle3D};
@@ -31,7 +31,8 @@ fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std::io:
         // Create the parent directory if it doesn't exist
         if !parent.exists() {
             std::fs::create_dir_all(parent)?;
-            println!("Created directories: {}", parent.display());
+            #[cfg(feature = "logging")]
+            info!("Created directories: {}", parent.display());
         }
     }
     let ron_string = ron::to_string(&particles).unwrap();
@@ -79,6 +80,10 @@ struct Simulation {
     system: sph::System3D,
     parameters: SimulationParameters,
     measurements: Option<measure::MeasurementSeries>,
+    start_time: Option<f64>,
+    finish_time: Option<f64>,
+    measurement_started: bool,
+    measurement_finished: bool,
 }
 
 impl Simulation {
@@ -96,12 +101,16 @@ impl Simulation {
                 #[cfg(feature = "logging")]
                 info!("Loaded new simulation!");
                 let mut sim: Simulation = Self {
-                    // initial_system: initial_system.clone(),
                     system: initial_system,
                     parameters: sim_info,
                     measurements: measurement_series,
+                    start_time: simulation_load_info.start_time,
+                    finish_time: simulation_load_info.finish_time,
+                    measurement_started: false,
+                    measurement_finished: false,
                 };
-                if let Some(meas) = &mut sim.measurements {
+                let measurement_status = sim.get_measurement_status();
+                if let Some(meas) = &mut sim.measurements && measurement_status {
                     sim.system.push_back_measurement(meas);
                 }
                 Ok((sim.system.get_time_step_info(), sim))
@@ -115,7 +124,8 @@ impl Simulation {
     }
     fn get_next_time_step(&mut self) -> TimeStepInfo {
         self.system.step_forward_in_time(&self.parameters.integration_scheme);
-        if let Some(meas) = &mut self.measurements {
+        let measurement_status = self.get_measurement_status();
+        if let Some(meas) = &mut self.measurements && measurement_status {
             self.system.push_back_measurement(meas);
         }
         self.system.get_time_step_info()
@@ -123,11 +133,39 @@ impl Simulation {
     fn time(&self) -> f64 {
         self.system.time()
     }
+    fn get_measurement_status(&mut self) -> bool {
+        if self.measurements.is_some() {
+            if !self.measurement_started {
+                if let Some(st) = self.start_time {
+                    if self.time() >= st {
+                        self.measurement_started = true;
+                    }
+                } else {
+                    self.measurement_started = true;
+                }
+            }
+            if !self.measurement_finished && let Some(ft) = self.finish_time && self.time() > ft {
+                self.measurement_finished = true;
+            }
+            self.measurement_started && !self.measurement_finished
+        } else {
+            false
+        }
+    }
+    fn finished_measurement(&self) -> bool {
+        if self.finish_time.is_some() {
+            self.measurement_finished
+        } else {
+            true
+        }
+    }
     fn stop(&mut self) -> Result<(), String> {
         if let Some(meas) = &mut self.measurements {
             match meas.save() {
                 Err(e) => {
-                    return Err(format!("Failed to store measurement file: {}", e))
+                    #[cfg(feature = "logging")]
+                    error!("Failed saving measurement: {}", e);
+                    return Err(format!("Failed saving measurement: {}", e))
                 },
                 Ok(_) => {
                     #[cfg(feature = "logging")]
@@ -152,6 +190,8 @@ struct SimulationLoadInfo {
     config_file_path: String,
     state_file_path: Option<String>,
     measurement_file_path: Option<String>,
+    start_time: Option<f64>,
+    finish_time: Option<f64>,
 }
 
 /// Struct that does:
@@ -161,7 +201,8 @@ struct SimulationLoadInfo {
 struct SimulationController {
     state: SimulationState,
     timesteps_to_compute: usize,
-    finish_time: Option<f64>,
+    finished: bool,
+
     simulation_load_info: Option<SimulationLoadInfo>,
     simulation: Option<Simulation>,
 }
@@ -171,12 +212,12 @@ impl SimulationController {
     fn load_simulation(
         &mut self,
         simulation_load_info: SimulationLoadInfo,
-        finish_time: Option<f64>,
     ) -> Result<TimeStepInfo, String>{
         self.timesteps_to_compute = 0;
-        self.finish_time = finish_time;
         self.simulation_load_info = Some(simulation_load_info);
-        match Simulation::load(self.simulation_load_info.as_ref().unwrap()) {
+        match Simulation::load(
+            self.simulation_load_info.as_ref().unwrap(),
+        ) {
             Ok((initial_state, sim)) => {
                 self.simulation = Some(sim);
                 Ok(initial_state)
@@ -204,11 +245,11 @@ impl SimulationController {
             None
         }
     }
-    fn has_reached_finish_time(&self) -> bool {
-        if let Some(sim) = &self.simulation && let Some(ft) = self.finish_time {
-            return sim.time() >= ft
+    fn finished_measurement(&self) -> Option<bool> {
+        if let Some(sim) = &self.simulation {
+            return Some(sim.finished_measurement())
         }
-        false
+        None
     }
     fn stop(&mut self) -> Result<(), String> {
         if let Some(sim) = &mut self.simulation {
@@ -227,15 +268,22 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
     'worker: loop {
         for cmd in from_ui.try_iter() {
             match cmd {
-                WorkerCommand::Simulate { config, state, measure, finish_time } => {
+                WorkerCommand::Simulate {
+                    config,
+                    state,
+                    measure,
+                    start_time,
+                    finish_time,
+                } => {
                     // load system
                     match simulation_controller.load_simulation(
                         SimulationLoadInfo {
                             config_file_path: config,
                             state_file_path: state,
                             measurement_file_path: measure,
+                            start_time,
+                            finish_time,
                         },
-                        finish_time,
                     ) {
                         Ok(initial_state) => {
                             let _ = to_ui.send_event(WorkerMessage::SimulationLoaded(simulation_controller.simulation.as_ref().unwrap().parameters.clone()));
@@ -282,7 +330,6 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     if let Some(info) = &simulation_controller.simulation_load_info {
                         match simulation_controller.load_simulation(
                             info.clone(),
-                            simulation_controller.finish_time,
                         ) {
                             Ok(initial_state) => {
                                 let _ = to_ui.send_event(WorkerMessage::FinishedResetting(simulation_controller.simulation.as_ref().unwrap().parameters.clone()));
@@ -297,26 +344,31 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     }
                 },
                 WorkerCommand::Stop => {
-                    #[cfg(feature = "logging")]
-                    info!("Stopped simulation!");
-                    let save_message = if let Err(e) = simulation_controller.stop() {
+                    if !simulation_controller.finished_measurement().unwrap_or(true) {
                         #[cfg(feature = "logging")]
-                        error!("Failed saving measurement!");
+                        warn!("Finish time was not reached!");
+                    }
+                    let save_message = if let Err(e) = simulation_controller.stop() {
                         WorkerMessage::Error(e)
                     } else {
-                        // #[cfg(feature = "logging")]
-                        // info!("Successfully saved measurement!");
+                        #[cfg(feature = "logging")]
+                        info!("Successfully saved measurement!");
                         WorkerMessage::SavedMeasurement
                     };
                     let _ = to_ui.send_event(save_message);
+                    #[cfg(feature = "logging")]
+                    info!("Stopped backend!");
                     break 'worker;
                 },
             }
         }
         // check if finish time is reached
-        if simulation_controller.has_reached_finish_time() {
+        if simulation_controller.finished_measurement().unwrap_or(false) && !simulation_controller.finished {
+            #[cfg(feature = "logging")]
+            info!("Reached finish time");
             simulation_controller.pause();
             let _ = to_ui.send_event(WorkerMessage::ReachedFinishTime);
+            simulation_controller.finished = true;
         }
         // progress simulation
         if let Some(res) = simulation_controller.get_next_time_step() {

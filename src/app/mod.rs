@@ -10,7 +10,8 @@ use iced_winit::winit::event::{WindowEvent, DeviceEvent};
 #[cfg(feature = "logging")]
 use tracing::{
     info,
-}; // error, trace, warn, debug,
+    error,
+}; // error, trace, warn, debug, info,
 
 mod backend;
 pub mod rendering;
@@ -28,8 +29,10 @@ pub struct StateApplication {
     state: Option<AppState>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     to_worker: Sender<WorkerCommand>,
+    /// Start simulation with resumed playback
+    start_resumed: bool,
     /// Exit upon reaching the simulations finish time
-    exit: bool,
+    exit_when_finished: bool,
 }
 
 impl StateApplication {
@@ -50,6 +53,7 @@ impl StateApplication {
                 // config: args.config,
                 state: args.state.clone(),
                 measure: args.measurement_file.clone(),
+                start_time: args.start_time,
                 finish_time: args.finish_time,
             }).unwrap();
         }
@@ -58,7 +62,8 @@ impl StateApplication {
             state: Option::default(),
             worker_handle: handle,
             to_worker,
-            exit: args.exit,
+            start_resumed: args.resume,
+            exit_when_finished: args.exit,
         }
     }
 }
@@ -68,7 +73,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
         let window = event_loop.create_window(winit::window::Window::default_attributes()
             .with_visible(true).with_title("Rusty Fluid Solver")).unwrap();
 
-        match AppState::new(window) {
+        match AppState::new(window, self.start_resumed) {
             Ok(state) => self.state = Some(state),
             Err(e) => panic!("Failed to load sphere: {}", e),
         }
@@ -87,7 +92,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             match event {
                 WindowEvent::CloseRequested => {
                     #[cfg(feature = "logging")]
-                    info!("The close button was pressed; stopping");
+                    info!("The close button was pressed; stopping...");
                     event_loop.exit();
                 },
                 WindowEvent::Resized(physical_size) => {
@@ -149,12 +154,13 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                 }
             },
             WorkerMessage::ReachedFinishTime => {
-                if self.exit {
+                if self.exit_when_finished {
                     event_loop.exit();
                 }
             },
             WorkerMessage::Error(e) => {
-                println!("Backend error: {e}");
+                #[cfg(feature = "logging")]
+                error!("Backend error: {e}");
             }, // todo: handle/print error in ui
         }
     }
@@ -170,6 +176,8 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
     fn exiting(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         self.to_worker.send(WorkerCommand::Stop).unwrap();
         self.worker_handle.take().unwrap().join().expect("Couldn't join simulation thread");
+        #[cfg(feature = "logging")]
+        info!("Terminating frontend!");
     }
 }
 

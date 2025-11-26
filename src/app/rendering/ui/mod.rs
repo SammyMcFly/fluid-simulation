@@ -47,9 +47,14 @@ impl UIState {
         gpu_context: &super::gpu_context::GpuContext,
         particle_color: controls::ParticleColor,
         boundary_particle_color: controls::ParticleColor,
+        start_resumed: bool,
     ) -> Self {
         // initialize GUI controls
-        let controls = controls::RenderControls::new(particle_color, boundary_particle_color);
+        let controls = controls::RenderControls::new(
+            particle_color,
+            boundary_particle_color,
+            start_resumed,
+        );
 
         // initialize iced renderer
         let renderer = {

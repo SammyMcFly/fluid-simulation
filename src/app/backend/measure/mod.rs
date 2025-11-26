@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
-
 use serde::Serialize;
+
+#[cfg(feature = "logging")]
+use tracing::{info}; // debug, error, info, span, trace, warn,
 
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -58,17 +60,19 @@ impl MeasurementSeries {
     // }
     pub fn save(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let file_path = std::path::Path::new(&self.file_path);
+        #[cfg(feature = "logging")]
+        info!("created file path: {:?}", file_path);
         // convert to global path
-        let file_path = std::fs::canonicalize(file_path)?;
+        let file_path_parent = std::fs::canonicalize(file_path.parent().expect("No parent file path found."))?;
+        #[cfg(feature = "logging")]
+        info!("canonicalized");
         // Get the parent directory
-        if let Some(parent) = file_path.parent() {
-            // Create the parent directory if it doesn't exist
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-                println!("Created directories: {}", parent.display());
-            }
+        if !file_path_parent.exists() {
+            std::fs::create_dir_all(file_path_parent.clone())?;
+            #[cfg(feature = "logging")]
+            info!("Created directories: {}", file_path_parent.display());
         }
-        let file = std::fs::File::create(file_path)?;
+        let file = std::fs::File::create(file_path_parent.join(file_path.file_name().expect("No final component found.")))?;
         let mut wtr = csv::Writer::from_writer(file);
         for measurement in &self.queue {
             wtr.serialize(measurement)?;

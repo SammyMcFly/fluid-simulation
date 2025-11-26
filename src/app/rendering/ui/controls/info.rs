@@ -10,7 +10,7 @@ pub struct UIInfo {
     simulation_info: Option<crate::app::backend::SimulationParameters>,
 
     pub queue_length: usize,
-    pub average_density_ratio: f32,
+    pub density_error: f32,
 }
 
 impl UIInfo {
@@ -18,7 +18,7 @@ impl UIInfo {
         Self {
             simulation_info: None,
             queue_length: usize::default(),
-            average_density_ratio: f32::default(),
+            density_error: f32::default(),
         }
     }
 
@@ -29,9 +29,9 @@ impl UIInfo {
     pub fn update_time_step_info(&mut self, queue_len: usize, info: Option<&crate::app::backend::TimeStepInfo>,) {
         self.queue_length = queue_len;
         if let Some(info) = info {
-            self.average_density_ratio = info.average_density/self.simulation_info.as_ref().unwrap().rest_density;
+            self.density_error = 100.*(info.average_density/self.simulation_info.as_ref().unwrap().rest_density-1.);
         } else {
-            self.average_density_ratio = f32::default();
+            self.density_error = f32::default();
         }
     }
 
@@ -41,8 +41,8 @@ impl UIInfo {
 
         column![
             row![
-                text("Average density ratio: ").color(Color::BLACK),
-                text!("{}", self.average_density_ratio).color(Color::BLACK), // .size(16)
+                text("Density error (%): ").color(Color::BLACK),
+                text!("{}", self.density_error).color(Color::BLACK), // .size(16)
             ],
             row![
                 text("Buffer length: ").color(Color::BLACK),

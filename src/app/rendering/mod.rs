@@ -66,6 +66,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         window: winit::window::Window,
+        start_resumed: bool,
     ) -> Result<Self, tobj::LoadError> {
         let window_arc = Arc::new(window);
 
@@ -98,6 +99,7 @@ impl AppState {
             &gpu,
             PARTICLE_COLOR,
             BOUNDARY_PARTICLE_COLOR,
+            start_resumed,
         );
 
         let instances = instances::InstanceStore::new(&gpu, 0);
