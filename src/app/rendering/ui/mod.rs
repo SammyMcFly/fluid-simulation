@@ -149,6 +149,10 @@ impl UIState {
         self.controls.update_time_step_info(queue_len, info);
     }
 
+    pub fn advance_to_next_measurement_state(&mut self) {
+        self.controls.advance_to_next_measurement_state();
+    }
+
     pub fn draw(
         &mut self,
         window: &Arc<winit::window::Window>,

@@ -344,6 +344,8 @@ impl System3D {
     }
 
     /// Perform neighbor search for all fluid particles
+    ///
+    /// Adds fluid neighbors and boundary neighbors as neighbors
     #[cfg(feature = "parallel")]
     fn update_particle_neighbors(&mut self) {
         let immutable_clone_of_particles = self.particles.clone();
@@ -1510,8 +1512,9 @@ impl System3D {
 
     pub fn get_time_step_info(&self) -> TimeStepInfo {
         TimeStepInfo {
+            time: self.time() as f32,
+            time_increment: self.properties.time_increment as f32,
             average_density: self.properties.average_density as f32,
-            time_inc: self.properties.time_increment as f32,
             fluid: self.get_serializable_particles(),
             boundary: self.get_boundary_particles(),
         }

@@ -9,6 +9,7 @@ pub enum WorkerMessage {
     SavedState,
     SavedMeasurement,
     FinishedResetting(SimulationParameters),
+    ReachedStartTime,
     ReachedFinishTime,
     Error(String),
 }

@@ -174,8 +174,7 @@ impl System3DConfigConstructor {
     pub fn new(
         config_file_path: &str,
         particle_state_file_path: Option<&str>,
-        // controls: Arc<Mutex<mediation::IntermediateControls>>,
-        // measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
+        is_measured: bool,
     ) -> Result<(Self, SimulationParameters), Box<dyn std::error::Error>> {
         // load config file
         let mut constructor = Self::load_config(config_file_path)?;
@@ -201,6 +200,7 @@ impl System3DConfigConstructor {
             boundary_particle_color: ParticleColor::FixedColor([0.; 3]),
             integration_scheme: constructor.config.parameters.integration_scheme.clone(),
             buffer_length_limit: constructor.config.parameters.buffer_length_limit,
+            is_measured,
         };
 
         // init system properties

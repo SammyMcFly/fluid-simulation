@@ -1,7 +1,7 @@
 //! Render Controls, Settings and Utilities
 //!
 //!
-use iced_widget::{container, column, row, text, button, Toggler}; //text_input, slider
+use iced_widget::{container, column, row, text, button, Toggler, Space}; //text_input, slider
 use iced_winit::core::{Element, Theme, Length, Color};
 
 use crate::app::backend::sph::particle::Positional;
@@ -100,24 +100,6 @@ pub struct RenderControls {
     pub info: info::UIInfo,
 }
 
-// pub struct UIControls {
-//     // pub display_state: PlaybackState,
-//     // reset_requested: bool,
-//     // saving_requested: bool,
-//     // background_color: Color,
-//     // hide_boundary: bool,
-//     // cut: Cut,
-//     // // input: String,
-//     // buffer_length: u32,
-//     // rest_density: f32,
-//     // average_density: f32,
-
-//     play_pause: bool,
-//     reset: bool,
-//     save_state: bool,
-
-// }
-
 impl RenderControls {
     pub fn new(
         particle_color: ParticleColor,
@@ -131,17 +113,11 @@ impl RenderControls {
         };
         Self {
             play_pause,
-            // reset: false,
-            // save_state: false,
             particle_color,
             boundary_particle_color,
             background_color: Color::WHITE,
             hide_boundary: false,
             cut: Cut::default(),
-            // input: String::default(),
-            // buffer_length: u32::default(),
-            // rest_density: f32::default(),
-            // average_density: f32::default(),
             info: info::UIInfo::new(),
         }
     }
@@ -157,18 +133,6 @@ impl RenderControls {
     pub fn get_cut(&self) -> &Cut {
         &self.cut
     }
-
-    // pub fn is_reset_requested(&mut self) -> bool {
-    //     let output = self.reset;
-    //     self.reset = false;
-    //     output
-    // }
-
-    // pub fn is_saving_requested(&mut self) -> bool {
-    //     let output = self.save_state;
-    //     self.save_state = false;
-    //     output
-    // }
 
     pub fn update(&mut self, input: &UserInput) {
         match input {
@@ -210,6 +174,10 @@ impl RenderControls {
         self.info.update_time_step_info(queue_len, info);
     }
 
+    pub fn advance_to_next_measurement_state(&mut self) {
+        self.info.advance_to_next_measurement_state();
+    }
+
     pub fn view(&self) -> Element<'_, UserInput, Theme, iced_wgpu::Renderer> {
         let playback_state = row![
             button(if self.play_pause.is_playing() { "Pause" } else { "Resume" })
@@ -246,8 +214,6 @@ impl RenderControls {
             button("Save current state")
             .on_press(UserInput::RequestSaving).height(28),
         ];
-
-        // let background_color = self.background_color;
 
         // let sliders = row![
         //     slider(0.0..=1.0, background_color.r, move |r| {
@@ -306,10 +272,6 @@ impl RenderControls {
             Toggler::new(self.cut.y)
                 .label("Show half-space for:")
                 .on_toggle(|_| UserInput::ToggleCutY),
-            // slider(0.0..=10.0, self.cut.y_bound, move |bound| {
-            //     Message::CutYBoundChanged(bound)
-            // })
-            // .step(0.1),
             text(format!(" y {y_condition} ")),
             text(self.cut.y_bound),
             text(" "),
@@ -319,35 +281,23 @@ impl RenderControls {
         ]
         .width(500);
 
-        // Container::new(column![
-        //     text("Background color").color(Color::WHITE),
-        //     text!("{background_color:?}").size(14).color(Color::WHITE),
-        //     sliders,
-        //     text_input("Type something...", &self.input)
-        //         .on_input(Message::InputChanged),
-        // ]
-        // .spacing(10))
-        // .align_bottom(10)
-        // .into()
+        // build ui controls
         let ui_controls = column![
             playback_state,
             reset_cam,
             reset,
             save,
-            // text("Background color").color(Color::BLACK),
-            // text!("{background_color:?}").size(14).color(Color::BLACK),
-            // sliders,
             hide_boundary,
             cut_x,
             cut_y,
-            // text_input("Type something...", &self.input)
-            //     .on_input(Message::InputChanged),
         ]
         .spacing(10);
 
+        // final assembly of the ui
         container(
             column![
                 self.info.view(),
+                Space::with_height(Length::Fill),
                 ui_controls,
             ]
             .spacing(10),

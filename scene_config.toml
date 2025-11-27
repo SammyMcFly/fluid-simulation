@@ -25,8 +25,8 @@ position = [ 2.0, 30.0, 2.0 ] # (not hot swappable)
 type = "NoLidCube"
 
 [scene.parameters.particles]
-n_particles_x = 15
-n_particles_y = 15
+n_particles_x = 20
+n_particles_y = 20
 n_particles_z = 40
 x_offset = -0.0
 y_offset = -0.0

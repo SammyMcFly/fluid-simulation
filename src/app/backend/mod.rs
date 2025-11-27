@@ -12,6 +12,7 @@ use commands::WorkerCommand;
 use sph::particle::{SerParticle3D, BoundaryParticle3D};
 use crate::app::rendering::ui::controls::ParticleColor;
 use crate::app::messages::WorkerMessage;
+use measure::MeasurementStatus;
 
 pub mod commands;
 pub mod sph;
@@ -43,29 +44,33 @@ fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std::io:
 
 #[derive(Debug, Clone)]
 pub struct SimulationParameters {
-    // particle size
+    /// Particle size
     pub particle_diameter: f32,
-    // rest density
+    /// Rest density
     pub rest_density: f32,
-    // light position
+    /// Light position
     pub light_position: [f32; 3],
-    // particle color
+    /// Particle color
     pub particle_color: ParticleColor,
-    // boundary particle color
+    /// Boundary particle color
     pub boundary_particle_color: ParticleColor,
     /// Integration Scheme
     pub integration_scheme: sph::PropagationMethod,
     /// maximum buffer length
     pub buffer_length_limit: usize,
+    /// Flag that is true if a measurement is taken in simulation, else false
+    pub is_measured: bool,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct TimeStepInfo {
-    // hand over time_inc
-    pub time_inc: f32,
+    // system time
+    pub time: f32,
+    // time increment
+    pub time_increment: f32,
     // average density
     pub average_density: f32,
-    //
+    // particles
     pub fluid: Vec<SerParticle3D>,
     pub boundary: Vec<BoundaryParticle3D>
 }
@@ -80,10 +85,9 @@ struct Simulation {
     system: sph::System3D,
     parameters: SimulationParameters,
     measurements: Option<measure::MeasurementSeries>,
+    measurement_status: MeasurementStatus,
     start_time: Option<f64>,
     finish_time: Option<f64>,
-    measurement_started: bool,
-    measurement_finished: bool,
 }
 
 impl Simulation {
@@ -94,23 +98,28 @@ impl Simulation {
         match setup::System3DConfigConstructor::new(
             &simulation_load_info.config_file_path,
             simulation_load_info.state_file_path.as_deref(),
+            simulation_load_info.measurement_file_path.is_some(),
         ) {
             Ok((sys_conf, sim_info)) => {
                 let initial_system = sph::System3D::new(sys_conf.finish());
                 let measurement_series = simulation_load_info.measurement_file_path.as_deref().map(measure::MeasurementSeries::new);
-                #[cfg(feature = "logging")]
-                info!("Loaded new simulation!");
+                let measurement_status = if measurement_series.is_some() {
+                    MeasurementStatus::NotStarted
+                } else {
+                    MeasurementStatus::None
+                };
                 let mut sim: Simulation = Self {
                     system: initial_system,
                     parameters: sim_info,
                     measurements: measurement_series,
+                    measurement_status,
                     start_time: simulation_load_info.start_time,
                     finish_time: simulation_load_info.finish_time,
-                    measurement_started: false,
-                    measurement_finished: false,
                 };
-                let measurement_status = sim.get_measurement_status();
-                if let Some(meas) = &mut sim.measurements && measurement_status {
+                #[cfg(feature = "logging")]
+                info!("Loaded new simulation!");
+                sim.update_measurement_status();
+                if let Some(meas) = &mut sim.measurements && sim.measurement_status.is_active() {
                     sim.system.push_back_measurement(meas);
                 }
                 Ok((sim.system.get_time_step_info(), sim))
@@ -124,8 +133,8 @@ impl Simulation {
     }
     fn get_next_time_step(&mut self) -> TimeStepInfo {
         self.system.step_forward_in_time(&self.parameters.integration_scheme);
-        let measurement_status = self.get_measurement_status();
-        if let Some(meas) = &mut self.measurements && measurement_status {
+        self.update_measurement_status();
+        if let Some(meas) = &mut self.measurements && self.measurement_status.is_active() {
             self.system.push_back_measurement(meas);
         }
         self.system.get_time_step_info()
@@ -133,31 +142,28 @@ impl Simulation {
     fn time(&self) -> f64 {
         self.system.time()
     }
-    fn get_measurement_status(&mut self) -> bool {
-        if self.measurements.is_some() {
-            if !self.measurement_started {
-                if let Some(st) = self.start_time {
-                    if self.time() >= st {
-                        self.measurement_started = true;
-                    }
-                } else {
-                    self.measurement_started = true;
-                }
+    /// Updates measurement status
+    fn update_measurement_status(&mut self) {
+        if let MeasurementStatus::NotStarted = self.measurement_status {
+            if let Some(st) = self.start_time && self.time() >= st {
+                self.measurement_status.advance_to_next_state();
+            } else if self.start_time.is_none() {
+                self.measurement_status.advance_to_next_state();
             }
-            if !self.measurement_finished && let Some(ft) = self.finish_time && self.time() > ft {
-                self.measurement_finished = true;
-            }
-            self.measurement_started && !self.measurement_finished
-        } else {
-            false
+        }
+        if let MeasurementStatus::Measuring = self.measurement_status
+                && let Some(ft) = self.finish_time && self.time() > ft {
+            self.measurement_status.advance_to_next_state();
         }
     }
+    fn started_measurement(&self) -> bool {
+        self.measurement_status.is_active() || self.measurement_status.is_finished()
+    }
     fn finished_measurement(&self) -> bool {
-        if self.finish_time.is_some() {
-            self.measurement_finished
-        } else {
-            true
-        }
+        self.measurement_status.is_finished()
+    }
+    fn has_finish_time(&self) -> bool {
+        self.finish_time.is_some()
     }
     fn stop(&mut self) -> Result<(), String> {
         if let Some(meas) = &mut self.measurements {
@@ -201,7 +207,8 @@ struct SimulationLoadInfo {
 struct SimulationController {
     state: SimulationState,
     timesteps_to_compute: usize,
-    finished: bool,
+    start_registered: bool,
+    finish_registered: bool,
 
     simulation_load_info: Option<SimulationLoadInfo>,
     simulation: Option<Simulation>,
@@ -245,11 +252,26 @@ impl SimulationController {
             None
         }
     }
-    fn finished_measurement(&self) -> Option<bool> {
-        if let Some(sim) = &self.simulation {
-            return Some(sim.finished_measurement())
+    fn just_started_measurement(&mut self) -> bool {
+        if let Some(sim) = &self.simulation && sim.started_measurement() && !self.start_registered {
+            self.start_registered = true;
+            return true
         }
-        None
+        false
+    }
+    fn just_finished_measurement(&mut self) -> bool {
+        if let Some(sim) = &self.simulation && sim.finished_measurement() && !self.finish_registered {
+            self.finish_registered = true;
+            return true
+        }
+        false
+    }
+    fn not_reached_existing_finish_time(&self) -> bool {
+        if let Some(sim) = &self.simulation && sim.has_finish_time() && !sim.finished_measurement(){
+            true
+        } else {
+            false
+        }
     }
     fn stop(&mut self) -> Result<(), String> {
         if let Some(sim) = &mut self.simulation {
@@ -344,7 +366,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     }
                 },
                 WorkerCommand::Stop => {
-                    if !simulation_controller.finished_measurement().unwrap_or(true) {
+                    if simulation_controller.not_reached_existing_finish_time() {
                         #[cfg(feature = "logging")]
                         warn!("Finish time was not reached!");
                     }
@@ -362,13 +384,18 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                 },
             }
         }
+        // check if start time is reached
+        if simulation_controller.just_started_measurement() {
+            #[cfg(feature = "logging")]
+            info!("Reached start time");
+            let _ = to_ui.send_event(WorkerMessage::ReachedStartTime);
+        }
         // check if finish time is reached
-        if simulation_controller.finished_measurement().unwrap_or(false) && !simulation_controller.finished {
+        if simulation_controller.just_finished_measurement() {
             #[cfg(feature = "logging")]
             info!("Reached finish time");
             simulation_controller.pause();
             let _ = to_ui.send_event(WorkerMessage::ReachedFinishTime);
-            simulation_controller.finished = true;
         }
         // progress simulation
         if let Some(res) = simulation_controller.get_next_time_step() {

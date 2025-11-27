@@ -327,9 +327,9 @@ impl Particle3D {
 #[derive(Debug, Clone)]
 pub struct BoundaryParticle3D {
     position: Vector3<f64>,
-    mass: f64,
     #[cfg(feature = "global_pressure")]
     velocity: Vector3<f64>,
+    mass: f64,
 }
 
 impl Positional for BoundaryParticle3D {
@@ -346,9 +346,9 @@ impl Initializable for BoundaryParticle3D {
         ) -> Self {
         Self {
             position: position[0],
-            mass,
             #[cfg(feature = "global_pressure")]
             velocity: Vector3::zeros(),
+            mass,
         }
     }
 }
@@ -377,15 +377,15 @@ impl From<SerParticle3D> for Particle3D {
         Self {
             position: Q3::new(particle.position[0].into(), particle.position[2].into()),
             velocity: Q3::new(particle.velocity[0].into(), particle.velocity[2].into()),
-            acceleration: particle.acceleration.into(),
+            acceleration: Vector3::default(),
             mass: particle.mass,
-            density: particle.density,
-            pressure: particle.pressure,
+            density: f64::default(),
+            pressure: f64::default(),
             // custom_color: particle.custom_color,
             // color: particle.color,
             disabled: particle.disabled,
-            neighbors: particle.neighbors,
-            boundary_neighbors: particle.boundary_neighbors,
+            neighbors: Vec::new(),
+            boundary_neighbors: Vec::new(),
             #[cfg(feature = "splitting")]
             pred_density: f64::default(),
             #[cfg(feature = "global_pressure")]
@@ -406,21 +406,13 @@ impl From<SerParticle3D> for Particle3D {
     }
 }
 
-/// Serializable particle in a 3-dimensional context
+/// Compressed and serializable particle in a 3-dimensional context
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerParticle3D {
     position: [[f64; 3]; 3],
     velocity: [[f64; 3]; 3],
-    acceleration: [f64; 3],
     mass: f64,
-    /// density (necessary for sph fluid)
-    density: f64,
-    pressure: f64,
     disabled: bool,
-    /// neighbors
-    pub neighbors: Vec<usize>,
-    /// boundary neighbors
-    pub boundary_neighbors: Vec<usize>,
 }
 
 impl From<Particle3D> for SerParticle3D {
@@ -428,13 +420,8 @@ impl From<Particle3D> for SerParticle3D {
         Self {
             position: [particle.position.now().into(), particle.position.pred().into(), particle.position.prev().into()],
             velocity: [particle.velocity.now().into(), particle.velocity.pred().into(), particle.velocity.prev().into()],
-            acceleration: particle.acceleration.into(),
             mass: particle.mass,
-            density: particle.density,
-            pressure: particle.pressure,
             disabled: particle.disabled,
-            neighbors: particle.neighbors,
-            boundary_neighbors: particle.boundary_neighbors,
         }
     }
 }

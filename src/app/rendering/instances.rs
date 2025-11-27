@@ -160,7 +160,7 @@ impl InstanceStore {
     /// Get time increment
     pub fn get_time_inc(&self) -> f32 {
         if let Some(info) = &self.staged_info {
-            info.time_inc
+            info.time_increment
         } else {
             0.
         }

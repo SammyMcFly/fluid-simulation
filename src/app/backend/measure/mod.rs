@@ -1,8 +1,9 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, path::Path};
 use serde::Serialize;
 
 #[cfg(feature = "logging")]
 use tracing::{info}; // debug, error, info, span, trace, warn,
+
 
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -60,12 +61,10 @@ impl MeasurementSeries {
     // }
     pub fn save(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let file_path = std::path::Path::new(&self.file_path);
-        #[cfg(feature = "logging")]
-        info!("created file path: {:?}", file_path);
         // convert to global path
-        let file_path_parent = std::fs::canonicalize(file_path.parent().expect("No parent file path found."))?;
-        #[cfg(feature = "logging")]
-        info!("canonicalized");
+        let file_path_parent = std::fs::canonicalize(
+            file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
+        )?;
         // Get the parent directory
         if !file_path_parent.exists() {
             std::fs::create_dir_all(file_path_parent.clone())?;
@@ -79,5 +78,31 @@ impl MeasurementSeries {
         }
         wtr.flush()?;
         Ok(())
+    }
+}
+
+
+#[derive(Debug, Clone, Default)]
+pub enum MeasurementStatus {
+    #[default]
+    None,
+    NotStarted,
+    Measuring,
+    Finished,
+}
+
+impl MeasurementStatus {
+    pub fn advance_to_next_state(&mut self) {
+        match self {
+            Self::NotStarted => *self = Self::Measuring,
+            Self::Measuring => *self = Self::Finished,
+            _ => panic!("Called advance_to_next_state on MeasurementStatus::None or MeasurementStatus::Finished"),
+        }
+    }
+    pub fn is_active(&self) -> bool {
+        matches!(self, MeasurementStatus::Measuring)
+    }
+    pub fn is_finished(&self) -> bool {
+        matches!(self, MeasurementStatus::Finished)
     }
 }

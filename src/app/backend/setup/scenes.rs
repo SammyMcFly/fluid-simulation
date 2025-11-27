@@ -59,7 +59,7 @@ impl Scene for NoLidCube {
                     let boundary_particle = BoundaryParticle3D::new(
                         [Vector3::new(x, y, z), Vector3::zeros()],
                         Vector3::zeros(),
-                        0., // still need to be initialized
+                        0., // still needs to be initialized
                         );
                     boundary_particles.push(boundary_particle);
                 }
@@ -80,7 +80,7 @@ impl Scene for NoLidCube {
                         let boundary_particle = BoundaryParticle3D::new(
                             [Vector3::new(x, y, z), Vector3::zeros()],
                             Vector3::zero(),
-                            0., // still need to be initialized
+                            0., // still needs to be initialized
                         );
                         boundary_particles.push(boundary_particle);
                     }
