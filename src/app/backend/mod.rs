@@ -26,18 +26,18 @@ pub mod measure;
 fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std::io::Result<()> {
     let file_path = std::path::Path::new(file_path);
     // convert to global path
-    let file_path = std::fs::canonicalize(file_path)?;
-    // Get the parent directory
-    if let Some(parent) = file_path.parent() {
-        // Create the parent directory if it doesn't exist
-        if !parent.exists() {
-            std::fs::create_dir_all(parent)?;
-            #[cfg(feature = "logging")]
-            info!("Created directories: {}", parent.display());
-        }
+    let file_path_parent = std::fs::canonicalize(
+        file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."))
+    )?;
+    // Create the parent directory if it does not exist
+    if !file_path_parent.exists() {
+        std::fs::create_dir_all(file_path_parent.clone())?;
+        #[cfg(feature = "logging")]
+        info!("Created directories: {}", file_path_parent.display());
     }
+    let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
     let ron_string = ron::to_string(&particles).unwrap();
-    let mut file = std::fs::File::create(file_path)?;
+    let mut file = std::fs::File::create(global_file_path)?;
     file.write_all(ron_string.as_bytes())?;
     Ok(())
 }

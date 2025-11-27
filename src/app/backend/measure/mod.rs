@@ -65,7 +65,7 @@ impl MeasurementSeries {
         let file_path_parent = std::fs::canonicalize(
             file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
         )?;
-        // Get the parent directory
+        // Create the parent directory if it does not exist
         if !file_path_parent.exists() {
             std::fs::create_dir_all(file_path_parent.clone())?;
             #[cfg(feature = "logging")]
