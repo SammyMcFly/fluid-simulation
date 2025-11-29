@@ -175,6 +175,7 @@ impl System3DConfigConstructor {
         config_file_path: &str,
         particle_state_file_path: Option<&str>,
         is_measured: bool,
+        is_recorded: bool,
     ) -> Result<(Self, SimulationParameters), Box<dyn std::error::Error>> {
         // load config file
         let mut constructor = Self::load_config(config_file_path)?;
@@ -201,6 +202,7 @@ impl System3DConfigConstructor {
             integration_scheme: constructor.config.parameters.integration_scheme.clone(),
             buffer_length_limit: constructor.config.parameters.buffer_length_limit,
             is_measured,
+            is_recorded,
         };
 
         // init system properties

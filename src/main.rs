@@ -45,7 +45,7 @@ struct Args {
     /// File path to file with state of all particles of a system, where to start simulating from
     #[arg(short, long)]
     state: Option<String>,
-    /// Store measurements to .csv file
+    /// File path to store measurements to (.csv file)
     #[arg(short, long,)]
     measurement_file: Option<String>,
     /// Time at which the measurement is startet
@@ -54,6 +54,9 @@ struct Args {
     /// Time at which the simulation is automatically ended
     #[arg(short, long,)]
     finish_time: Option<f64>,
+    /// File path to store time step info between start_time and end_time to
+    #[arg(long,)]
+    recording_file: Option<String>,
     /// Resume playback at start
     #[arg(short, long,)]
     resume: bool,

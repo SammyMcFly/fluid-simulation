@@ -23,7 +23,7 @@ use spring::*;
 pub mod uniform_grid;
 
 use super::TimeStepInfo;
-use super::measure;
+use super::recording;
 use super::setup;
 
 
@@ -1478,7 +1478,7 @@ impl System3D {
     }
 
     /// Measure (physical) quantities at current time step
-    pub fn push_back_measurement(&mut self, series: &mut measure::MeasurementSeries) {
+    pub fn push_back_measurement(&mut self, series: &mut recording::MeasurementSeries) {
         // if cfg!(feature = "logging") {
         //     debug!("{}, {}", self.properties.average_density, self.properties.rest_density);
         //     let max_speed = self.calc_max_speed();
@@ -1486,7 +1486,7 @@ impl System3D {
         //     debug!("time: {}, cfl coefficient: {}, max speed: {}", self.time(), cfl_coeff, max_speed);
         // }
 
-        series.push_back(measure::Measurement {
+        series.push_back(recording::Measurement {
             time: self.time(),
             density: self.properties.average_density/self.properties.rest_density,
             kinetic_energy: self.calc_average_kinetic_energy(),
@@ -1506,8 +1506,8 @@ impl System3D {
         self.particles.clone().into_iter().map(|p| p.into()).collect()
     }
 
-    fn get_boundary_particles(&self) -> Vec<BoundaryParticle3D> {
-        self.boundary_particles.clone()
+    fn get_serializable_boundary_particles(&self) -> Vec<SerBoundaryParticle3D> {
+        self.boundary_particles.clone().into_iter().map(|p| p.into()).collect()
     }
 
     pub fn get_time_step_info(&self) -> TimeStepInfo {
@@ -1516,7 +1516,7 @@ impl System3D {
             time_increment: self.properties.time_increment as f32,
             average_density: self.properties.average_density as f32,
             fluid: self.get_serializable_particles(),
-            boundary: self.get_boundary_particles(),
+            boundary: self.get_serializable_boundary_particles(),
         }
     }
 }

@@ -1,6 +1,7 @@
 //! Backend module
 use std::time::Duration;
-use std::io::Write;
+use serde::{Serialize, Deserialize};
+use bincode::{Encode, Decode};
 
 use iced_winit::winit::event_loop::EventLoopProxy;
 use crossbeam::channel::Receiver;
@@ -9,38 +10,18 @@ use crossbeam::channel::Receiver;
 use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
 use commands::WorkerCommand;
-use sph::particle::{SerParticle3D, BoundaryParticle3D};
+use sph::particle::{SerParticle3D, SerBoundaryParticle3D};
 use crate::app::rendering::ui::controls::ParticleColor;
 use crate::app::messages::WorkerMessage;
-use measure::MeasurementStatus;
+use recording::RecordingStatus;
 
 pub mod commands;
 pub mod sph;
 pub mod setup;
-pub mod measure;
+pub mod recording;
 
 
 
-
-/// Store the current state of all fluid particles to a file
-fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std::io::Result<()> {
-    let file_path = std::path::Path::new(file_path);
-    // convert to global path
-    let file_path_parent = std::fs::canonicalize(
-        file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."))
-    )?;
-    // Create the parent directory if it does not exist
-    if !file_path_parent.exists() {
-        std::fs::create_dir_all(file_path_parent.clone())?;
-        #[cfg(feature = "logging")]
-        info!("Created directories: {}", file_path_parent.display());
-    }
-    let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
-    let ron_string = ron::to_string(&particles).unwrap();
-    let mut file = std::fs::File::create(global_file_path)?;
-    file.write_all(ron_string.as_bytes())?;
-    Ok(())
-}
 
 #[derive(Debug, Clone)]
 pub struct SimulationParameters {
@@ -60,9 +41,11 @@ pub struct SimulationParameters {
     pub buffer_length_limit: usize,
     /// Flag that is true if a measurement is taken in simulation, else false
     pub is_measured: bool,
+    /// Flag that is true if simulation state are stored in a file (recorded), else false
+    pub is_recorded: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Encode, Decode)]
 pub struct TimeStepInfo {
     // system time
     pub time: f32,
@@ -72,8 +55,25 @@ pub struct TimeStepInfo {
     pub average_density: f32,
     // particles
     pub fluid: Vec<SerParticle3D>,
-    pub boundary: Vec<BoundaryParticle3D>
+    pub boundary: Vec<SerBoundaryParticle3D>
 }
+
+impl From<&[u8]> for TimeStepInfo {
+    fn from(bytes: &[u8]) -> Self {
+        let cfg = bincode::config::standard();
+        let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg).unwrap();
+        decoded
+    }
+}
+
+impl From<TimeStepInfo> for Vec<u8> {
+    fn from(time_step_info: TimeStepInfo) -> Self {
+        let cfg = bincode::config::standard();
+        bincode::encode_to_vec(time_step_info, cfg).unwrap()
+    }
+}
+
+
 
 /// Struct that does:
 /// - holds initial state of a system
@@ -84,8 +84,9 @@ struct Simulation {
     // initial_system: sph::System3D,
     system: sph::System3D,
     parameters: SimulationParameters,
-    measurements: Option<measure::MeasurementSeries>,
-    measurement_status: MeasurementStatus,
+    measurement_series: Option<recording::MeasurementSeries>,
+    state_appender: Option<recording::StateAppender>,
+    recording_status: RecordingStatus,
     start_time: Option<f64>,
     finish_time: Option<f64>,
 }
@@ -99,30 +100,50 @@ impl Simulation {
             &simulation_load_info.config_file_path,
             simulation_load_info.state_file_path.as_deref(),
             simulation_load_info.measurement_file_path.is_some(),
+            simulation_load_info.recording_file_path.is_some(),
         ) {
             Ok((sys_conf, sim_info)) => {
                 let initial_system = sph::System3D::new(sys_conf.finish());
-                let measurement_series = simulation_load_info.measurement_file_path.as_deref().map(measure::MeasurementSeries::new);
-                let measurement_status = if measurement_series.is_some() {
-                    MeasurementStatus::NotStarted
+                let measurement_series = match simulation_load_info.measurement_file_path
+                    .as_deref().map(recording::MeasurementSeries::new) {
+                        Some(Ok(ms)) => Some(ms),
+                        Some(Err(e)) => {
+                            #[cfg(feature = "logging")]
+                            error!("Failed to handle measurement file: {}", e);
+                            return Err(format!("Failed to handle measurement file: {}", e));
+                        },
+                        None => None,
+                    };
+                let state_appender = match simulation_load_info.recording_file_path
+                    .as_deref().map(recording::StateAppender::new) {
+                        Some(Ok(ms)) => Some(ms),
+                        Some(Err(e)) => {
+                            #[cfg(feature = "logging")]
+                            error!("Failed to handle recording file: {}", e);
+                            return Err(format!("Failed to handle recording file: {}", e));
+                        },
+                        None => None,
+                    };
+                let recording_status = if measurement_series.is_some() || state_appender.is_some() {
+                    RecordingStatus::NotStarted
                 } else {
-                    MeasurementStatus::None
+                    RecordingStatus::None
                 };
                 let mut sim: Simulation = Self {
                     system: initial_system,
                     parameters: sim_info,
-                    measurements: measurement_series,
-                    measurement_status,
+                    measurement_series,
+                    state_appender,
+                    recording_status,
                     start_time: simulation_load_info.start_time,
                     finish_time: simulation_load_info.finish_time,
                 };
+                let time_step_info = sim.system.get_time_step_info();
                 #[cfg(feature = "logging")]
                 info!("Loaded new simulation!");
-                sim.update_measurement_status();
-                if let Some(meas) = &mut sim.measurements && sim.measurement_status.is_active() {
-                    sim.system.push_back_measurement(meas);
-                }
-                Ok((sim.system.get_time_step_info(), sim))
+                sim.record(&time_step_info);
+
+                Ok((time_step_info, sim))
         },
             _ => {
                 #[cfg(feature = "logging")]
@@ -133,40 +154,49 @@ impl Simulation {
     }
     fn get_next_time_step(&mut self) -> TimeStepInfo {
         self.system.step_forward_in_time(&self.parameters.integration_scheme);
-        self.update_measurement_status();
-        if let Some(meas) = &mut self.measurements && self.measurement_status.is_active() {
-            self.system.push_back_measurement(meas);
-        }
-        self.system.get_time_step_info()
+        let time_step_info = self.system.get_time_step_info();
+        self.record(&time_step_info);
+        time_step_info
     }
     fn time(&self) -> f64 {
         self.system.time()
     }
     /// Updates measurement status
     fn update_measurement_status(&mut self) {
-        if let MeasurementStatus::NotStarted = self.measurement_status {
+        if let RecordingStatus::NotStarted = self.recording_status {
             if let Some(st) = self.start_time && self.time() >= st {
-                self.measurement_status.advance_to_next_state();
+                self.recording_status.advance_to_next_state();
             } else if self.start_time.is_none() {
-                self.measurement_status.advance_to_next_state();
+                self.recording_status.advance_to_next_state();
             }
         }
-        if let MeasurementStatus::Measuring = self.measurement_status
+        if let RecordingStatus::Measuring = self.recording_status
                 && let Some(ft) = self.finish_time && self.time() > ft {
-            self.measurement_status.advance_to_next_state();
+            self.recording_status.advance_to_next_state();
         }
     }
-    fn started_measurement(&self) -> bool {
-        self.measurement_status.is_active() || self.measurement_status.is_finished()
+    fn record(&mut self, time_step_info: &TimeStepInfo) {
+        self.update_measurement_status();
+        if self.recording_status.is_active() {
+            if let Some(meas) = &mut self.measurement_series {
+                self.system.push_back_measurement(meas);
+            }
+            if let Some(rec) = &self.state_appender {
+                let _ = rec.append_time_step_info_to_file(time_step_info.clone());
+            }
+        }
     }
-    fn finished_measurement(&self) -> bool {
-        self.measurement_status.is_finished()
+    fn started_recording(&self) -> bool {
+        self.recording_status.is_active() || self.recording_status.is_finished()
+    }
+    fn finished_recording(&self) -> bool {
+        self.recording_status.is_finished()
     }
     fn has_finish_time(&self) -> bool {
         self.finish_time.is_some()
     }
     fn stop(&mut self) -> Result<(), String> {
-        if let Some(meas) = &mut self.measurements {
+        if let Some(meas) = &mut self.measurement_series {
             match meas.save() {
                 Err(e) => {
                     #[cfg(feature = "logging")]
@@ -175,7 +205,7 @@ impl Simulation {
                 },
                 Ok(_) => {
                     #[cfg(feature = "logging")]
-                    info!("Successfully saved measurement: {}", meas.get_path());
+                    info!("Successfully saved measurement: {}", meas.get_path().as_path().display());
                     return Ok(())
                 },
             }
@@ -198,6 +228,7 @@ struct SimulationLoadInfo {
     measurement_file_path: Option<String>,
     start_time: Option<f64>,
     finish_time: Option<f64>,
+    recording_file_path: Option<String>,
 }
 
 /// Struct that does:
@@ -252,22 +283,22 @@ impl SimulationController {
             None
         }
     }
-    fn just_started_measurement(&mut self) -> bool {
-        if let Some(sim) = &self.simulation && sim.started_measurement() && !self.start_registered {
+    fn just_started_recording(&mut self) -> bool {
+        if let Some(sim) = &self.simulation && sim.started_recording() && !self.start_registered {
             self.start_registered = true;
             return true
         }
         false
     }
-    fn just_finished_measurement(&mut self) -> bool {
-        if let Some(sim) = &self.simulation && sim.finished_measurement() && !self.finish_registered {
+    fn just_finished_recording(&mut self) -> bool {
+        if let Some(sim) = &self.simulation && sim.finished_recording() && !self.finish_registered {
             self.finish_registered = true;
             return true
         }
         false
     }
     fn not_reached_existing_finish_time(&self) -> bool {
-        if let Some(sim) = &self.simulation && sim.has_finish_time() && !sim.finished_measurement(){
+        if let Some(sim) = &self.simulation && sim.has_finish_time() && !sim.finished_recording(){
             true
         } else {
             false
@@ -296,6 +327,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     measure,
                     start_time,
                     finish_time,
+                    recording_file,
                 } => {
                     // load system
                     match simulation_controller.load_simulation(
@@ -305,6 +337,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                             measurement_file_path: measure,
                             start_time,
                             finish_time,
+                            recording_file_path: recording_file,
                         },
                     ) {
                         Ok(initial_state) => {
@@ -324,7 +357,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     simulation_controller.compute_more_timesteps(num);
                 },
                 WorkerCommand::SaveState { particles, filepath } => {
-                    let save_message = if save_system_state(particles, &filepath).is_ok() {
+                    let save_message = if recording::save_system_state(particles, &filepath).is_ok() {
                         #[cfg(feature = "logging")]
                         info!("Successfully saved state: {}", filepath);
                         WorkerMessage::SavedState
@@ -385,13 +418,13 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
             }
         }
         // check if start time is reached
-        if simulation_controller.just_started_measurement() {
+        if simulation_controller.just_started_recording() {
             #[cfg(feature = "logging")]
             info!("Reached start time");
             let _ = to_ui.send_event(WorkerMessage::ReachedStartTime);
         }
         // check if finish time is reached
-        if simulation_controller.just_finished_measurement() {
+        if simulation_controller.just_finished_recording() {
             #[cfg(feature = "logging")]
             info!("Reached finish time");
             simulation_controller.pause();

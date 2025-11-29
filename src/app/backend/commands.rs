@@ -10,6 +10,7 @@ pub enum WorkerCommand {
         measure: Option<String>,
         start_time: Option<f64>,
         finish_time: Option<f64>,
+        recording_file: Option<String>,
     },
     AddTimeStepsToCompute(usize),
     SaveState { particles: Vec<SerParticle3D>, filepath: String, },

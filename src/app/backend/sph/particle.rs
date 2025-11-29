@@ -1,5 +1,6 @@
 use nalgebra::Vector3;
 use serde::{Serialize, Deserialize};
+use bincode::{Encode, Decode};
 
 // #[cfg(feature = "logging")]
 // use tracing::{debug, error, info, span, trace, warn};
@@ -323,6 +324,40 @@ impl Particle3D {
     // }
 }
 
+impl From<SerParticle3D> for Particle3D {
+    fn from(particle: SerParticle3D) -> Self {
+        Self {
+            position: Q3::new(particle.position[0].into(), particle.position[2].into()),
+            velocity: Q3::new(particle.velocity[0].into(), particle.velocity[2].into()),
+            acceleration: Vector3::default(),
+            mass: particle.mass,
+            density: f64::default(),
+            pressure: f64::default(),
+            // custom_color: particle.custom_color,
+            // color: particle.color,
+            disabled: particle.disabled,
+            neighbors: Vec::new(),
+            boundary_neighbors: Vec::new(),
+            #[cfg(feature = "splitting")]
+            pred_density: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            s_f: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            a_ff: f64::default(),
+            #[cfg(feature = "global_pressure")]
+            pressure_acc_f: Vector3::default(),
+            #[cfg(feature = "implicit_euler")]
+            d_l: Vector3::default(),
+            #[cfg(feature = "implicit_euler")]
+            r_l: Vector3::default(),
+            #[cfg(feature = "implicit_euler")]
+            alpha_l: f64::default(),
+            #[cfg(feature = "implicit_euler")]
+            a_times_d_l: Vector3::default()
+        }
+    }
+}
+
 /// Boundary particle in a 3-dimensional context
 #[derive(Debug, Clone)]
 pub struct BoundaryParticle3D {
@@ -372,42 +407,20 @@ impl BoundaryParticle3D {
     }
 }
 
-impl From<SerParticle3D> for Particle3D {
-    fn from(particle: SerParticle3D) -> Self {
+
+impl From<SerBoundaryParticle3D> for BoundaryParticle3D {
+    fn from(particle: SerBoundaryParticle3D) -> Self {
         Self {
-            position: Q3::new(particle.position[0].into(), particle.position[2].into()),
-            velocity: Q3::new(particle.velocity[0].into(), particle.velocity[2].into()),
-            acceleration: Vector3::default(),
-            mass: particle.mass,
-            density: f64::default(),
-            pressure: f64::default(),
-            // custom_color: particle.custom_color,
-            // color: particle.color,
-            disabled: particle.disabled,
-            neighbors: Vec::new(),
-            boundary_neighbors: Vec::new(),
-            #[cfg(feature = "splitting")]
-            pred_density: f64::default(),
+            position: Vector3::new(particle.position[0], particle.position[1], particle.position[2],),
             #[cfg(feature = "global_pressure")]
-            s_f: f64::default(),
-            #[cfg(feature = "global_pressure")]
-            a_ff: f64::default(),
-            #[cfg(feature = "global_pressure")]
-            pressure_acc_f: Vector3::default(),
-            #[cfg(feature = "implicit_euler")]
-            d_l: Vector3::default(),
-            #[cfg(feature = "implicit_euler")]
-            r_l: Vector3::default(),
-            #[cfg(feature = "implicit_euler")]
-            alpha_l: f64::default(),
-            #[cfg(feature = "implicit_euler")]
-            a_times_d_l: Vector3::default()
+            velocity: Vector3::new(particle.velocity[0], particle.velocity[1], particle.velocity[2],),
+            mass: 0.,
         }
     }
 }
 
 /// Compressed and serializable particle in a 3-dimensional context
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct SerParticle3D {
     position: [[f64; 3]; 3],
     velocity: [[f64; 3]; 3],
@@ -431,6 +444,7 @@ impl Positional for SerParticle3D {
         Vector3::new(self.position[0][0], self.position[0][1], self.position[0][2])
     }
 }
+
 impl SerParticle3D {
     pub fn vel_now(&self) -> [f64; 3] {
         self.velocity[0]
@@ -441,3 +455,32 @@ impl SerParticle3D {
     }
 }
 
+/// Compressed and serializable particle in a 3-dimensional context
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct SerBoundaryParticle3D {
+    position: [f64; 3],
+    #[cfg(feature = "global_pressure")]
+    velocity: [f64; 3],
+}
+
+impl From<BoundaryParticle3D> for SerBoundaryParticle3D {
+    fn from(particle: BoundaryParticle3D) -> Self {
+        Self {
+            position: particle.pos().into(),
+            #[cfg(feature = "global_pressure")]
+            velocity: particle.vel().into(),
+        }
+    }
+}
+
+impl Positional for SerBoundaryParticle3D {
+    fn pos_now(&self) -> Vector3<f64> {
+        Vector3::new(self.position[0], self.position[1], self.position[2])
+    }
+}
+
+impl SerBoundaryParticle3D {
+    pub fn vel_now(&self) -> [f64; 3] {
+        self.velocity
+    }
+}

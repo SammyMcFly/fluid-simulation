@@ -55,6 +55,7 @@ impl StateApplication {
                 measure: args.measurement_file.clone(),
                 start_time: args.start_time,
                 finish_time: args.finish_time,
+                recording_file: args.recording_file,
             }).unwrap();
         }
 
