@@ -1,6 +1,8 @@
 //! Render Controls, Settings and Utilities
 //!
 //!
+use serde::{Serialize, Deserialize};
+use bincode::{Encode, Decode};
 use iced_widget::{container, column, row, text, button, Toggler, Space}; //text_input, slider
 use iced_winit::core::{Element, Theme, Length, Color};
 
@@ -9,7 +11,7 @@ use super::UserInput;
 
 pub mod info;
 
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum ParticleColor {
     #[default]
     VelocityGraded,

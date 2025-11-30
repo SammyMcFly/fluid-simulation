@@ -9,8 +9,9 @@ use serde::Serialize;
 #[cfg(feature = "logging")]
 use tracing::{warn, info}; // debug, error, info, span, trace, warn,
 
+use crate::app::backend::SimulationParameters;
+
 use super::sph::particle::SerParticle3D;
-use super::TimeStepInfo;
 
 
 
@@ -156,7 +157,7 @@ pub struct StateAppender {
 }
 
 impl StateAppender {
-    pub fn new(file_path: &str,) -> std::io::Result<Self> {
+    pub fn new(file_path: &str, sim_info: &SimulationParameters) -> std::io::Result<Self> {
         let file_path = Path::new(file_path);
         // convert to global path
         let file_path_parent = std::fs::canonicalize(
@@ -169,18 +170,20 @@ impl StateAppender {
             info!("Created directories: {}", file_path_parent.display());
         }
         let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
-        Ok(Self {
+        let appender = Self {
             file_path: global_file_path,
-        })
+        };
+        appender.append_time_step_info_to_file(sim_info.clone())?;
+        Ok(appender)
     }
 
-    pub fn append_time_step_info_to_file(&self, time_step_info: TimeStepInfo) -> std::io::Result<()> {
+    pub fn append_time_step_info_to_file(&self, info: impl std::convert::Into<std::vec::Vec<u8>>) -> std::io::Result<()> {
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(self.file_path.clone())?;
 
-        let bytes: Vec<u8> = time_step_info.into();
+        let bytes: Vec<u8> = info.into();
         let len = bytes.len() as u64;
 
         // Write length prefix

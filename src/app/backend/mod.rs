@@ -23,7 +23,7 @@ pub mod recording;
 
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct SimulationParameters {
     /// Particle size
     pub particle_diameter: f32,
@@ -43,6 +43,21 @@ pub struct SimulationParameters {
     pub is_measured: bool,
     /// Flag that is true if simulation state are stored in a file (recorded), else false
     pub is_recorded: bool,
+}
+
+impl From<&[u8]> for SimulationParameters {
+    fn from(bytes: &[u8]) -> Self {
+        let cfg = bincode::config::standard();
+        let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg).unwrap();
+        decoded
+    }
+}
+
+impl From<SimulationParameters> for Vec<u8> {
+    fn from(time_step_info: SimulationParameters) -> Self {
+        let cfg = bincode::config::standard();
+        bincode::encode_to_vec(time_step_info, cfg).unwrap()
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Encode, Decode)]
@@ -115,7 +130,7 @@ impl Simulation {
                         None => None,
                     };
                 let state_appender = match simulation_load_info.recording_file_path
-                    .as_deref().map(recording::StateAppender::new) {
+                    .as_deref().map(|file_path| recording::StateAppender::new(file_path, &sim_info)) {
                         Some(Ok(ms)) => Some(ms),
                         Some(Err(e)) => {
                             #[cfg(feature = "logging")]

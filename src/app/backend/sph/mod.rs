@@ -3,9 +3,11 @@
 //! Contains all necessary components to initialize a scene and simulate the trajectories
 //! of its containing particles by propagating the system time.
 //!
+use bincode::Decode;
+use bincode::Encode;
 use nalgebra::Vector3; // Matrix3,
 use num_traits::identities::Zero;
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -77,7 +79,7 @@ pub fn cubic_b_spline_3d_gradient(position_1: &Vector3<f64>, position_2: &Vector
 
 
 /// Method for propagating time in a simulated physical system
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub enum PropagationMethod {
     ExplicitEuler,
     #[cfg(feature = "implicit_euler")]
