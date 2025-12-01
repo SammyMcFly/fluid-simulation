@@ -177,7 +177,7 @@ impl Simulation {
         self.system.time()
     }
     /// Updates measurement status
-    fn update_measurement_status(&mut self) {
+    fn get_recording_status(&mut self) -> bool {
         if let RecordingStatus::NotStarted = self.recording_status {
             if let Some(st) = self.start_time && self.time() >= st {
                 self.recording_status.advance_to_next_state();
@@ -185,14 +185,16 @@ impl Simulation {
                 self.recording_status.advance_to_next_state();
             }
         }
+        let mut final_recording = false;
         if let RecordingStatus::Measuring = self.recording_status
-                && let Some(ft) = self.finish_time && self.time() > ft {
+                && let Some(ft) = self.finish_time && self.time() >= ft {
             self.recording_status.advance_to_next_state();
+            final_recording = true;
         }
+        self.recording_status.is_active() || final_recording
     }
     fn record(&mut self, time_step_info: &TimeStepInfo) {
-        self.update_measurement_status();
-        if self.recording_status.is_active() {
+        if self.get_recording_status() {
             if let Some(meas) = &mut self.measurement_series {
                 self.system.push_back_measurement(meas);
             }

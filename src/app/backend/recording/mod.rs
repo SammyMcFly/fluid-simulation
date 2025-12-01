@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use serde::Serialize;
 
 #[cfg(feature = "logging")]
-use tracing::{warn, info}; // debug, error, info, span, trace, warn,
+use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
 use crate::app::backend::SimulationParameters;
 
@@ -22,13 +22,18 @@ pub fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std:
     let file_path_parent = std::fs::canonicalize(
         file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
     )?;
-    // Create the parent directory if it does not exist
-    if !file_path_parent.exists() {
+    let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+
+    if !file_path_parent.exists() { // Create the parent directory if it does not exist
         std::fs::create_dir_all(file_path_parent.clone())?;
         #[cfg(feature = "logging")]
-        info!("Created directories: {}", file_path_parent.display());
+        info!("Created directory: {}", file_path_parent.display());
+    } else if global_file_path.exists() { // Throw an error if file already exist
+        #[cfg(feature = "logging")]
+        error!("File already exists: {}", file_path_parent.display());
+        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
     }
-    let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+
     let ron_string = ron::to_string(&particles).unwrap();
     let mut file = std::fs::File::create(global_file_path)?;
     file.write_all(ron_string.as_bytes())?;
@@ -103,13 +108,18 @@ impl MeasurementSeries {
         let file_path_parent = std::fs::canonicalize(
             file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
         )?;
-        // Create the parent directory if it does not exist
-        if !file_path_parent.exists() {
+        let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+
+        if !file_path_parent.exists() { // Create the parent directory if it does not exist
             std::fs::create_dir_all(file_path_parent.clone())?;
             #[cfg(feature = "logging")]
-            info!("Created directories: {}", file_path_parent.display());
+            info!("Created directory: {}", file_path_parent.display());
+        } else if global_file_path.exists() { // Throw an error if file already exist
+            #[cfg(feature = "logging")]
+            error!("File already exists: {}", file_path_parent.display());
+            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
         }
-        let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+
         Ok(Self {
             queue: VecDeque::default(),
             file_path: global_file_path,
@@ -163,13 +173,23 @@ impl StateAppender {
         let file_path_parent = std::fs::canonicalize(
             file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
         )?;
-        // Create the parent directory if it does not exist
-        if !file_path_parent.exists() {
+        let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+
+        if !file_path_parent.exists() { // Create the parent directory if it does not exist
             std::fs::create_dir_all(file_path_parent.clone())?;
             #[cfg(feature = "logging")]
-            info!("Created directories: {}", file_path_parent.display());
+            info!("Created directory: {}", file_path_parent.display());
+        } else if global_file_path.exists() { // Throw an error if file already exist
+            #[cfg(feature = "logging")]
+            error!("File already exists: {}", file_path_parent.display());
+            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
         }
-        let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+
+        if global_file_path.exists() {
+            #[cfg(feature = "logging")]
+            error!("File already exists: {}", file_path_parent.display());
+            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+        }
         let appender = Self {
             file_path: global_file_path,
         };

@@ -48,10 +48,12 @@ struct Args {
     /// File path to store measurements to (.csv file)
     #[arg(short, long,)]
     measurement_file: Option<String>,
-    /// Time at which the measurement is startet
+    /// Time, which the first measurement/recording is taken at
     #[arg(short, long,)]
     start_time: Option<f64>,
-    /// Time at which the simulation is automatically ended
+    /// Time, which the final measurement/recording is taken at
+    ///
+    /// At the same time the simulation is paused. Currently there is no possibility to resume the simulation.
     #[arg(short, long,)]
     finish_time: Option<f64>,
     /// File path to store time step info between start_time and end_time to
