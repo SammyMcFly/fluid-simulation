@@ -1,0 +1,48 @@
+# Scene configuration file
+
+[parameters] # General parameters
+buffer_length_limit = 1000
+time_inc = 0.005
+integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
+rest_density = 900.0 # rest density of fluid
+rest_density_grid_spacing = 0.8 # (not hot swappable)
+smoothing_length = 0.8 # (not hot swappable)
+disable_particles_below = -30
+fluid_viscosity = 0.2
+boundary_viscosity = 0.2
+boundary_pressure_acceleration_weighting = 1.0 # gamma
+# local pressure
+stiffness = 15000000.0 # k
+# global pressure
+solver_iterations = 5
+relaxation_factor = 0.7 # omega
+min_diagonal_element = 1e-25 # epsilon
+
+[light]
+position = [ 2.0, 30.0, 2.0 ] # (not hot swappable)
+
+[scene]
+type = "NoLidCube"
+
+[scene.parameters.particles]
+n_particles_x = 20
+n_particles_y = 20
+n_particles_z = 40
+x_offset = -0.0
+y_offset = -0.0
+z_offset = 0.0
+particle_spacing = 0.85
+
+[scene.parameters.boundary_particles]
+n_floor_particles_x = 30
+n_floor_particles_y = 30
+n_floor_particles_z = 2
+wall_height = 50 # wall is at the edge but above floor
+x_wall_thickness = 2
+y_wall_thickness = 2
+x_offset = -2.0
+y_offset = -2.0
+z_offset = -3.0
+particle_spacing = 0.8
+
+# [springs]
