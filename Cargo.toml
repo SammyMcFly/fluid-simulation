@@ -1,0 +1,2 @@
+[workspace]
+members = ["rusty_fluid_solver", "rusty_player"]
