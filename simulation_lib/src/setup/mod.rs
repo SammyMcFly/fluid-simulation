@@ -13,7 +13,7 @@ use super::sph::spring::Spring;
 use super::sph::{SystemProperties, PropagationMethod, cubic_b_spline_3d, cubic_b_spline_3d_gradient};
 // use super::measure;
 
-use crate::app::rendering::ui::controls::ParticleColor;
+use crate::ParticleColor;
 
 
 #[derive(Debug, Deserialize)]

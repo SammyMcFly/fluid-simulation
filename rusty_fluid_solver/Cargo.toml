@@ -30,6 +30,12 @@ global_pressure = []
 # debug = true
 
 [dependencies]
+# my rendering library
+simulation_lib = { path = "../simulation_lib" }
+
+# my rendering library
+rendering_lib = { path = "../rendering_lib" }
+
 # linear algebra
 nalgebra = "0.34.1"
 cgmath = "0.18"

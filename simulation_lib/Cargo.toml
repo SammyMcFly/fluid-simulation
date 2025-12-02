@@ -1,15 +1,21 @@
 [package]
-name = "rusty_player"
+name = "simulation_lib"
 version = "0.1.0"
 edition = "2024"
 
 [features]
 # Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
 # default = ["logging", "global_pressure"]
-default = ["logging", "global_pressure"]
+default = ["logging", "parallel", "global_pressure"]
 
 # Features
 logging = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
+parallel = ["dep:rayon"]
+implicit_euler = ["springs"]
+springs = []
+pseudo_mass_boundary = []
+local_pressure = []
+splitting = ["local_pressure"]
 global_pressure = []
 
 # [dev-dependencies]
@@ -24,10 +30,6 @@ global_pressure = []
 # debug = true
 
 [dependencies]
-simulation_lib = { path = "../simulation_lib" }
-# my rendering library
-rendering_lib = { path = "../rendering_lib" }
-
 # linear algebra
 nalgebra = "0.34.1"
 cgmath = "0.18"

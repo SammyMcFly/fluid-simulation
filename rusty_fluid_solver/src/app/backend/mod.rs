@@ -1,7 +1,5 @@
 //! Backend module
 use std::time::Duration;
-use serde::{Serialize, Deserialize};
-use bincode::{Encode, Decode};
 
 use iced_winit::winit::event_loop::EventLoopProxy;
 use crossbeam::channel::Receiver;
@@ -9,84 +7,16 @@ use crossbeam::channel::Receiver;
 #[cfg(feature = "logging")]
 use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
+use simulation_lib::*;
+
 use commands::WorkerCommand;
-use sph::particle::{SerParticle3D, SerBoundaryParticle3D};
-use crate::app::rendering::ui::controls::ParticleColor;
 use crate::app::messages::WorkerMessage;
 use recording::RecordingStatus;
 
 pub mod commands;
-pub mod sph;
-pub mod setup;
 pub mod recording;
 
 
-
-
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct SimulationParameters {
-    /// Particle size
-    pub particle_diameter: f32,
-    /// Rest density
-    pub rest_density: f32,
-    /// Light position
-    pub light_position: [f32; 3],
-    /// Particle color
-    pub particle_color: ParticleColor,
-    /// Boundary particle color
-    pub boundary_particle_color: ParticleColor,
-    /// Integration Scheme
-    pub integration_scheme: sph::PropagationMethod,
-    /// maximum buffer length
-    pub buffer_length_limit: usize,
-    /// Flag that is true if a measurement is taken in simulation, else false
-    pub is_measured: bool,
-    /// Flag that is true if simulation state are stored in a file (recorded), else false
-    pub is_recorded: bool,
-}
-
-impl From<&[u8]> for SimulationParameters {
-    fn from(bytes: &[u8]) -> Self {
-        let cfg = bincode::config::standard();
-        let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg).unwrap();
-        decoded
-    }
-}
-
-impl From<SimulationParameters> for Vec<u8> {
-    fn from(time_step_info: SimulationParameters) -> Self {
-        let cfg = bincode::config::standard();
-        bincode::encode_to_vec(time_step_info, cfg).unwrap()
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Encode, Decode)]
-pub struct TimeStepInfo {
-    // system time
-    pub time: f32,
-    // time increment
-    pub time_increment: f32,
-    // average density
-    pub average_density: f32,
-    // particles
-    pub fluid: Vec<SerParticle3D>,
-    pub boundary: Vec<SerBoundaryParticle3D>
-}
-
-impl From<&[u8]> for TimeStepInfo {
-    fn from(bytes: &[u8]) -> Self {
-        let cfg = bincode::config::standard();
-        let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg).unwrap();
-        decoded
-    }
-}
-
-impl From<TimeStepInfo> for Vec<u8> {
-    fn from(time_step_info: TimeStepInfo) -> Self {
-        let cfg = bincode::config::standard();
-        bincode::encode_to_vec(time_step_info, cfg).unwrap()
-    }
-}
 
 
 
@@ -99,7 +29,7 @@ struct Simulation {
     // initial_system: sph::System3D,
     system: sph::System3D,
     parameters: SimulationParameters,
-    measurement_series: Option<recording::MeasurementSeries>,
+    measurement_series: Option<measurement::MeasurementSeries>,
     state_appender: Option<recording::StateAppender>,
     recording_status: RecordingStatus,
     start_time: Option<f64>,
@@ -120,7 +50,7 @@ impl Simulation {
             Ok((sys_conf, sim_info)) => {
                 let initial_system = sph::System3D::new(sys_conf.finish());
                 let measurement_series = match simulation_load_info.measurement_file_path
-                    .as_deref().map(recording::MeasurementSeries::new) {
+                    .as_deref().map(measurement::MeasurementSeries::new) {
                         Some(Ok(ms)) => Some(ms),
                         Some(Err(e)) => {
                             #[cfg(feature = "logging")]

@@ -2,8 +2,9 @@
 //!
 use iced_widget::{column, row, text};
 use iced_winit::core::{Color, Theme};
-use crate::app::backend::recording::RecordingStatus;
 
+use crate::app::backend::recording::RecordingStatus;
+use simulation_lib::{SimulationParameters, TimeStepInfo};
 
 
 #[derive(Debug, Clone, Default)]
@@ -50,7 +51,7 @@ impl std::fmt::Display for MRStatus {
 
 #[derive(Debug, Clone)]
 pub struct UIInfo {
-    simulation_info: Option<crate::app::backend::SimulationParameters>,
+    simulation_info: Option<SimulationParameters>,
 
     queue_length: usize,
     time: f32,
@@ -71,12 +72,12 @@ impl UIInfo {
         }
     }
 
-    pub fn update_simulation_info(&mut self, info: crate::app::backend::SimulationParameters) {
+    pub fn update_simulation_info(&mut self, info: SimulationParameters) {
         self.recording_status = MRStatus::new(info.is_measured, info.is_recorded);
         self.simulation_info = Some(info);
     }
 
-    pub fn update_time_step_info(&mut self, queue_len: usize, info: Option<&crate::app::backend::TimeStepInfo>,) {
+    pub fn update_time_step_info(&mut self, queue_len: usize, info: Option<&TimeStepInfo>,) {
         self.queue_length = queue_len;
         if let Some(info) = info {
             self.time = info.time;

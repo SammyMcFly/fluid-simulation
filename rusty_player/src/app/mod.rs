@@ -13,13 +13,16 @@ use tracing::{
     error,
 }; // error, trace, warn, debug, info,
 
+use rendering_lib::AppState;
+use backend::{worker_loop, commands::WorkerCommand};
+use messages::WorkerMessage;
+use rendering::Player;
+
 mod backend;
 pub mod rendering;
 pub mod messages;
 
-use backend::{worker_loop, commands::WorkerCommand};
-use rendering::AppState;
-use messages::WorkerMessage;
+
 
 
 /// Application does:

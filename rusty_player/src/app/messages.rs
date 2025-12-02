@@ -1,6 +1,6 @@
 //! Messages to front end
 
-use crate::app::backend::rusty_fluid_solver::{SimulationParameters, TimeStepInfo};
+use simulation_lib::{SimulationParameters, TimeStepInfo};
 
 
 

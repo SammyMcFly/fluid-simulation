@@ -2,7 +2,6 @@
 //!
 //!
 use std::sync::Arc;
-use crossbeam::channel::Sender;
 use iced_winit::winit;
 use iced_winit::winit::event::{WindowEvent, DeviceEvent};
 use iced_winit::runtime::user_interface::UserInterface;
@@ -14,22 +13,21 @@ use tracing::{
     debug,
 }; // error, trace, warn, debug, info,
 
-mod gpu_context;
-mod pipelines;
-mod camera;
-mod lighting;
-mod model;
-mod instances;
+use simulation_lib::{ParticleColor};
+
+pub mod gpu_context;
+pub mod pipelines;
+pub mod camera;
+pub mod lighting;
+pub mod model;
+pub mod instances;
 pub mod ui;
-mod frame_control;
+pub mod frame_control;
 
 use model::VertexBufferLayout;
 use model::DrawLight;
 use model::DrawModel;
 
-use simulation_lib::{SimulationParameters, TimeStepInfo, ParticleColor};
-use crate::app::backend::commands::WorkerCommand;
-use ui::controls;
 use ui::UserInput;
 
 
@@ -48,20 +46,6 @@ const LIGHT_COLOR: Option<[f32; 3]> = Some([1.; 3]);
 
 const PARTICLE_COLOR: ParticleColor = ParticleColor::VelocityGraded;
 const BOUNDARY_PARTICLE_COLOR: ParticleColor = ParticleColor::FixedColor([0.; 3]);
-
-
-
-pub trait Simulator {
-    type Command;
-
-    fn update(&mut self, to_worker: &Sender<Self::Command>,);
-
-    fn received_content(&mut self, sim_info: SimulationParameters, time_steps: Vec<TimeStepInfo>);
-
-    fn new_simulation(&mut self, info: SimulationParameters,);
-
-    fn continue_after_reset(&mut self, info: SimulationParameters,);
-}
 
 
 pub struct AppState {
@@ -117,7 +101,7 @@ impl AppState {
             start_resumed,
         );
 
-        let instances = instances::InstanceStore::new(&gpu, 0);
+        let instances = instances::InstanceStore::new(&gpu);
 
         let frame_control = frame_control::FrameControl::new();
 
@@ -236,99 +220,6 @@ impl AppState {
         self.camera.process_device_event(event, self.ui.mouse_right_button_pressed);
     }
 
-    /// Update buffer for next rendering step (consider new state of State)
-    pub fn update(
-        &mut self,
-        to_worker: &Sender<WorkerCommand>,
-    ) {
-        // send new timesteps to compute
-        let add_steps = {
-            let timesteps = self.frame.time_steps_dequeued;
-            self.frame.time_steps_dequeued = 0;
-            timesteps
-        };
-        if add_steps > 0 {
-            to_worker.send(WorkerCommand::AddTimeStepsToCompute(add_steps)).unwrap();
-        }
-
-        // handle user input messages
-        for message in self.messages.drain(..) {
-            match message {
-                // send commands to worker thread
-                UserInput::RequestCameraReset => {
-                    self.camera.reset(&self.gpu);
-                    // self.light.reset(&self.gpu);
-                },
-                UserInput::StepInTime => {
-                    self.frame.step();
-                    #[cfg(feature = "logging")]
-                    debug!("Pressed Step!");
-                }
-                UserInput::RequestReset => {
-                    to_worker.send(WorkerCommand::Reset).unwrap();
-                },
-                UserInput::RequestSaving => {
-                    if !self.instances.is_empty() {
-                        to_worker.send(
-                            WorkerCommand::SaveState {
-                                particles: self.instances.get_info().unwrap().fluid.clone(),
-                                filepath: "./state.ron".to_string()
-                            }
-                        ).unwrap()
-                    }
-                },
-                UserInput::ToggleDisplayState => {
-                    self.frame.reset_steps();
-                    #[cfg(feature = "logging")]
-                    debug!("Toggled Play/Pause!");
-                    // control is update in ui.update not here
-                }
-                _ => (),
-            }
-            // also update ui
-            self.ui.update(message);
-        }
-
-        // Update camera
-        self.camera.update(&self.gpu, self.frame.time_since_last_render());
-
-        // Update the light
-        self.light.update(&self.gpu, self.frame.time_since_last_render());
-    }
-
-
-
-
-    pub fn new_simulation(&mut self, info: SimulationParameters,) {
-        match model::ModelAssets::new(&self.gpu, info.particle_diameter) {
-            Ok(model) => self.model = model,
-            Err(e) => panic!("Failed to load sphere: {}", e),
-        }
-        self.camera.reset(&self.gpu);
-        self.light.set_light(&self.gpu, info.light_position, LIGHT_COLOR);
-        self.instances = instances::InstanceStore::new(&self.gpu, info.buffer_length_limit);
-        self.ui.new_simulation(info);
-        self.frame.reset();
-    }
-
-    // might panic
-    pub fn received_content(&mut self, info: TimeStepInfo) {
-        self.instances.store(info);
-    }
-
-    pub fn continue_after_reset(&mut self, info: SimulationParameters,) {
-        match model::ModelAssets::new(&self.gpu, info.particle_diameter) {
-            Ok(model) => self.model = model,
-            Err(e) => panic!("Failed to load sphere: {}", e),
-        }
-        self.instances.reset(&self.gpu, info.buffer_length_limit);
-        self.ui.new_simulation(info);
-        self.frame.reset();
-    }
-
-
-
-
     /// This function renders the one frame. This includes:
     /// - selecting next frame
     /// - filtering and stage next frame
@@ -336,10 +227,8 @@ impl AppState {
     /// - rendering ui
     /// - setting time of this rendering
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        // select
-        let take = self.frame.take_which_element(&self.ui.controls.play_pause);
-        // #[cfg(feature = "logging")]
-        // debug!("take: {}", take);
+        let action = self.frame.get_next_action(self.ui.controls.playback_controls.is_playing());
+
         let staging_settings = instances::StagingSettings::new(
             self.ui.controls.get_cut().clone(),
             self.ui.controls.is_boundary_hidden(),
@@ -347,26 +236,42 @@ impl AppState {
             self.ui.controls.boundary_particle_color,
         );
         // get next rendered instances
-        if let Some(taken) = self.instances.stage_next(
+        match self.instances.stage_next(
             &self.gpu,
             &staging_settings,
-            take,
+            action,
+            self.ui.controls.playback_controls.plays_forward(),
+            self.ui.controls.loop_control.play_looped(),
         ) {
-            // #[cfg(feature = "logging")]
-            // debug!("taken: {}", taken);
-            self.frame.rendering_new_sim_state_now();
-            self.frame.steps_dequeued(taken);
-            self.frame.set_time_increment(self.instances.get_time_inc());
-        } else {
-            self.instances.update_staged(
-                &self.gpu,
-                &staging_settings,
-            );
-            if !self.ui.controls.play_pause.is_playing() {
+            instances::StagingResult::Initialized => {
                 self.frame.rendering_new_sim_state_now();
-            }
+                self.frame.set_time_increment(self.instances.get_time_inc());
+            },
+            instances::StagingResult::SomeTaken => {
+                // #[cfg(feature = "logging")]
+                // debug!("taken: {}", taken);
+                self.frame.rendering_new_sim_state_now();
+                self.frame.step_done();
+                self.frame.set_time_increment(self.instances.get_time_inc());
+            },
+            instances::StagingResult::StoppedAtLoopEnd => {
+                self.frame.rendering_new_sim_state_now();
+                self.frame.set_time_increment(self.instances.get_time_inc());
+                self.ui.controls.playback_controls.pause();
+            },
+            instances::StagingResult::NoneTaken | instances::StagingResult::NothingToStage => {
+                self.instances.update_staged(
+                    &self.gpu,
+                    &staging_settings,
+                );
+                if !self.ui.controls.playback_controls.is_playing() {
+                    self.frame.rendering_new_sim_state_now();
+                }
+            },
+            instances::StagingResult::Uninitialized => (),
+
         }
-        self.ui.update_time_step_info(self.instances.queue_len(), self.instances.get_info(),);
+        self.ui.update_time_step_info(self.instances.get_info(), self.instances.queue_len());
 
         // prepare rendering
         let frame = self.gpu.surface.get_current_texture()?;
@@ -448,3 +353,15 @@ impl AppState {
         self.gpu.queue.submit(std::iter::once(encoder.finish()));
     }
 }
+
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+
+//     #[test]
+//     fn it_works() {
+//         let result = add(2, 2);
+//         assert_eq!(result, 4);
+//     }
+// }

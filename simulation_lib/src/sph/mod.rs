@@ -24,9 +24,9 @@ use spring::*;
 
 pub mod uniform_grid;
 
-use super::TimeStepInfo;
-use super::recording;
-use super::setup;
+use crate::TimeStepInfo;
+use crate::measurement;
+use crate::setup;
 
 
 
@@ -1480,7 +1480,7 @@ impl System3D {
     }
 
     /// Measure (physical) quantities at current time step
-    pub fn push_back_measurement(&mut self, series: &mut recording::MeasurementSeries) {
+    pub fn push_back_measurement(&mut self, series: &mut measurement::MeasurementSeries) {
         // if cfg!(feature = "logging") {
         //     debug!("{}, {}", self.properties.average_density, self.properties.rest_density);
         //     let max_speed = self.calc_max_speed();
@@ -1488,7 +1488,7 @@ impl System3D {
         //     debug!("time: {}, cfl coefficient: {}, max speed: {}", self.time(), cfl_coeff, max_speed);
         // }
 
-        series.push_back(recording::Measurement {
+        series.push_back(measurement::Measurement {
             time: self.time(),
             density: self.properties.average_density/self.properties.rest_density,
             kinetic_energy: self.calc_average_kinetic_energy(),

@@ -126,7 +126,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: WorkerMessage) {
         match event {
             WorkerMessage::TimeIncFinished(ts_info) => {
-                self.state.as_mut().unwrap().received_new_time_step(ts_info);
+                self.state.as_mut().unwrap().received_content(ts_info);
             },
             WorkerMessage::SimulationLoaded(sim_info) => {
                 self.state.as_mut().unwrap().new_simulation(sim_info.clone());

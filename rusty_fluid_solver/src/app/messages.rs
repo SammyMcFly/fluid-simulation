@@ -1,5 +1,5 @@
 //! Messages to front end
-use super::backend::{TimeStepInfo, SimulationParameters};
+use simulation_lib::{TimeStepInfo, SimulationParameters};
 
 
 

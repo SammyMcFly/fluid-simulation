@@ -1,6 +1,5 @@
 //! Instance definition and store for instances
 //!
-use std::collections::VecDeque;
 use iced_wgpu::wgpu;
 use iced_wgpu::wgpu::util::DeviceExt;
 
@@ -9,9 +8,12 @@ use iced_wgpu::wgpu::util::DeviceExt;
 //     debug,
 // }; // error, trace, warn, debug, info,
 
-use crate::app::rendering::model::ToRaw;
+use crate::frame_control::NextAction;
+use crate::model::ToRaw;
+use crate::ui::controls::cut::Cut;
 use simulation_lib::{TimeStepInfo, ParticleColor};
 use simulation_lib::sph::particle::Positional;
+
 
 
 
@@ -24,7 +26,7 @@ pub struct Instance {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingSettings {
-    cut: super::controls::Cut,
+    cut: Cut,
     is_boundary_hidden: bool,
     particle_color: ParticleColor,
     boundary_particle_color: ParticleColor,
@@ -32,7 +34,7 @@ pub struct StagingSettings {
 
 impl StagingSettings {
     pub fn new(
-        cut: super::controls::Cut,
+        cut: Cut,
         is_boundary_hidden: bool,
         particle_color: ParticleColor,
         boundary_particle_color: ParticleColor,
@@ -41,18 +43,28 @@ impl StagingSettings {
     }
 }
 
+pub enum StagingResult {
+    Initialized,
+    SomeTaken,
+    StoppedAtLoopEnd,
+    NoneTaken,
+    NothingToStage,
+    Uninitialized,
+}
+
 pub struct InstanceStore {
     pub staged_info: Option<TimeStepInfo>,
     staging_settings: Option<StagingSettings>,
     pub rendered_instances: Option<Vec<Instance>>,
     pub buffer: wgpu::Buffer,
 
-    pub info_queue: VecDeque<TimeStepInfo>,
-    pub length_limit: usize,
+    pub info_queue: Vec<TimeStepInfo>,
+    current_index: usize,
+    allow_looping_once: bool,
 }
 
 impl InstanceStore {
-    pub fn new(gpu_context: &super::gpu_context::GpuContext, length_limit: usize) -> Self {
+    pub fn new(gpu_context: &super::gpu_context::GpuContext) -> Self {
         let rendered_instances: Option<Vec<Instance>> = None;
         let instance_buffer = Self::create_instance_buffer(gpu_context, rendered_instances.as_deref());
 
@@ -61,8 +73,9 @@ impl InstanceStore {
             staging_settings: None,
             rendered_instances,
             buffer: instance_buffer,
-            info_queue: VecDeque::default(),
-            length_limit,
+            info_queue: Vec::default(),
+            current_index: 0,
+            allow_looping_once: false,
         }
     }
 
@@ -94,6 +107,29 @@ impl InstanceStore {
         )
     }
 
+    pub fn store(&mut self, time_steps: Vec<TimeStepInfo>) {
+        self.info_queue = time_steps;
+        self.current_index = 0;
+    }
+
+    pub fn get_info(&self) -> Option<&TimeStepInfo> {
+        if let Some(info) = &self.staged_info {
+            Some(info)
+        } else {
+            None
+        }
+    }
+
+    /// Get time increment
+    pub fn get_time_inc(&self) -> f32 {
+        if let Some(info) = &self.staged_info {
+            info.time_increment
+        } else {
+            0.
+        }
+    }
+
+    /// Filter particles and pass selected to rendered instances
     fn info_to_instances(&mut self,) {
         if let Some(info) = &self.staged_info {
             let info = info.clone();
@@ -147,24 +183,118 @@ impl InstanceStore {
         }
     }
 
-    pub fn store(&mut self, info: TimeStepInfo) {
-        self.info_queue.push_back(info);
+    pub fn finished_loop(&self, forward: bool) -> bool {
+        if forward {
+            self.current_index == self.info_queue.len()-1
+        } else {
+            self.current_index == 0
+        }
+
     }
 
-    pub fn get_info(&self) -> Option<&TimeStepInfo> {
-        if let Some(info) = &self.staged_info {
-            Some(info)
-        } else {
-            None
+    pub fn allow_looping_once(&mut self, looped_playback: bool,) {
+        if !looped_playback {
+            self.allow_looping_once = true;
         }
     }
 
-    /// Get time increment
-    pub fn get_time_inc(&self) -> f32 {
-        if let Some(info) = &self.staged_info {
-            info.time_increment
+    pub fn reset_allow_looping_once(&mut self) {
+        self.allow_looping_once = false;
+    }
+
+    /// Advances index to next index depending on the direction and looping behavior
+    ///
+    /// Returns if it tried unallowed loop
+    fn next_index(&mut self, forward: bool, looped: bool,) -> bool {
+        if forward {
+            if self.current_index+1 < self.info_queue.len() {
+                self.current_index += 1;
+                false
+            } else if self.current_index+1 >= self.info_queue.len() && looped {
+                self.current_index = 0;
+                false
+            } else if self.current_index+1 >= self.info_queue.len() && !looped && self.allow_looping_once {
+                self.current_index = 0;
+                self.allow_looping_once = false;
+                false
+            } else {
+                true
+            }
+        } else if self.current_index > 0 {
+            self.current_index -= 1;
+            false
+        } else if self.current_index == 0 && looped {
+            self.current_index = self.info_queue.len()-1;
+            false
+        } else if self.current_index == 0 && !looped && self.allow_looping_once {
+            self.current_index = self.info_queue.len()-1;
+            self.allow_looping_once = false;
+            false
         } else {
-            0.
+            true
+        }
+    }
+
+    fn prestage(&mut self) {
+        let ts_info = &self.info_queue[self.current_index];
+        self.staged_info = Some(ts_info.clone());
+    }
+
+    fn stage(
+        &mut self,
+        gpu_context: &super::gpu_context::GpuContext,
+        staging_settings: &StagingSettings,
+    ) {
+        self.staging_settings = Some(staging_settings.clone());
+        self.info_to_instances();
+        self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
+    }
+
+    pub fn stage_next(
+        &mut self,
+        gpu_context: &super::gpu_context::GpuContext,
+        staging_settings: &StagingSettings,
+        action: NextAction,
+        forward: bool,
+        looped_playback: bool,
+    ) -> StagingResult {
+
+        if self.info_queue.is_empty() && self.staged_info.is_none() {
+            StagingResult::Uninitialized
+        } else if self.info_queue.is_empty() { // && self.staged_info.is_some()
+            StagingResult::NothingToStage
+        } else if self.staged_info.is_none() {
+            assert!(self.current_index == 0);
+            self.prestage();
+            self.stage(gpu_context, staging_settings);
+            StagingResult::Initialized
+        } else {
+            match action {
+                NextAction::PlayTimeInterval(interval) => {
+                    let mut taken = 0;
+                    let mut interval = interval-self.staged_info.as_ref().unwrap().time_increment;
+                    while interval >= 0. {
+                        if self.next_index(forward, looped_playback) {
+                            if taken > 0 {
+                                self.stage(gpu_context, staging_settings);
+                            }
+                            return StagingResult::StoppedAtLoopEnd;
+                        }
+                        taken += 1;
+                        self.prestage();
+                        interval -= self.staged_info.as_ref().unwrap().time_increment;
+                    }
+                    self.stage(gpu_context, staging_settings);
+                    StagingResult::SomeTaken
+                },
+                NextAction::StepInTime => {
+                    self.next_index(forward, true);
+                    self.prestage();
+                    self.stage(gpu_context, staging_settings);
+                    StagingResult::SomeTaken
+                },
+                NextAction::Wait => StagingResult::NoneTaken,
+            }
         }
     }
 
@@ -181,44 +311,13 @@ impl InstanceStore {
         }
     }
 
-    pub fn stage_next(
-        &mut self,
-        gpu_context: &super::gpu_context::GpuContext,
-        staging_settings: &StagingSettings,
-        take: usize,
-    ) -> Option<usize>{
-        let mut taken = 0;
-        if take >= 1 {
-            // skip instances
-            for _ in 1..take {
-                if self.info_queue.len() >= 2 {
-                    self.info_queue.pop_front();
-                    taken += 1;
-                }
-            }
-            // take instance
-            if let Some(ts_info) = self.info_queue.pop_front() {
-                self.staged_info = Some(ts_info);
-                self.staging_settings = Some(staging_settings.clone());
-                self.info_to_instances();
-                self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
-                Some(taken+1)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext, length_limit: usize) {
-        self.info_queue.clear();
-
+    pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext,) {
         self.staged_info = None;
         self.staging_settings = None;
         self.rendered_instances = None;
         self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
-        self.length_limit = length_limit;
+        self.current_index = 0;
+        self.allow_looping_once = false;
     }
 
     pub fn is_empty(&self) -> bool {
@@ -226,6 +325,6 @@ impl InstanceStore {
     }
 
     pub fn queue_len(&self) -> usize {
-        self.info_queue.len()
+        self.info_queue.len()-(self.current_index+1)
     }
 }

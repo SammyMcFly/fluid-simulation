@@ -1,22 +1,16 @@
 //! Render Controls, Settings and Utilities
 //!
 //!
-use serde::{Serialize, Deserialize};
-use bincode::{Encode, Decode};
 use iced_widget::{container, column, row, text, button, Toggler, Space}; //text_input, slider
 use iced_winit::core::{Element, Theme, Length, Color};
 
-use crate::app::backend::sph::particle::Positional;
+use simulation_lib::{SimulationParameters, TimeStepInfo, ParticleColor};
+use simulation_lib::sph::particle::Positional;
 use super::UserInput;
 
 pub mod info;
 
-#[derive(Debug, Copy, Clone, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub enum ParticleColor {
-    #[default]
-    VelocityGraded,
-    FixedColor([f32;3]),
-}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct  Cut {
@@ -166,13 +160,13 @@ impl RenderControls {
         }
     }
 
-    pub fn new_simulation(&mut self, info: crate::app::backend::SimulationParameters) {
+    pub fn new_simulation(&mut self, info: SimulationParameters) {
         self.particle_color = info.particle_color;
         self.boundary_particle_color = info.boundary_particle_color;
         self.info.update_simulation_info(info);
     }
 
-    pub fn update_time_step_info(&mut self, queue_len: usize, info: Option<&crate::app::backend::TimeStepInfo>) {
+    pub fn update_time_step_info(&mut self, queue_len: usize, info: Option<&TimeStepInfo>) {
         self.info.update_time_step_info(queue_len, info);
     }
 

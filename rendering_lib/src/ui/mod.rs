@@ -15,8 +15,12 @@ pub mod controls;
 
 #[derive(Debug, Clone)]
 pub enum UserInput {
-    ToggleDisplayState,
-    StepInTime,
+    PlayForward,
+    PlayBackward,
+    Pause,
+    StepForward,
+    StepBackward,
+    ToggleLooping,
     RequestCameraReset,
     RequestReset,
     RequestSaving,
@@ -131,7 +135,7 @@ impl UIState {
                 if *state == winit::event::ElementState::Pressed {
                     // #[cfg(feature = "logging")]
                     // debug!("K pressed");
-                    self.controls.play_pause.toggle();
+                    self.controls.playback_controls.toggle();
                 }
             }
             _ => (),
@@ -147,13 +151,13 @@ impl UIState {
         self.controls.new_simulation(info);
     }
 
-    pub fn update_time_step_info(&mut self, queue_len: usize, info: Option<&TimeStepInfo>,) {
-        self.controls.update_time_step_info(queue_len, info);
+    pub fn update_time_step_info(&mut self, info: Option<&TimeStepInfo>, queue_length: usize) {
+        self.controls.update_time_step_info(info, queue_length);
     }
 
-    pub fn advance_to_next_measurement_state(&mut self) {
-        self.controls.advance_to_next_measurement_state();
-    }
+    // pub fn advance_to_next_measurement_state(&mut self) {
+    //     self.controls.advance_to_next_measurement_state();
+    // }
 
     pub fn draw(
         &mut self,

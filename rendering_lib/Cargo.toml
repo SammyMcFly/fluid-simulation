@@ -1,5 +1,5 @@
 [package]
-name = "rusty_player"
+name = "rendering_lib"
 version = "0.1.0"
 edition = "2024"
 
@@ -12,21 +12,9 @@ default = ["logging", "global_pressure"]
 logging = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
 global_pressure = []
 
-# [dev-dependencies]
-# criterion ={ version = "0.5.1", features = ["html_reports"] }
-
-# [[bench]]
-# name = "bench_System1D_inc_time"
-# harness = false
-
-# for profiling with flamegraph
-# [profile.release]
-# debug = true
-
 [dependencies]
-simulation_lib = { path = "../simulation_lib" }
 # my rendering library
-rendering_lib = { path = "../rendering_lib" }
+simulation_lib = { path = "../simulation_lib" }
 
 # linear algebra
 nalgebra = "0.34.1"

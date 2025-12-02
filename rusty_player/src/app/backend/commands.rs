@@ -1,5 +1,5 @@
 //! Worker commands
-use crate::app::backend::rusty_fluid_solver::SerParticle3D;
+use simulation_lib::sph::particle::SerParticle3D;
 
 
 pub enum WorkerCommand {

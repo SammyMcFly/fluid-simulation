@@ -11,10 +11,9 @@ use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
 use commands::WorkerCommand;
 use crate::app::messages::WorkerMessage;
-use rusty_fluid_solver::{SimulationParameters, TimeStepInfo, SerParticle3D};
+use simulation_lib::{SimulationParameters, TimeStepInfo, sph::particle::SerParticle3D};
 
 pub mod commands;
-pub mod rusty_fluid_solver;
 
 
 

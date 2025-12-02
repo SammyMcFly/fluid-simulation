@@ -1,18 +1,26 @@
-use nalgebra::Vector3;
+
 use serde::{Serialize, Deserialize};
 use bincode::{Encode, Decode};
 
-use crate::app::rendering::ui::controls::ParticleColor;
+
+// #[cfg(feature = "logging")]
+// use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
+
+use sph::particle::{SerParticle3D, SerBoundaryParticle3D};
+
+pub mod measurement;
+pub mod setup;
+pub mod sph;
 
 
-/// Method for propagating time in a simulated physical system
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub enum PropagationMethod {
-    ExplicitEuler,
-    ImplicitEuler,
-    EulerCromer,
-    Verlet,
+
+#[derive(Debug, Copy, Clone, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub enum ParticleColor {
+    #[default]
+    VelocityGraded,
+    FixedColor([f32;3]),
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct SimulationParameters {
@@ -27,7 +35,7 @@ pub struct SimulationParameters {
     /// Boundary particle color
     pub boundary_particle_color: ParticleColor,
     /// Integration Scheme
-    pub integration_scheme: PropagationMethod,
+    pub integration_scheme: sph::PropagationMethod,
     /// maximum buffer length
     pub buffer_length_limit: usize,
     /// Flag that is true if a measurement is taken in simulation, else false
@@ -41,6 +49,13 @@ impl From<&[u8]> for SimulationParameters {
         let cfg = bincode::config::standard();
         let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg).unwrap();
         decoded
+    }
+}
+
+impl From<SimulationParameters> for Vec<u8> {
+    fn from(time_step_info: SimulationParameters) -> Self {
+        let cfg = bincode::config::standard();
+        bincode::encode_to_vec(time_step_info, cfg).unwrap()
     }
 }
 
@@ -65,52 +80,22 @@ impl From<&[u8]> for TimeStepInfo {
     }
 }
 
-
-pub trait Positional {
-    fn pos_now(&self) -> Vector3<f64>;
-}
-
-/// Compressed and serializable particle in a 3-dimensional context
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct SerParticle3D {
-    position: [[f64; 3]; 3],
-    velocity: [[f64; 3]; 3],
-    mass: f64,
-    disabled: bool,
-}
-
-impl Positional for SerParticle3D {
-    fn pos_now(&self) -> Vector3<f64> {
-        Vector3::new(self.position[0][0], self.position[0][1], self.position[0][2])
+impl From<TimeStepInfo> for Vec<u8> {
+    fn from(time_step_info: TimeStepInfo) -> Self {
+        let cfg = bincode::config::standard();
+        bincode::encode_to_vec(time_step_info, cfg).unwrap()
     }
 }
 
-impl SerParticle3D {
-    pub fn vel_now(&self) -> [f64; 3] {
-        self.velocity[0]
-    }
 
-    pub fn is_enabled(&self) -> bool {
-        !self.disabled
-    }
-}
 
-/// Compressed and serializable particle in a 3-dimensional context
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct SerBoundaryParticle3D {
-    position: [f64; 3],
-    #[cfg(feature = "global_pressure")]
-    velocity: [f64; 3],
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-impl Positional for SerBoundaryParticle3D {
-    fn pos_now(&self) -> Vector3<f64> {
-        Vector3::new(self.position[0], self.position[1], self.position[2])
-    }
-}
-
-impl SerBoundaryParticle3D {
-    pub fn vel_now(&self) -> [f64; 3] {
-        self.velocity
-    }
-}
+//     #[test]
+//     fn it_works() {
+//         let result = add(2, 2);
+//         assert_eq!(result, 4);
+//     }
+// }
