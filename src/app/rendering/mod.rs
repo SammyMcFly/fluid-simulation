@@ -254,7 +254,7 @@ impl AppState {
                         to_worker.send(
                             WorkerCommand::SaveState {
                                 particles: self.instances.get_info().unwrap().fluid.clone(),
-                                filepath: "./state.ron".to_string()
+                                file_path: "./state.ron".to_string()
                             }
                         ).unwrap()
                     }

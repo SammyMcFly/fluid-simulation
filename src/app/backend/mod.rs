@@ -150,8 +150,17 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                         //     },
                         // }
                     },
-                    WorkerCommand::SaveState { particles, filepath } => {
-                        // todo
+                    WorkerCommand::SaveState { particles, file_path } => {
+                        let save_message = if save_system_state(particles, &file_path).is_ok() {
+                            #[cfg(feature = "logging")]
+                            info!("Successfully saved state: {}", file_path);
+                            WorkerMessage::SavedState
+                        } else {
+                            #[cfg(feature = "logging")]
+                            error!("Failed to save state!");
+                            WorkerMessage::Error("Failed to save state!".to_string())
+                        };
+                        let _ = to_ui.send_event(save_message);
                     },
                     WorkerCommand::Stop => {
                         #[cfg(feature = "logging")]
