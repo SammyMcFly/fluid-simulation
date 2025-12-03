@@ -10,7 +10,7 @@ smoothing_length = 0.8 # (not hot swappable)
 disable_particles_below = -30
 fluid_viscosity = 0.2
 boundary_viscosity = 0.2
-boundary_pressure_acceleration_weighting = 0.7 # gamma
+boundary_pressure_acceleration_weighting = 1.0 # gamma
 # local pressure
 stiffness = 15000000.0 # k
 # global pressure
@@ -28,18 +28,18 @@ type = "NoLidCube"
 n_particles_x = 9
 n_particles_y = 9
 n_particles_z = 25
-x_offset = 1.0
-y_offset = 1.0
-z_offset = 1.0
-particle_spacing = 0.795
+x_offset = 1.7
+y_offset = 1.7
+z_offset = 1.7
+particle_spacing = 0.805
 
 [scene.parameters.boundary_particles]
-n_floor_particles_x = 12
-n_floor_particles_y = 12
-n_floor_particles_z = 1
+n_floor_particles_x = 14
+n_floor_particles_y = 14
+n_floor_particles_z = 2
 wall_height = 50 # wall is at the edge but above floor
-x_wall_thickness = 1
-y_wall_thickness = 1
+x_wall_thickness = 2
+y_wall_thickness = 2
 x_offset = 0.0
 y_offset = 0.0
 z_offset = 0.0

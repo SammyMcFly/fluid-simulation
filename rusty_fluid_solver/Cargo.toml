@@ -9,7 +9,7 @@ edition = "2024"
 default = ["logging", "parallel", "global_pressure"]
 
 # Features
-logging = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
+logging = ["dep:tracing", "dep:tracing-subscriber"]
 parallel = ["dep:rayon"]
 implicit_euler = ["springs"]
 springs = []

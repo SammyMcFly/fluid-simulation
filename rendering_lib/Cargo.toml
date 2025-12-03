@@ -9,7 +9,7 @@ edition = "2024"
 default = ["logging", "global_pressure"]
 
 # Features
-logging = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
+logging = ["dep:tracing"]
 global_pressure = []
 
 [dependencies]
