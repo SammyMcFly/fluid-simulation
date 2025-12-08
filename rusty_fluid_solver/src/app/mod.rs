@@ -7,7 +7,6 @@ use iced_winit::winit;
 use iced_winit::winit::event_loop::EventLoop;
 use iced_winit::winit::event::{WindowEvent, DeviceEvent};
 
-#[cfg(feature = "logging")]
 use tracing::{
     info,
     error,
@@ -92,7 +91,6 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
         if window.id() == id {
             match event {
                 WindowEvent::CloseRequested => {
-                    #[cfg(feature = "logging")]
                     info!("The close button was pressed; stopping...");
                     event_loop.exit();
                 },
@@ -164,7 +162,6 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                 }
             },
             WorkerMessage::Error(e) => {
-                #[cfg(feature = "logging")]
                 error!("Backend error: {e}");
             }, // todo: handle/print error in ui
         }
@@ -181,7 +178,6 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
     fn exiting(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         self.to_worker.send(WorkerCommand::Stop).unwrap();
         self.worker_handle.take().unwrap().join().expect("Couldn't join simulation thread");
-        #[cfg(feature = "logging")]
         info!("Terminating frontend!");
     }
 }

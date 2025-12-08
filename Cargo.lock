@@ -1487,6 +1487,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "meta"
+version = "0.1.0"
+dependencies = [
+ "rendering_lib",
+ "simulation_lib",
+]
+
+[[package]]
 name = "metal"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2264,7 +2272,6 @@ dependencies = [
  "nalgebra",
  "num-traits",
  "pollster",
- "rayon",
  "rendering_lib",
  "ron",
  "rustc-hash 2.1.1",
@@ -2292,7 +2299,6 @@ dependencies = [
  "nalgebra",
  "num-traits",
  "pollster",
- "rayon",
  "rendering_lib",
  "ron",
  "rustc-hash 2.1.1",

@@ -227,7 +227,9 @@ impl AppState {
     /// - rendering ui
     /// - setting time of this rendering
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let action = self.frame.get_next_action(self.ui.controls.playback_controls.is_playing());
+        let next_action = self.frame.get_next_action(self.ui.controls.playback_controls.is_playing());
+        // #[cfg(feature = "logging")]
+        // debug!("next_action: {:?}", next_action);
 
         let staging_settings = instances::StagingSettings::new(
             self.ui.controls.get_cut().clone(),
@@ -239,7 +241,7 @@ impl AppState {
         match self.instances.stage_next(
             &self.gpu,
             &staging_settings,
-            action,
+            next_action,
             self.ui.controls.playback_controls.plays_forward(),
             self.ui.controls.loop_control.play_looped(),
         ) {
@@ -248,8 +250,6 @@ impl AppState {
                 self.frame.set_time_increment(self.instances.get_time_inc());
             },
             instances::StagingResult::SomeTaken => {
-                // #[cfg(feature = "logging")]
-                // debug!("taken: {}", taken);
                 self.frame.rendering_new_sim_state_now();
                 self.frame.step_done();
                 self.frame.set_time_increment(self.instances.get_time_inc());

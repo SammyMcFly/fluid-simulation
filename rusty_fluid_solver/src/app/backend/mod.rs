@@ -4,7 +4,6 @@ use std::time::Duration;
 use iced_winit::winit::event_loop::EventLoopProxy;
 use crossbeam::channel::Receiver;
 
-#[cfg(feature = "logging")]
 use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
 use simulation_lib::*;
@@ -53,7 +52,6 @@ impl Simulation {
                     .as_deref().map(measurement::MeasurementSeries::new) {
                         Some(Ok(ms)) => Some(ms),
                         Some(Err(e)) => {
-                            #[cfg(feature = "logging")]
                             error!("Failed to handle measurement file: {}", e);
                             return Err(format!("Failed to handle measurement file: {}", e));
                         },
@@ -63,7 +61,6 @@ impl Simulation {
                     .as_deref().map(|file_path| recording::StateAppender::new(file_path, &sim_info)) {
                         Some(Ok(ms)) => Some(ms),
                         Some(Err(e)) => {
-                            #[cfg(feature = "logging")]
                             error!("Failed to handle recording file: {}", e);
                             return Err(format!("Failed to handle recording file: {}", e));
                         },
@@ -84,14 +81,12 @@ impl Simulation {
                     finish_time: simulation_load_info.finish_time,
                 };
                 let time_step_info = sim.system.get_time_step_info();
-                #[cfg(feature = "logging")]
                 info!("Loaded new simulation!");
                 sim.record(&time_step_info);
 
                 Ok((time_step_info, sim))
         },
             _ => {
-                #[cfg(feature = "logging")]
                 error!("Invalid state or scene file!");
                 Err("Invalid state or scene file!".to_string())
             },
@@ -146,12 +141,10 @@ impl Simulation {
         if let Some(meas) = &mut self.measurement_series {
             match meas.save() {
                 Err(e) => {
-                    #[cfg(feature = "logging")]
                     error!("Failed saving measurement: {}", e);
                     return Err(format!("Failed saving measurement: {}", e))
                 },
                 Ok(_) => {
-                    #[cfg(feature = "logging")]
                     info!("Successfully saved measurement: {}", meas.get_path().as_path().display());
                     return Ok(())
                 },
@@ -299,34 +292,28 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     simulation_controller.compute();
                 }
                 WorkerCommand::AddTimeStepsToCompute(num) => {
-                    // #[cfg(feature = "logging")]
                     // debug!("compute: {}", num);
                     simulation_controller.compute_more_timesteps(num);
                 },
                 WorkerCommand::SaveState { particles, filepath } => {
                     let save_message = if recording::save_system_state(particles, &filepath).is_ok() {
-                        #[cfg(feature = "logging")]
                         info!("Successfully saved state: {}", filepath);
                         WorkerMessage::SavedState
                     } else {
-                        #[cfg(feature = "logging")]
                         error!("Failed to save state!");
                         WorkerMessage::Error("Failed to save state!".to_string())
                     };
                     let _ = to_ui.send_event(save_message);
                 },
                 // WorkerCommand::Resume => {
-                //     #[cfg(feature = "logging")]
                 //     info!("Run simulation!");
                 //     simulation_controller.compute();
                 // },
                 // WorkerCommand::Pause => {
-                //     #[cfg(feature = "logging")]
                 //     info!("Paused simulation!");
                 //     simulation_controller.pause();
                 // },
                 WorkerCommand::Reset => {
-                    #[cfg(feature = "logging")]
                     info!("Reset simulation!");
                     // reload system
                     if let Some(info) = &simulation_controller.simulation_load_info {
@@ -347,18 +334,15 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                 },
                 WorkerCommand::Stop => {
                     if simulation_controller.not_reached_existing_finish_time() {
-                        #[cfg(feature = "logging")]
                         warn!("Finish time was not reached!");
                     }
                     let save_message = if let Err(e) = simulation_controller.stop() {
                         WorkerMessage::Error(e)
                     } else {
-                        #[cfg(feature = "logging")]
                         info!("Successfully saved measurement!");
                         WorkerMessage::SavedMeasurement
                     };
                     let _ = to_ui.send_event(save_message);
-                    #[cfg(feature = "logging")]
                     info!("Stopped backend!");
                     break 'worker;
                 },
@@ -366,13 +350,11 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
         }
         // check if start time is reached
         if simulation_controller.just_started_recording() {
-            #[cfg(feature = "logging")]
             info!("Reached start time");
             let _ = to_ui.send_event(WorkerMessage::ReachedStartTime);
         }
         // check if finish time is reached
         if simulation_controller.just_finished_recording() {
-            #[cfg(feature = "logging")]
             info!("Reached finish time");
             simulation_controller.pause();
             let _ = to_ui.send_event(WorkerMessage::ReachedFinishTime);

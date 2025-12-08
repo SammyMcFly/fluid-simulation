@@ -9,7 +9,6 @@ use iced_winit::runtime::user_interface::UserInterface;
 use iced_wgpu::wgpu;
 use iced_wgpu::graphics::Viewport;
 
-#[cfg(feature = "logging")]
 use tracing::{
     debug,
 }; // error, trace, warn, debug, info,
@@ -155,7 +154,6 @@ impl AppState {
             );
             self.camera.projection.resize(new_size.width, new_size.height);
             self.gpu.surface.configure(&self.gpu.device, &self.gpu.config,);
-            #[cfg(feature = "logging")]
             debug!("Resized to {:?}", new_size)
         }
     }
@@ -220,7 +218,6 @@ impl AppState {
                 match key {
                     winit::keyboard::KeyCode::KeyR => {
                         if *state == winit::event::ElementState::Pressed {
-                            // #[cfg(feature = "logging")]
                             // debug!("R pressed");
                             self.messages.push(UserInput::RequestReset);
                         }
@@ -261,7 +258,6 @@ impl AppState {
                 },
                 UserInput::StepInTime => {
                     self.frame.step();
-                    #[cfg(feature = "logging")]
                     debug!("Pressed Step!");
                 }
                 UserInput::RequestReset => {
@@ -279,7 +275,6 @@ impl AppState {
                 },
                 UserInput::ToggleDisplayState => {
                     self.frame.reset_steps();
-                    #[cfg(feature = "logging")]
                     debug!("Toggled Play/Pause!");
                     // control is update in ui.update not here
                 }
@@ -338,7 +333,6 @@ impl AppState {
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         // select
         let take = self.frame.take_which_element(&self.ui.controls.play_pause);
-        // #[cfg(feature = "logging")]
         // debug!("take: {}", take);
         let staging_settings = instances::StagingSettings::new(
             self.ui.controls.get_cut().clone(),
@@ -352,7 +346,6 @@ impl AppState {
             &staging_settings,
             take,
         ) {
-            // #[cfg(feature = "logging")]
             // debug!("taken: {}", taken);
             self.frame.rendering_new_sim_state_now();
             self.frame.steps_dequeued(taken);

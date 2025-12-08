@@ -3,7 +3,8 @@
 //!
 
 
-pub enum NextAction {
+#[derive(Debug, Clone)]
+pub enum Action {
     PlayTimeInterval(f32),
     StepInTime,
     Wait,
@@ -67,13 +68,13 @@ impl FrameControl {
         // self.time_steps_dequeued += num;
     }
 
-    pub fn get_next_action(&mut self, is_playing: bool) -> NextAction {
+    pub fn get_next_action(&mut self, is_playing: bool) -> Action {
         if is_playing {
-            NextAction::PlayTimeInterval(self.last_sim_state_render_time.elapsed().as_secs_f32())
+            Action::PlayTimeInterval(self.last_sim_state_render_time.elapsed().as_secs_f32())
         } else if self.steps_to_do > 0 {
-            NextAction::StepInTime
+            Action::StepInTime
         } else {
-            NextAction::Wait
+            Action::Wait
         }
     }
 

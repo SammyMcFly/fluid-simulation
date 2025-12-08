@@ -1,2 +1,9 @@
 [workspace]
-members = ["rendering_lib","rusty_fluid_solver", "rusty_player", "simulation_lib"]
+members = [
+    "meta",
+    "rendering_lib",
+    "rusty_fluid_solver",
+    "rusty_player",
+    "simulation_lib",
+]
+resolver = "3"

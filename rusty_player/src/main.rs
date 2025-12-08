@@ -14,11 +14,8 @@
 use clap::Parser;
 use iced_winit::winit::event_loop::{ControlFlow, EventLoop};
 
-// #[cfg(feature = "logging")]
 // use tracing::info; // debug, error, info, span, trace, warn};
-#[cfg(feature = "logging")]
 use tracing::level_filters::LevelFilter;
-#[cfg(feature = "logging")]
 use tracing_subscriber::FmtSubscriber;
 
 mod app;
@@ -44,7 +41,6 @@ struct Args {
 }
 
 /// Init logging
-#[cfg(feature = "logging")]
 fn init_logging(args: &Args) {
     let severity_level = match &args.log[..] {
         "TRACE" => LevelFilter::TRACE,
@@ -69,7 +65,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // parse args
     let args = Args::parse();
 
-    #[cfg(feature = "logging")]
     init_logging(&args);
 
     let event_loop = EventLoop::<WorkerMessage>::with_user_event()

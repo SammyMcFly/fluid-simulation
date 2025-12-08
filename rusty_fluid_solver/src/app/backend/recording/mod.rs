@@ -4,7 +4,6 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "logging")]
 use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
 use crate::app::backend::SimulationParameters;
@@ -24,10 +23,8 @@ pub fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std:
 
     if !file_path_parent.exists() { // Create the parent directory if it does not exist
         std::fs::create_dir_all(file_path_parent.clone())?;
-        #[cfg(feature = "logging")]
         info!("Created directory: {}", file_path_parent.display());
     } else if global_file_path.exists() { // Throw an error if file already exist
-        #[cfg(feature = "logging")]
         error!("File already exists: {}", file_path_parent.display());
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
     }
@@ -84,16 +81,13 @@ impl StateAppender {
 
         if !file_path_parent.exists() { // Create the parent directory if it does not exist
             std::fs::create_dir_all(file_path_parent.clone())?;
-            #[cfg(feature = "logging")]
             info!("Created directory: {}", file_path_parent.display());
         } else if global_file_path.exists() { // Throw an error if file already exist
-            #[cfg(feature = "logging")]
             error!("File already exists: {}", file_path_parent.display());
             return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
         }
 
         if global_file_path.exists() {
-            #[cfg(feature = "logging")]
             error!("File already exists: {}", file_path_parent.display());
             return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
         }

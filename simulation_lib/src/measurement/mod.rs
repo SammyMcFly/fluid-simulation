@@ -32,6 +32,8 @@ pub struct Measurement {
     /// Rest density of the fluid
     pub rest_density: f64,
     pub time_step_size: f64,
+    #[cfg(feature = "global_pressure")]
+    pub solver_iterations: u32,
 }
 
 

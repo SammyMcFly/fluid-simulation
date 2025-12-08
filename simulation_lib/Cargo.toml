@@ -4,13 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-# Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
-# default = ["logging", "global_pressure"]
-default = ["logging", "parallel", "global_pressure"]
+default = [] # managed by meta crate
 
 # Features
 logging = ["dep:tracing"]
-parallel = ["dep:rayon"]
+parallelized_sph = ["dep:rayon"]
 implicit_euler = ["springs"]
 springs = []
 pseudo_mass_boundary = []

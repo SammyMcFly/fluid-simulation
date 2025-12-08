@@ -8,7 +8,7 @@ use iced_wgpu::wgpu::util::DeviceExt;
 //     debug,
 // }; // error, trace, warn, debug, info,
 
-use crate::frame_control::NextAction;
+use crate::frame_control::Action;
 use crate::model::ToRaw;
 use crate::ui::controls::cut::Cut;
 use simulation_lib::{TimeStepInfo, ParticleColor};
@@ -58,7 +58,7 @@ pub struct InstanceStore {
     pub rendered_instances: Option<Vec<Instance>>,
     pub buffer: wgpu::Buffer,
 
-    pub info_queue: Vec<TimeStepInfo>,
+    pub info_buffer: Vec<TimeStepInfo>,
     current_index: usize,
     allow_looping_once: bool,
 }
@@ -73,7 +73,7 @@ impl InstanceStore {
             staging_settings: None,
             rendered_instances,
             buffer: instance_buffer,
-            info_queue: Vec::default(),
+            info_buffer: Vec::default(),
             current_index: 0,
             allow_looping_once: false,
         }
@@ -108,7 +108,7 @@ impl InstanceStore {
     }
 
     pub fn store(&mut self, time_steps: Vec<TimeStepInfo>) {
-        self.info_queue = time_steps;
+        self.info_buffer = time_steps;
         self.current_index = 0;
     }
 
@@ -161,9 +161,6 @@ impl InstanceStore {
                 }).map(|particle| {
                     let color = match settings.boundary_particle_color {
                     ParticleColor::VelocityGraded => {
-                            #[cfg(not(feature = "global_pressure"))]
-                            let vel = 0.;
-                            #[cfg(feature = "global_pressure")]
                             let vel = particle.vel_now();
                             let whiteness = f64::min(
                                 (vel[0].powi(2)+vel[1].powi(2)+vel[2].powi(2)).powf(0.5)/10.,
@@ -185,7 +182,7 @@ impl InstanceStore {
 
     pub fn finished_loop(&self, forward: bool) -> bool {
         if forward {
-            self.current_index == self.info_queue.len()-1
+            self.current_index == self.info_buffer.len()-1
         } else {
             self.current_index == 0
         }
@@ -207,13 +204,13 @@ impl InstanceStore {
     /// Returns if it tried unallowed loop
     fn next_index(&mut self, forward: bool, looped: bool,) -> bool {
         if forward {
-            if self.current_index+1 < self.info_queue.len() {
+            if self.current_index+1 < self.info_buffer.len() {
                 self.current_index += 1;
                 false
-            } else if self.current_index+1 >= self.info_queue.len() && looped {
+            } else if self.current_index+1 >= self.info_buffer.len() && looped {
                 self.current_index = 0;
                 false
-            } else if self.current_index+1 >= self.info_queue.len() && !looped && self.allow_looping_once {
+            } else if self.current_index+1 >= self.info_buffer.len() && !looped && self.allow_looping_once {
                 self.current_index = 0;
                 self.allow_looping_once = false;
                 false
@@ -224,10 +221,10 @@ impl InstanceStore {
             self.current_index -= 1;
             false
         } else if self.current_index == 0 && looped {
-            self.current_index = self.info_queue.len()-1;
+            self.current_index = self.info_buffer.len()-1;
             false
         } else if self.current_index == 0 && !looped && self.allow_looping_once {
-            self.current_index = self.info_queue.len()-1;
+            self.current_index = self.info_buffer.len()-1;
             self.allow_looping_once = false;
             false
         } else {
@@ -236,7 +233,7 @@ impl InstanceStore {
     }
 
     fn prestage(&mut self) {
-        let ts_info = &self.info_queue[self.current_index];
+        let ts_info = &self.info_buffer[self.current_index];
         self.staged_info = Some(ts_info.clone());
     }
 
@@ -254,14 +251,14 @@ impl InstanceStore {
         &mut self,
         gpu_context: &super::gpu_context::GpuContext,
         staging_settings: &StagingSettings,
-        action: NextAction,
+        action: Action,
         forward: bool,
         looped_playback: bool,
     ) -> StagingResult {
 
-        if self.info_queue.is_empty() && self.staged_info.is_none() {
+        if self.info_buffer.is_empty() && self.staged_info.is_none() {
             StagingResult::Uninitialized
-        } else if self.info_queue.is_empty() { // && self.staged_info.is_some()
+        } else if self.info_buffer.is_empty() { // && self.staged_info.is_some()
             StagingResult::NothingToStage
         } else if self.staged_info.is_none() {
             assert!(self.current_index == 0);
@@ -270,7 +267,7 @@ impl InstanceStore {
             StagingResult::Initialized
         } else {
             match action {
-                NextAction::PlayTimeInterval(interval) => {
+                Action::PlayTimeInterval(interval) => {
                     let mut taken = 0;
                     let mut interval = interval-self.staged_info.as_ref().unwrap().time_increment;
                     while interval >= 0. {
@@ -284,16 +281,20 @@ impl InstanceStore {
                         self.prestage();
                         interval -= self.staged_info.as_ref().unwrap().time_increment;
                     }
-                    self.stage(gpu_context, staging_settings);
-                    StagingResult::SomeTaken
+                    if taken > 0 {
+                        self.stage(gpu_context, staging_settings);
+                        StagingResult::SomeTaken
+                    } else {
+                        StagingResult::NoneTaken
+                    }
                 },
-                NextAction::StepInTime => {
+                Action::StepInTime => {
                     self.next_index(forward, true);
                     self.prestage();
                     self.stage(gpu_context, staging_settings);
                     StagingResult::SomeTaken
                 },
-                NextAction::Wait => StagingResult::NoneTaken,
+                Action::Wait => StagingResult::NoneTaken,
             }
         }
     }
@@ -325,6 +326,6 @@ impl InstanceStore {
     }
 
     pub fn queue_len(&self) -> usize {
-        self.info_queue.len()-(self.current_index+1)
+        self.info_buffer.len()-(self.current_index+1)
     }
 }

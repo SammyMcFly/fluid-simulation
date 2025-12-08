@@ -3,7 +3,6 @@
 //!
 use crossbeam::channel::Sender;
 
-#[cfg(feature = "logging")]
 use tracing::{
     debug,
 }; // error, trace, warn, debug, info,
@@ -48,12 +47,10 @@ impl Player for AppState {
                 },
                 UserInput::StepForward => {
                     self.frame.step_forward();
-                    #[cfg(feature = "logging")]
                     debug!("Pressed Step!");
                 },
                 UserInput::StepBackward => {
                     self.frame.step_backward();
-                    #[cfg(feature = "logging")]
                     debug!("Pressed Step!");
                 },
                 UserInput::RequestReset => {
@@ -75,7 +72,6 @@ impl Player for AppState {
                     if self.instances.finished_loop(true) {
                         self.instances.allow_looping_once(self.ui.controls.loop_control.play_looped());
                     }
-                    #[cfg(feature = "logging")]
                     debug!("Play forward!");
                     // control is update in ui.update not here
                 },
@@ -84,14 +80,12 @@ impl Player for AppState {
                     if self.instances.finished_loop(false) {
                         self.instances.allow_looping_once(self.ui.controls.loop_control.play_looped());
                     }
-                    #[cfg(feature = "logging")]
                     debug!("Play backward!");
                     // control is update in ui.update not here
                 },
                 UserInput::Pause => {
                     assert!(self.frame.steps_to_do == 0);
                     self.instances.reset_allow_looping_once();
-                    #[cfg(feature = "logging")]
                     debug!("Pause!");
                     // control is update in ui.update not here
                 },

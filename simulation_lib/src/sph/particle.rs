@@ -362,7 +362,6 @@ impl From<SerParticle3D> for Particle3D {
 #[derive(Debug, Clone)]
 pub struct BoundaryParticle3D {
     position: Vector3<f64>,
-    #[cfg(feature = "global_pressure")]
     velocity: Vector3<f64>,
     mass: f64,
 }
@@ -381,7 +380,6 @@ impl Initializable for BoundaryParticle3D {
         ) -> Self {
         Self {
             position: position[0],
-            #[cfg(feature = "global_pressure")]
             velocity: Vector3::zeros(),
             mass,
         }
@@ -393,17 +391,16 @@ impl BoundaryParticle3D {
         self.position
     }
 
+    pub fn vel(&self) -> Vector3<f64> {
+        self.velocity
+    }
+
     pub fn set_mass(&mut self, mass: f64) {
         self.mass = mass;
     }
 
     pub fn mass(&self) -> f64 {
         self.mass
-    }
-
-    #[cfg(feature = "global_pressure")]
-    pub fn vel(&self) -> Vector3<f64> {
-        self.velocity
     }
 }
 
@@ -412,7 +409,6 @@ impl From<SerBoundaryParticle3D> for BoundaryParticle3D {
     fn from(particle: SerBoundaryParticle3D) -> Self {
         Self {
             position: Vector3::new(particle.position[0], particle.position[1], particle.position[2],),
-            #[cfg(feature = "global_pressure")]
             velocity: Vector3::new(particle.velocity[0], particle.velocity[1], particle.velocity[2],),
             mass: 0.,
         }
@@ -459,7 +455,6 @@ impl SerParticle3D {
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct SerBoundaryParticle3D {
     position: [f64; 3],
-    #[cfg(feature = "global_pressure")]
     velocity: [f64; 3],
 }
 
@@ -467,7 +462,6 @@ impl From<BoundaryParticle3D> for SerBoundaryParticle3D {
     fn from(particle: BoundaryParticle3D) -> Self {
         Self {
             position: particle.pos().into(),
-            #[cfg(feature = "global_pressure")]
             velocity: particle.vel().into(),
         }
     }

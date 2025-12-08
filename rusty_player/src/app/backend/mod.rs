@@ -6,7 +6,6 @@ use std::path::{Path};
 use iced_winit::winit::event_loop::EventLoopProxy;
 use crossbeam::channel::Receiver;
 
-#[cfg(feature = "logging")]
 use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
 use commands::WorkerCommand;
@@ -27,7 +26,6 @@ fn read_recording(file_path: &str) -> std::io::Result<(SimulationParameters, Vec
     // Create the parent directory if it does not exist
     if !file_path_parent.exists() {
         std::fs::create_dir_all(file_path_parent.clone())?;
-        #[cfg(feature = "logging")]
         info!("Created directories: {}", file_path_parent.display());
     }
     let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
@@ -79,10 +77,8 @@ pub fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std:
 
     if !file_path_parent.exists() { // Create the parent directory if it does not exist
         std::fs::create_dir_all(file_path_parent.clone())?;
-        #[cfg(feature = "logging")]
         info!("Created directory: {}", file_path_parent.display());
     } else if global_file_path.exists() { // Throw an error if file already exist
-        #[cfg(feature = "logging")]
         error!("File already exists: {}", file_path_parent.display());
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
     }
@@ -103,7 +99,6 @@ fn save_image(particles: Vec<f64>, file_path: &str) -> std::io::Result<()> {
     // Create the parent directory if it does not exist
     if !file_path_parent.exists() {
         std::fs::create_dir_all(file_path_parent.clone())?;
-        #[cfg(feature = "logging")]
         info!("Created directories: {}", file_path_parent.display());
     }
     let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
@@ -124,16 +119,13 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
             Ok(msg) => {
                 match msg {
                     WorkerCommand::ReadRecording(file_path) => {
-                        #[cfg(feature = "logging")]
                         info!("Start reading recording...");
                         match read_recording(&file_path) {
                             Ok((sim_info, time_steps)) => {
-                                #[cfg(feature = "logging")]
                                 info!("Successfully finished reading recording!");
                                 let _ = to_ui.send_event(WorkerMessage::FinishedReading(sim_info, time_steps));
                             },
                             Err(e) => {
-                                #[cfg(feature = "logging")]
                                 info!("Failed reading recording!");
                                 let _ = to_ui.send_event(WorkerMessage::Error(e.to_string()));
                             },
@@ -151,18 +143,15 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     },
                     WorkerCommand::SaveState { particles, file_path } => {
                         let save_message = if save_system_state(particles, &file_path).is_ok() {
-                            #[cfg(feature = "logging")]
                             info!("Successfully saved state: {}", file_path);
                             WorkerMessage::SavedState
                         } else {
-                            #[cfg(feature = "logging")]
                             error!("Failed to save state!");
                             WorkerMessage::Error("Failed to save state!".to_string())
                         };
                         let _ = to_ui.send_event(save_message);
                     },
                     WorkerCommand::Stop => {
-                        #[cfg(feature = "logging")]
                         info!("Stopped backend!");
                         break 'worker;
                     },
@@ -172,7 +161,6 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                 std::thread::sleep(Duration::from_millis(16));
             }
             Err(crossbeam::channel::TryRecvError::Disconnected) => {
-                #[cfg(feature = "logging")]
                 error!("Sender was dropped!");
                 break 'worker;
             }

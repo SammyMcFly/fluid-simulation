@@ -125,9 +125,6 @@ impl InstanceStore {
                 }).map(|particle| {
                     let color = match settings.boundary_particle_color {
                     ParticleColor::VelocityGraded => {
-                            #[cfg(not(feature = "global_pressure"))]
-                            let vel = 0.;
-                            #[cfg(feature = "global_pressure")]
                             let vel = particle.vel_now();
                             let whiteness = f64::min(
                                 (vel[0].powi(2)+vel[1].powi(2)+vel[2].powi(2)).powf(0.5)/10.,

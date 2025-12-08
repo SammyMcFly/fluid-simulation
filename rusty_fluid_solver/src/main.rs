@@ -16,22 +16,13 @@
 use clap::Parser;
 use iced_winit::winit::event_loop::{ControlFlow, EventLoop};
 
-// #[cfg(feature = "logging")]
 // use tracing::info; // debug, error, info, span, trace, warn};
-#[cfg(feature = "logging")]
 use tracing::level_filters::LevelFilter;
-#[cfg(feature = "logging")]
 use tracing_subscriber::FmtSubscriber;
 
 mod app;
 
 use app::messages::WorkerMessage;
-
-
-#[cfg(all(feature = "local_pressure", feature = "global_pressure"))]
-compile_error!("Only one of the features `local_pressure` and `global_pressure` can be activated at the same time.");
-#[cfg(all(not(feature = "local_pressure"), not(feature = "global_pressure")))]
-compile_error!("One of the features `local_pressure` and `global_pressure` must be activated.");
 
 
 
@@ -43,7 +34,7 @@ struct Args {
     // #[arg(default_value_t=String::from("scene_config.toml"))]
     config: Option<String>,
     /// File path to file with state of all particles of a system, where to start simulating from
-    #[arg(short, long)]
+    #[arg(long)]
     state: Option<String>,
     /// File path to store measurements to (.csv file)
     #[arg(short, long,)]
@@ -71,7 +62,6 @@ struct Args {
 }
 
 /// Init logging
-#[cfg(feature = "logging")]
 fn init_logging(args: &Args) {
     let severity_level = match &args.log[..] {
         "TRACE" => LevelFilter::TRACE,
@@ -96,7 +86,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // parse args
     let args = Args::parse();
 
-    #[cfg(feature = "logging")]
     init_logging(&args);
 
     let event_loop = EventLoop::<WorkerMessage>::with_user_event()

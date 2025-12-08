@@ -8,7 +8,7 @@ use bincode::Encode;
 use nalgebra::Vector3; // Matrix3,
 use num_traits::identities::Zero;
 use serde::{Serialize, Deserialize};
-#[cfg(feature = "parallel")]
+#[cfg(feature = "parallelized_sph")]
 use rayon::prelude::*;
 
 // #[cfg(feature = "logging")]
@@ -107,7 +107,7 @@ pub struct SystemProperties {
     #[cfg(feature = "local_pressure")]
     stiffness: f64,
     #[cfg(feature = "global_pressure")]
-    solver_iterations: usize,
+    solver_iterations: u32,
     #[cfg(feature = "global_pressure")]
     relaxation_factor: f64,
     #[cfg(feature = "global_pressure")]
@@ -131,7 +131,7 @@ impl SystemProperties {
         #[cfg(feature = "local_pressure")]
         stiffness: f64,
         #[cfg(feature = "global_pressure")]
-        solver_iterations: usize,
+        solver_iterations: u32,
         #[cfg(feature = "global_pressure")]
         relaxation_factor: f64,
         #[cfg(feature = "global_pressure")]
@@ -331,7 +331,7 @@ impl System3D {
     }
 
     /// Perform neighbor search for all fluid particles
-    #[cfg(not(feature = "parallel"))]
+    #[cfg(not(feature = "parallelized_sph"))]
     fn update_particle_neighbors(&mut self) {
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
@@ -348,7 +348,7 @@ impl System3D {
     /// Perform neighbor search for all fluid particles
     ///
     /// Adds fluid neighbors and boundary neighbors as neighbors
-    #[cfg(feature = "parallel")]
+    #[cfg(feature = "parallelized_sph")]
     fn update_particle_neighbors(&mut self) {
         let immutable_clone_of_particles = self.particles.clone();
         self.particles.par_iter_mut().for_each(|particle| {
@@ -364,7 +364,7 @@ impl System3D {
     }
 
     /// Calculate and update density for all particles for the current point in time
-    #[cfg(not(feature = "parallel"))]
+    #[cfg(not(feature = "parallelized_sph"))]
     fn update_density(&mut self) {
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
@@ -401,7 +401,7 @@ impl System3D {
     }
 
     /// Calculate and update density for all particles for the current point in time
-    #[cfg(feature = "parallel")]
+    #[cfg(feature = "parallelized_sph")]
     fn update_density(&mut self) {
         let immutable_clone_of_particles = self.particles.clone();
         self.particles.par_iter_mut().for_each(|particle| {
@@ -438,7 +438,7 @@ impl System3D {
     }
 
     // perform splitting step conditionally
-    #[cfg(all(not(feature = "parallel"), feature = "splitting"))]
+    #[cfg(all(not(feature = "parallelized_sph"), feature = "splitting"))]
     fn calc_predicted_density(&mut self) {
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
@@ -487,7 +487,7 @@ impl System3D {
     }
 
     // perform splitting step conditionally
-    #[cfg(all(feature = "parallel", feature = "splitting"))]
+    #[cfg(all(feature = "parallelized_sph", feature = "splitting"))]
     fn calc_predicted_density(&mut self) {
         let immutable_clone_of_particles = self.particles.clone();
         self.particles.par_iter_mut().for_each(|particle| {
@@ -573,7 +573,7 @@ impl System3D {
     }
 
     /// Calculate viscosity acceleration at current time and add it to respective particles
-    #[cfg(not(feature = "parallel"))]
+    #[cfg(not(feature = "parallelized_sph"))]
     fn add_viscosity_acceleration(&mut self) {
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
@@ -592,7 +592,7 @@ impl System3D {
                 // add viscostiy acceleration from boundary particles
                 for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
                     let acc = self.properties.viscosity*2.*self.boundary_particles[boundary_neighbor].mass()/self.properties.rest_density
-                        *(self.particles[particle_index].vel().now()).dot(&(self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()))
+                        *(self.particles[particle_index].vel().now()-self.boundary_particles[boundary_neighbor].vel()).dot(&(self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()))
                         /((self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.properties.smoothing_length.powi(2))
                         *(self.properties.kernel_gradient_fn)(
                             &self.particles[particle_index].pos().now(),
@@ -606,7 +606,7 @@ impl System3D {
     }
 
     /// Calculate viscosity acceleration at current time and add it to respective particles
-    #[cfg(feature = "parallel")]
+    #[cfg(feature = "parallelized_sph")]
     fn add_viscosity_acceleration(&mut self) {
         let immutable_clone_of_particles = self.particles.clone();
         self.particles.par_iter_mut().for_each(|particle| {
@@ -628,7 +628,7 @@ impl System3D {
                 // add viscostiy acceleration from boundary particles
                 for &boundary_neighbor in &particle.boundary_neighbors.clone() {
                     let acc = self.properties.boundary_viscosity*2.*(3.+2.)*self.boundary_particles[boundary_neighbor].mass()/self.properties.rest_density
-                        *(particle.vel().now()).dot(&(particle.pos().now()-self.boundary_particles[boundary_neighbor].pos()))
+                        *(particle.vel().now()-self.boundary_particles[boundary_neighbor].vel()).dot(&(particle.pos().now()-self.boundary_particles[boundary_neighbor].pos()))
                         /((particle.pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.properties.smoothing_length.powi(2))
                         *(self.properties.kernel_gradient_fn)(
                             &particle.pos().now(),
@@ -669,7 +669,7 @@ impl System3D {
     }
 
     /// Calculate pressure acceleration at current time and add it to respective particles
-    #[cfg(not(feature = "parallel"))]
+    #[cfg(not(feature = "parallelized_sph"))]
     fn add_pressure_acceleration(&mut self) {
         // compute pressure acceleration
         for particle_index in 0..self.particles.len() {
@@ -741,7 +741,7 @@ impl System3D {
 
     /// Locally calculate pressure acceleration with a state equation at current time
     /// and add it to respective particles
-    #[cfg(feature = "parallel")]
+    #[cfg(feature = "parallelized_sph")]
     fn add_pressure_acceleration(&mut self) {
         // compute pressure acceleration
         let immutable_clone_of_particles = self.particles.clone();
@@ -809,7 +809,7 @@ impl System3D {
     ///
     /// For the implementation the following document was closedly followed:
     /// Notes on  Ihmsen et al. ”Implicit Incompressible SPH” by  Matthias Teschner, University of Freiburg
-    #[cfg(all(not(feature = "parallel"), feature = "global_pressure"))]
+    #[cfg(all(not(feature = "parallelized_sph"), feature = "global_pressure"))]
     fn resolve_pressure_globally(&mut self) {
         // calculate and set predicted velocity due to non-pressure acceleration
         // also initialize pressure
@@ -1046,7 +1046,7 @@ impl System3D {
     ///
     /// For the implementation the following document was closedly followed:
     /// Notes on  Ihmsen et al. ”Implicit Incompressible SPH” by  Matthias Teschner, University of Freiburg
-    #[cfg(all(feature = "parallel", feature = "global_pressure"))]
+    #[cfg(all(feature = "parallelized_sph", feature = "global_pressure"))]
     fn resolve_pressure_globally(&mut self) {
         // calculate and set predicted velocity due to non-pressure acceleration
         // also initialize pressure
@@ -1490,7 +1490,7 @@ impl System3D {
 
         series.push_back(measurement::Measurement {
             time: self.time(),
-            density: self.properties.average_density/self.properties.rest_density,
+            density: self.properties.average_density,
             kinetic_energy: self.calc_average_kinetic_energy(),
             #[cfg(feature = "local_pressure")]
             stiffness: self.properties.stiffness,
@@ -1501,6 +1501,8 @@ impl System3D {
             smoothing_length: self.properties.smoothing_length,
             rest_density: self.properties.rest_density,
             time_step_size: self.properties.time_increment,
+            #[cfg(feature = "global_pressure")]
+            solver_iterations: self.properties.solver_iterations,
         });
     }
 

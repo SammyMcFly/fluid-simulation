@@ -38,7 +38,7 @@ pub struct Parameters {
     #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
     #[cfg(feature = "global_pressure")]
-    solver_iterations: usize,
+    solver_iterations: u32,
     #[cfg(feature = "global_pressure")]
     pub relaxation_factor: f64,
     #[cfg(feature = "global_pressure")]

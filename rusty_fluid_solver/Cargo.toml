@@ -3,21 +3,6 @@ name = "rusty_fluid_solver"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-# Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
-# default = ["logging", "global_pressure"]
-default = ["logging", "parallel", "global_pressure"]
-
-# Features
-logging = ["dep:tracing", "dep:tracing-subscriber"]
-parallel = ["dep:rayon"]
-implicit_euler = ["springs"]
-springs = []
-pseudo_mass_boundary = []
-local_pressure = []
-splitting = ["local_pressure"]
-global_pressure = []
-
 # [dev-dependencies]
 # criterion ={ version = "0.5.1", features = ["html_reports"] }
 
@@ -30,7 +15,7 @@ global_pressure = []
 # debug = true
 
 [dependencies]
-# my rendering library
+# my simulation library
 simulation_lib = { path = "../simulation_lib" }
 
 # my rendering library
@@ -72,17 +57,13 @@ iced_widget = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa78
 iced_wgpu = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_wgpu" }
 iced_winit = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_winit" }
 
-## load sphere for visualization
+# load sphere for visualization
 tobj = { version = "4.0.3", default-features = false, features = ["async"]}
 
 bytemuck = { version = "1.24.0", features = [ "derive" ] }
 
 pollster = "0.4.0"
 
-# optional
-## logging
-tracing = { version = "0.1.41", optional = true }
-tracing-subscriber = { version = "0.3.20", optional = true }
-
-## multithreading of for loops
-rayon = { version = "1.11", optional = true }
+# logging
+tracing = { version = "0.1.41"}
+tracing-subscriber = { version = "0.3.20"}
