@@ -26,7 +26,12 @@ pub struct Setup {
 #[derive(Debug, Deserialize)]
 pub struct Parameters {
     pub buffer_length_limit: usize,
-    pub time_inc: f64,
+    #[cfg(not(feature = "cfl_time_step"))]
+    pub time_increment: f64,
+    #[cfg(feature = "cfl_time_step")]
+    pub max_time_increment: f64,
+    #[cfg(feature = "cfl_time_step")]
+    pub cfl_number: f64,
     pub integration_scheme: PropagationMethod,
     pub rest_density: f64,
     pub rest_density_grid_spacing: f64,
@@ -38,7 +43,8 @@ pub struct Parameters {
     #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
     #[cfg(feature = "global_pressure")]
-    solver_iterations: u32,
+    // solver_iterations: u32,
+    target_density_error: f64,
     #[cfg(feature = "global_pressure")]
     pub relaxation_factor: f64,
     #[cfg(feature = "global_pressure")]
@@ -128,7 +134,12 @@ impl System3DConfigConstructor {
 
     fn get_system_properties(&self) -> SystemProperties {
         SystemProperties::new(
-            self.config.parameters.time_inc,
+            #[cfg(not(feature = "cfl_time_step"))]
+            self.config.parameters.time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            self.config.parameters.max_time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            self.config.parameters.cfl_number,
             self.config.parameters.rest_density,
             self.config.parameters.rest_density_grid_spacing,
             self.config.parameters.smoothing_length,
@@ -140,7 +151,8 @@ impl System3DConfigConstructor {
             #[cfg(feature = "local_pressure")]
             self.config.parameters.stiffness,
             #[cfg(feature = "global_pressure")]
-            self.config.parameters.solver_iterations,
+            // self.config.parameters.solver_iterations,
+            self.config.parameters.target_density_error,
             #[cfg(feature = "global_pressure")]
             self.config.parameters.relaxation_factor,
             #[cfg(feature = "global_pressure")]

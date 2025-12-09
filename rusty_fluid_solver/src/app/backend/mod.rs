@@ -87,8 +87,8 @@ impl Simulation {
                 Ok((time_step_info, sim))
         },
             _ => {
-                error!("Invalid state or scene file!");
-                Err("Invalid state or scene file!".to_string())
+                error!("Invalid state or config file!");
+                Err("Invalid state or config file!".to_string())
             },
         }
     }

@@ -9,7 +9,7 @@ rendering_lib = { path = "../rendering_lib", default-features = false }
 
 [features]
 # Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
-default = ["logging", "parallelized_sph", "global_pressure"]
+default = ["logging", "parallelized_sph", "global_pressure"]#, "cfl_time_step"]
 
 logging = ["simulation_lib/logging", "rendering_lib/logging"]
 parallelized_sph = ["simulation_lib/parallelized_sph"]
@@ -19,3 +19,4 @@ pseudo_mass_boundary = ["simulation_lib/pseudo_mass_boundary"]
 local_pressure = ["simulation_lib/local_pressure"]
 splitting = ["simulation_lib/splitting"]
 global_pressure = ["simulation_lib/global_pressure"]
+cfl_time_step = ["simulation_lib/cfl_time_step"]

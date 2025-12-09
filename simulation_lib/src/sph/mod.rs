@@ -12,7 +12,7 @@ use serde::{Serialize, Deserialize};
 use rayon::prelude::*;
 
 // #[cfg(feature = "logging")]
-use tracing::{debug}; // debug, error, info, span, trace, warn,
+use tracing::{warn, debug}; // debug, error, info, span, trace, warn,
 
 pub mod particle;
 use particle::*;
@@ -92,6 +92,10 @@ pub enum PropagationMethod {
 #[derive(Debug, Clone)]
 pub struct SystemProperties {
     time_increment: f64,
+    #[cfg(feature = "cfl_time_step")]
+    max_time_increment: f64,
+    #[cfg(feature = "cfl_time_step")]
+    pub cfl_number: f64,
     /// Smooting length h
     smoothing_length: f64,
     /// disable particles below this threshold
@@ -107,6 +111,8 @@ pub struct SystemProperties {
     #[cfg(feature = "local_pressure")]
     stiffness: f64,
     #[cfg(feature = "global_pressure")]
+    target_density_error: f64,
+    #[cfg(feature = "global_pressure")]
     solver_iterations: u32,
     #[cfg(feature = "global_pressure")]
     relaxation_factor: f64,
@@ -119,7 +125,12 @@ pub struct SystemProperties {
 impl SystemProperties {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        time_inc: f64,
+        #[cfg(not(feature = "cfl_time_step"))]
+        time_increment: f64,
+        #[cfg(feature = "cfl_time_step")]
+        max_time_increment: f64,
+        #[cfg(feature = "cfl_time_step")]
+        cfl_number: f64,
         rest_density: f64,
         rest_density_grid_spacing: f64,
         smoothing_length: f64,
@@ -131,7 +142,8 @@ impl SystemProperties {
         #[cfg(feature = "local_pressure")]
         stiffness: f64,
         #[cfg(feature = "global_pressure")]
-        solver_iterations: u32,
+        // solver_iterations: u32,
+        target_density_error: f64,
         #[cfg(feature = "global_pressure")]
         relaxation_factor: f64,
         #[cfg(feature = "global_pressure")]
@@ -141,7 +153,14 @@ impl SystemProperties {
     ) -> Self {
         let average_density = 0.;
         Self {
-            time_increment: time_inc,
+            #[cfg(not(feature = "cfl_time_step"))]
+            time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            time_increment: 0.,
+            #[cfg(feature = "cfl_time_step")]
+            max_time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            cfl_number,
             smoothing_length,
             disable_particles_below,
             rest_density,
@@ -154,7 +173,9 @@ impl SystemProperties {
             #[cfg(feature = "local_pressure")]
             stiffness,
             #[cfg(feature = "global_pressure")]
-            solver_iterations,
+            target_density_error,
+            #[cfg(feature = "global_pressure")]
+            solver_iterations: 0,
             #[cfg(feature = "global_pressure")]
             relaxation_factor,
             #[cfg(feature = "global_pressure")]
@@ -166,11 +187,15 @@ impl SystemProperties {
 
     fn update(
         &mut self,
-        // time_increment: f64,
         average_density: f64,
     ) {
-        // self.time_increment = time_increment;
         self.average_density = average_density;
+    }
+
+    #[cfg(feature = "cfl_time_step")]
+    fn set_cfl_time_step(&mut self, max_speed: f64,) {
+        let cfl_time_step = self.cfl_number*self.rest_density_grid_spacing/max_speed;
+        self.time_increment = self.max_time_increment.min(cfl_time_step);
     }
 }
 
@@ -255,23 +280,19 @@ impl System3D {
             // calculate mass with rest density of fluid
             let pseudo_mass = self.properties.rest_density/inverse_volume;
             self.boundary_particles[boundary_particle_index].set_mass(pseudo_mass);
-            // if cfg!(feature = "logging") {
-                // debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
-                // debug!("boundary particle {} has mass: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].mass());
-            // }
+            // #[cfg(feature = "logging")]
+            // debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
+            // #[cfg(feature = "logging")]
+            // debug!("boundary particle {} has mass: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].mass());
         }
     }
-
-    // pub fn get_time_increment(&self) -> f64 {
-    //     self.properties.time_increment
-    // }
 
     pub fn time(&self) -> f64 {
         (self.time_steps_propagated as f64)*self.properties.time_increment
     }
 
     /// Calculate 2-norm of maximum velocity of any particle
-    fn _calc_max_speed(&self) -> f64 {
+    fn calc_max_speed(&self) -> f64 {
         let mut max_speed = 0.;
         for particle in &self.particles {
             if particle.is_enabled() {
@@ -281,9 +302,6 @@ impl System3D {
                 }
             }
         }
-        // if cfg!(feature = "logging") {
-            // debug!("Maximum speed: {}", max_speed);
-        // }
         max_speed
     }
 
@@ -300,9 +318,6 @@ impl System3D {
         if count != 0. {
             average_kin_energy /= count;
         }
-        // if cfg!(feature = "logging") {
-        //     debug!("Average kin. energy: {}", average_kin_energy);
-        // }
         average_kin_energy
     }
 
@@ -324,9 +339,6 @@ impl System3D {
         if count != 0. {
             average_density /= count;
         }
-        // if cfg!(feature = "logging") {
-            // debug!("Average density: {}, rest density: {}", average_density, self.properties.rest_density);
-        // }
         average_density
     }
 
@@ -817,7 +829,6 @@ impl System3D {
             if self.particles[particle_index].is_enabled() {
                 let vel = self.particles[particle_index].vel().now()+self.properties.time_increment*self.particles[particle_index].acc();
                 self.particles[particle_index].set_pred_vel(vel);
-                self.particles[particle_index].set_pressure(0.);
             }
         }
         // compute source term s_f of pressure linear equation system
@@ -925,7 +936,11 @@ impl System3D {
         #[cfg(feature = "logging")]
         let mut particle_print_list = Vec::new();
         // Solve linear equation system until a sufficiently accurate result is obtained
-        for _solver_iteration in 0..self.properties.solver_iterations {
+        // for _solver_iteration in 0..self.properties.solver_iterations {
+        let min_solver_iterations = 2;
+        let mut solver_iteration = 0;
+        let mut predicted_density_error = f64::INFINITY;
+        while solver_iteration < min_solver_iterations&& predicted_density_error > self.properties.target_density_error {
             // compute pressure acceleration
             for particle_index in 0..self.particles.len() {
                 if self.particles[particle_index].is_enabled() {
@@ -970,8 +985,20 @@ impl System3D {
                     }
                 }
             }
+            // initialize pressure with fixed result of first solver iteration
+            for particle_index in 0..self.particles.len() {
+                if self.particles[particle_index].is_enabled() {
+                    // Update pressure
+                    if self.particles[particle_index].a_ff > self.properties.min_diagonal_element
+                            || self.particles[particle_index].a_ff < -self.properties.min_diagonal_element {
+                        let p_next_iter = self.properties.relaxation_factor
+                            *self.particles[particle_index].s_f/self.particles[particle_index].a_ff;
+                        self.particles[particle_index].set_pressure(p_next_iter.max(0.));
+                    }
+                }
+            }
             // perform solver iteration for all fluid particles
-            let mut average_predicted_density_error = 0.;
+            let mut predicted_density_error_accumulator = 0.;
             let mut count: u64 = 0;
             for particle_index in 0..self.particles.len() {
                 if self.particles[particle_index].is_enabled() {
@@ -1006,7 +1033,7 @@ impl System3D {
                     }
                     // Add to predicted density error
                     if self.particles[particle_index].s_f < 0. {
-                        average_predicted_density_error += (a_dot_p_f - self.particles[particle_index].s_f).abs();
+                        predicted_density_error_accumulator += (a_dot_p_f - self.particles[particle_index].s_f).abs();
                     }
                     count += 1;
                     #[cfg(feature = "logging")]
@@ -1033,12 +1060,19 @@ impl System3D {
                     // }
                 }
             }
-            let average_predicted_density_error = average_predicted_density_error/(count as f64);
+            predicted_density_error = predicted_density_error_accumulator/(count as f64);
             #[cfg(feature = "logging")]
             if print_flag {
-                info!("average_predicted_density_error: {average_predicted_density_error}");
+                info!("predicted_density_error: {predicted_density_error}");
+            }
+
+            solver_iteration += 1;
+            #[cfg(feature = "logging")]
+            if solver_iteration == 100 {
+                warn!("Number of global pressure solver iterations >= 100");
             }
         }
+        self.properties.solver_iterations = solver_iteration
     }
 
     /// Globally calculate pressure by solving a linear equation system at current time
@@ -1054,7 +1088,6 @@ impl System3D {
             if self.particles[particle_index].is_enabled() {
                 let vel = self.particles[particle_index].vel().now()+self.properties.time_increment*self.particles[particle_index].acc();
                 self.particles[particle_index].set_pred_vel(vel);
-                self.particles[particle_index].set_pressure(0.);
             }
         }
         // compute source term s_f of pressure linear equation system
@@ -1159,8 +1192,24 @@ impl System3D {
                 }
             }
         });
+        // initialize pressure with fixed result of first solver iteration
+        self.particles.par_iter_mut().for_each(|particle| {
+            if particle.is_enabled() {
+                // Update pressure
+                if particle.a_ff > self.properties.min_diagonal_element
+                        || particle.a_ff < -self.properties.min_diagonal_element {
+                    let p_next_iter = self.properties.relaxation_factor
+                        *particle.s_f/particle.a_ff;
+                    particle.set_pressure(p_next_iter.max(0.));
+                }
+            }
+        });
         // Solve linear equation system until a sufficiently accurate result is obtained
-        for _solver_iteration in 0..self.properties.solver_iterations {
+        // for _solver_iteration in 0..self.properties.solver_iterations {
+        let min_solver_iterations = 2;
+        let mut solver_iteration = 0;
+        let mut predicted_density_error = f64::INFINITY;
+        while solver_iteration < min_solver_iterations || predicted_density_error > self.properties.target_density_error {
             // compute pressure acceleration
             let immutable_clone_of_particles = self.particles.clone();
             self.particles.par_iter_mut().for_each(|particle| {
@@ -1258,12 +1307,24 @@ impl System3D {
                 }
                 average_predicted_density_error/(count as f64)
             });
-            let predicted_density_error = 100.*(handle.join().unwrap()/self.properties.rest_density);
+            predicted_density_error = 100.*(handle.join().unwrap()/self.properties.rest_density);
+
+            // #[cfg(feature = "logging")]
+            // debug!("solver_iteration {}", solver_iteration);
+            // #[cfg(feature = "logging")]
+            // debug!("average_relative_predicted_density_error (%): {predicted_density_error}");
+
+            solver_iteration += 1;
             #[cfg(feature = "logging")]
-            debug!("_solver_iteration {}", _solver_iteration);
-            #[cfg(feature = "logging")]
-            debug!("average_relative_predicted_density_error (%): {predicted_density_error}");
+            if solver_iteration == 100 {
+                warn!("Number of global pressure solver iterations >= 100");
+            }
         }
+        #[cfg(feature = "logging")]
+        debug!("final number of solver iterations: {solver_iteration}");
+        #[cfg(feature = "logging")]
+        debug!("final average_relative_predicted_density_error (%): {predicted_density_error}");
+        self.properties.solver_iterations = solver_iteration
     }
 
     #[cfg(feature = "splitting")]
@@ -1473,10 +1534,12 @@ impl System3D {
         self.calc_acceleration();
         // update properties
         self.properties.update(self.calc_average_mass_density());
-
-        let max_speed = self._calc_max_speed();
-        #[cfg(feature = "logging")]
-        debug!("cfl number: {}", self.properties.time_increment*max_speed/self.properties.rest_density_grid_spacing)
+        // set new cfl time step conditionally
+        let max_speed = self.calc_max_speed();
+        #[cfg(feature = "cfl_time_step")]
+        self.properties.set_cfl_time_step(max_speed);
+        #[cfg(all(feature = "logging", not(feature = "cfl_time_step")))]
+        debug!("cfl number: {}", self.properties.time_increment*max_speed/self.properties.rest_density_grid_spacing);
     }
 
     /// Measure (physical) quantities at current time step
