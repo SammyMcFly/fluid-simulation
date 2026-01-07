@@ -9,7 +9,11 @@ rendering_lib = { path = "../rendering_lib", default-features = false }
 
 [features]
 # Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
-default = ["logging", "parallelized_sph", "global_pressure"]#, "cfl_time_step"]
+# default = ["logging", "local_pressure", "pseudo_mass_boundary"]
+# default = ["logging", "parallelized_sph", "local_pressure", "pseudo_mass_boundary"]
+# default = ["logging", "global_pressure", "pseudo_mass_boundary"]
+default = ["logging", "parallelized_sph", "global_pressure", "pseudo_mass_boundary"]
+#, "cfl_time_step"] # "parallelized_sph",
 
 logging = ["simulation_lib/logging", "rendering_lib/logging"]
 parallelized_sph = ["simulation_lib/parallelized_sph"]

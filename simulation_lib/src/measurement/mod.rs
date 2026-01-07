@@ -9,7 +9,32 @@ use serde::Serialize;
 use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum RecordingStatus {
+    #[default]
+    None,
+    NotStarted,
+    InProgress,
+    Finished,
+}
 
+impl RecordingStatus {
+    pub fn advance_to_next_state(&mut self) {
+        match self {
+            Self::NotStarted => *self = Self::InProgress,
+            Self::InProgress => *self = Self::Finished,
+            Self::Finished => panic!("Called advance_to_next_state on RecordingStatus::Finished"),
+            _ => panic!("Called advance_to_next_state on RecordingStatus::None"),
+            // _ => panic!("Called advance_to_next_state on RecordingStatus::None or RecordingStatus::Finished"),
+        }
+    }
+    pub fn is_active(&self) -> bool {
+        matches!(self, RecordingStatus::InProgress)
+    }
+    pub fn is_finished(&self) -> bool {
+        matches!(self, RecordingStatus::Finished)
+    }
+}
 
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -19,7 +44,6 @@ pub struct Measurement {
     pub density: f64,
     // Average kinetic energy
     pub kinetic_energy: f64,
-    #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
     pub fluid_viscosity: f64,
     pub boundary_viscosity: f64,
@@ -32,8 +56,11 @@ pub struct Measurement {
     /// Rest density of the fluid
     pub rest_density: f64,
     pub time_step_size: f64,
-    #[cfg(feature = "global_pressure")]
+    pub target_density_error: f64,
     pub solver_iterations: u32,
+    pub relaxation_factor: f64,
+    pub time_step_wall_clock_time: f64,
+    pub predicted_density_error: f64,
 }
 
 
@@ -52,16 +79,31 @@ impl MeasurementSeries {
         let file_path_parent = std::fs::canonicalize(
             file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
         )?;
-        let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+        let mut global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
 
         if !file_path_parent.exists() { // Create the parent directory if it does not exist
             std::fs::create_dir_all(file_path_parent.clone())?;
             #[cfg(feature = "logging")]
             info!("Created directory: {}", file_path_parent.display());
-        } else if global_file_path.exists() { // Throw an error if file already exist
-            #[cfg(feature = "logging")]
-            error!("File already exists: {}", file_path_parent.display());
-            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+        } else if global_file_path.exists() {
+            let immutable_global_file_path = global_file_path.clone();
+            let mut counter: u16 = 2;
+            while global_file_path.exists() { // modify file name with added number to make it unique
+                let path = Path::new(&immutable_global_file_path);
+                let stem = path.file_stem().unwrap().to_string_lossy();
+                let ext  = path.extension().unwrap_or_default().to_string_lossy();
+                if counter == u16::MAX {
+                    #[cfg(feature = "logging")]
+                    error!("File '{}' and all files with the following pattern already exists: {}",
+                        format!("{}.{}", stem, ext),
+                        format!("{}_#123.{}", stem, ext),
+                    );
+                    return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+                }
+                let new_filename = format!("{}_#{}.{}", stem, counter, ext);
+                global_file_path = global_file_path.with_file_name(new_filename);
+                counter += 1;
+            }
         }
 
         Ok(Self {

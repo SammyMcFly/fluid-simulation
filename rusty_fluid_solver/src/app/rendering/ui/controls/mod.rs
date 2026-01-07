@@ -44,12 +44,12 @@ impl Default for Cut {
 impl Cut {
     pub fn cut(&self, particle: &impl Positional) -> bool {
         if self.x && self.y {
-            self.x_inv*(particle.pos_now()[0] as f32 -self.x_bound) >= 0.
-            && self.y_inv*(-particle.pos_now()[1] as f32 -self.y_bound) >= 0.
+            self.x_inv*(particle.pos_now()[0] as f32 - self.x_bound) >= 0.
+            && self.y_inv*(particle.pos_now()[1] as f32 - self.y_bound) >= 0.
         } else if self.x {
-            self.x_inv*(particle.pos_now()[0] as f32 -self.x_bound) >= 0.
+            self.x_inv*(particle.pos_now()[0] as f32 - self.x_bound) >= 0.
         } else if self.y {
-            self.y_inv*(-particle.pos_now()[1] as f32 -self.y_bound) >= 0.
+            self.y_inv*(particle.pos_now()[1] as f32 - self.y_bound) >= 0.
         } else {
             true
         }
@@ -101,6 +101,7 @@ impl RenderControls {
         particle_color: ParticleColor,
         boundary_particle_color: ParticleColor,
         start_resumed: bool,
+        is_rendered: bool
     ) -> Self {
         let play_pause = if start_resumed {
             PlaybackState::Resumed
@@ -114,7 +115,7 @@ impl RenderControls {
             background_color: Color::WHITE,
             hide_boundary: false,
             cut: Cut::default(),
-            info: info::UIInfo::new(),
+            info: info::UIInfo::new(is_rendered),
         }
     }
 
@@ -172,6 +173,10 @@ impl RenderControls {
 
     pub fn advance_to_next_measurement_state(&mut self) {
         self.info.advance_to_next_measurement_state();
+    }
+
+    pub fn advance_to_next_recording_state(&mut self) {
+        self.info.advance_to_next_recording_state();
     }
 
     pub fn view(&self) -> Element<'_, UserInput, Theme, iced_wgpu::Renderer> {

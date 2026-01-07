@@ -154,9 +154,11 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             },
             WorkerMessage::ReachedStartTime => {
                 self.state.as_mut().unwrap().ui.advance_to_next_measurement_state();
+                self.state.as_mut().unwrap().ui.advance_to_next_recording_state();
             },
             WorkerMessage::ReachedFinishTime => {
                 self.state.as_mut().unwrap().ui.advance_to_next_measurement_state();
+                self.state.as_mut().unwrap().ui.advance_to_next_recording_state();
                 if self.exit_when_finished {
                     event_loop.exit();
                 }

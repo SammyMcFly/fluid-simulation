@@ -20,7 +20,9 @@ use simulation_lib::sph::particle::Positional;
 
 #[derive(Debug, Clone, Default)]
 pub struct Instance {
+    /// Position of instance with order: x, y, z
     pub position: nalgebra::Vector3<f32>,
+    /// Color of instance
     pub color: [f32; 3],
 }
 
@@ -46,7 +48,8 @@ impl StagingSettings {
 pub enum StagingResult {
     Initialized,
     SomeTaken,
-    StoppedAtLoopEnd,
+    StoppedAtLoopEndWithSomeTaken,
+    StoppedAtLoopEndWithNoneTaken,
     NoneTaken,
     NothingToStage,
     Uninitialized,
@@ -140,7 +143,7 @@ impl InstanceStore {
                 particle.is_enabled()
             }).map(|particle| {
                 let color = match settings.particle_color {
-                    ParticleColor::VelocityGraded => {
+                        ParticleColor::VelocityGraded => {
                         let whiteness = f64::min(
                             (particle.vel_now()[0].powi(2)+particle.vel_now()[1].powi(2)+particle.vel_now()[2].powi(2)).powf(0.5)/10.,
                             1.,
@@ -150,8 +153,7 @@ impl InstanceStore {
                     ParticleColor::FixedColor(color) => color,
                 };
                 Instance {
-                    // flip y and z coordinate
-                    position: nalgebra::Vector3::new(-particle.pos_now()[0] as f32, particle.pos_now()[2] as f32, particle.pos_now()[1] as f32),
+                    position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
                     color,
                 }
             }).collect());
@@ -160,7 +162,7 @@ impl InstanceStore {
                     settings.cut.cut(particle)
                 }).map(|particle| {
                     let color = match settings.boundary_particle_color {
-                    ParticleColor::VelocityGraded => {
+                        ParticleColor::VelocityGraded => {
                             let vel = particle.vel_now();
                             let whiteness = f64::min(
                                 (vel[0].powi(2)+vel[1].powi(2)+vel[2].powi(2)).powf(0.5)/10.,
@@ -171,8 +173,7 @@ impl InstanceStore {
                         ParticleColor::FixedColor(color) => color,
                     };
                     Instance {
-                        // flip y and z coordinate
-                        position: nalgebra::Vector3::new(-particle.pos_now()[0] as f32, particle.pos_now()[2] as f32, particle.pos_now()[1] as f32),
+                        position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
                         color,
                     }
                 }).collect::<Vec<Instance>>());
@@ -201,7 +202,7 @@ impl InstanceStore {
 
     /// Advances index to next index depending on the direction and looping behavior
     ///
-    /// Returns if it tried unallowed loop
+    /// Returns true if it tried unallowed loop
     fn next_index(&mut self, forward: bool, looped: bool,) -> bool {
         if forward {
             if self.current_index+1 < self.info_buffer.len() {
@@ -274,8 +275,9 @@ impl InstanceStore {
                         if self.next_index(forward, looped_playback) {
                             if taken > 0 {
                                 self.stage(gpu_context, staging_settings);
+                                return StagingResult::StoppedAtLoopEndWithSomeTaken;
                             }
-                            return StagingResult::StoppedAtLoopEnd;
+                            return StagingResult::StoppedAtLoopEndWithNoneTaken;
                         }
                         taken += 1;
                         self.prestage();

@@ -9,6 +9,8 @@ use iced_winit::runtime::user_interface::UserInterface;
 
 use simulation_lib::{SimulationParameters, TimeStepInfo, ParticleColor};
 
+use crate::readback::ReadbackRequest;
+
 pub mod controls;
 
 
@@ -24,6 +26,7 @@ pub enum UserInput {
     RequestCameraReset,
     RequestReset,
     RequestSaving,
+    RequestScreenshot,
     ToggleHideBoundary,
     ToggleCutX,
     CutXBoundChanged(f32),
@@ -31,6 +34,7 @@ pub enum UserInput {
     ToggleCutY,
     CutYBoundChanged(f32),
     FlipCutY,
+    RequestReadback(ReadbackRequest),
 }
 
 pub struct UIState {
@@ -54,19 +58,21 @@ impl UIState {
         particle_color: ParticleColor,
         boundary_particle_color: ParticleColor,
         start_resumed: bool,
+        is_rendered: bool
     ) -> Self {
         // initialize GUI controls
         let controls = controls::RenderControls::new(
             particle_color,
             boundary_particle_color,
             start_resumed,
+            is_rendered,
         );
 
         // initialize iced renderer
         let renderer = {
             let engine = iced_wgpu::Engine::new(
                 &gpu_context.adapter,
-                gpu_context.device.clone(),
+                (*gpu_context.device).clone(),
                 gpu_context.queue.clone(),
                 gpu_context.surface.get_capabilities(&gpu_context.adapter).formats
                 .iter()
@@ -155,9 +161,13 @@ impl UIState {
         self.controls.update_time_step_info(info, queue_length);
     }
 
-    // pub fn advance_to_next_measurement_state(&mut self) {
-    //     self.controls.advance_to_next_measurement_state();
-    // }
+    pub fn advance_to_next_measurement_state(&mut self) {
+        self.controls.advance_to_next_measurement_state();
+    }
+
+    pub fn advance_to_next_recording_state(&mut self) {
+        self.controls.advance_to_next_recording_state();
+    }
 
     pub fn draw(
         &mut self,

@@ -10,7 +10,7 @@ use super::SimulationParameters;
 use super::sph::particle::{Particle3D, SerParticle3D, BoundaryParticle3D};
 #[cfg(feature = "springs")]
 use super::sph::spring::Spring;
-use super::sph::{SystemProperties, PropagationMethod, cubic_b_spline_3d, cubic_b_spline_3d_gradient};
+use super::sph::{SystemParameters, CurrentSystemProperties, PropagationMethod, cubic_b_spline_3d, cubic_b_spline_3d_gradient};
 // use super::measure;
 
 use crate::ParticleColor;
@@ -105,9 +105,8 @@ pub struct System3DConfig {
     pub boundary_particles: Vec<BoundaryParticle3D>,
     #[cfg(feature = "springs")]
     pub springs: Vec<Spring>,
-    pub system_properties: SystemProperties,
-    // pub controls: Arc<Mutex<mediation::IntermediateControls>>,
-    // pub measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
+    pub system_parameters: SystemParameters,
+    pub properties: CurrentSystemProperties,
 }
 
 pub struct System3DConfigConstructor {
@@ -132,8 +131,8 @@ impl System3DConfigConstructor {
         Ok(particles.into_iter().map(|p| p.into()).collect())
     }
 
-    fn get_system_properties(&self) -> SystemProperties {
-        SystemProperties::new(
+    fn get_system_parameters(&self) -> SystemParameters {
+        SystemParameters::new(
             #[cfg(not(feature = "cfl_time_step"))]
             self.config.parameters.time_increment,
             #[cfg(feature = "cfl_time_step")]
@@ -144,7 +143,6 @@ impl System3DConfigConstructor {
             self.config.parameters.rest_density_grid_spacing,
             self.config.parameters.smoothing_length,
             self.config.parameters.disable_particles_below,
-            self.config.scene.calc_fluid_depth(self.config.parameters.rest_density_grid_spacing),
             self.config.parameters.fluid_viscosity,
             self.config.parameters.boundary_viscosity,
             self.config.parameters.boundary_pressure_acceleration_weighting,
@@ -162,24 +160,28 @@ impl System3DConfigConstructor {
         )
     }
 
+    fn get_system_properties(&self) -> CurrentSystemProperties {
+        let mut properties = CurrentSystemProperties::default();
+        properties.set_fluid_depth(self.config.scene.calc_fluid_depth(self.config.parameters.rest_density_grid_spacing));
+        properties
+    }
+
     fn build(
         &mut self,
         particles: Vec<Particle3D>,
         boundary_particles: Vec<BoundaryParticle3D>,
         #[cfg(feature = "springs")]
         springs: Vec<Spring>,
-        system_properties: SystemProperties,
-        // controls: Arc<Mutex<mediation::IntermediateControls>>,
-        // measurement_series: Option<Arc<Mutex<measure::MeasurementSeries>>>,
+        system_properties: SystemParameters,
+        properties: CurrentSystemProperties,
     ) {
         self.build = Some(System3DConfig {
             particles,
             boundary_particles,
             #[cfg(feature = "springs")]
             springs,
-            system_properties,
-            // controls,
-            // measurement_series,
+            system_parameters: system_properties,
+            properties,
         });
     }
 
@@ -218,16 +220,16 @@ impl System3DConfigConstructor {
         };
 
         // init system properties
-        let system_properties = constructor.get_system_properties();
+        let system_parameters = constructor.get_system_parameters();
+        let properties = constructor.get_system_properties();
 
         constructor.build(
             particles,
             boundary_particles,
             #[cfg(feature = "springs")]
             springs,
-            system_properties,
-            // controls,
-            // measurement_series,
+            system_parameters,
+            properties,
         );
         // create simulation system
         Ok((constructor, sim_info))

@@ -31,16 +31,14 @@ pub struct StateApplication {
     state: Option<AppState>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     to_worker: Sender<WorkerCommand>,
-    /// Start simulation with resumed playback
-    start_resumed: bool,
-    /// Recording file path
-    file_path: Option<String>,
+    /// Command line arguments
+    args: crate::Args,
 }
 
 impl StateApplication {
     pub fn new(event_loop: &EventLoop<WorkerMessage>, args: crate::Args) -> Self {
         // init channels connecting simulation backend with graphics/ui front end
-        let (to_worker, from_ui) = channel::unbounded::<WorkerCommand>();
+        let (to_worker, from_ui) = channel::bounded::<WorkerCommand>(15);
         let event_loop_proxy = event_loop.create_proxy();
 
         // run backend
@@ -52,8 +50,7 @@ impl StateApplication {
             state: Option::default(),
             worker_handle: handle,
             to_worker,
-            start_resumed: args.resume,
-            file_path: args.recording,
+            args,
         }
     }
 }
@@ -63,11 +60,11 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
         let window = event_loop.create_window(winit::window::Window::default_attributes()
             .with_visible(true).with_title("Rusty Fluid Solver")).unwrap();
 
-        if let Some(fp) = &self.file_path {
+        if let Some(fp) = &self.args.recording {
             self.to_worker.send(WorkerCommand::ReadRecording(fp.clone())).unwrap();
         }
 
-        match AppState::new(window, self.start_resumed) {
+        match AppState::new(window, self.args.resume, self.args.rendering_dir.clone(), self.args.start_time, self.args.finish_time) {
             Ok(state) => self.state = Some(state),
             Err(e) => panic!("Failed to load sphere: {}", e),
         }
@@ -120,7 +117,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             WorkerMessage::FinishedReading(sim_info, time_steps) => {
                 self.state.as_mut().unwrap().received_content(sim_info, time_steps);
             },
-            WorkerMessage::SavedImage => {
+            WorkerMessage::SavedScreenshot => {
 
             },
             WorkerMessage::SavedState => {

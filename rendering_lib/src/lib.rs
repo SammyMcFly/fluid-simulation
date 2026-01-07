@@ -1,7 +1,7 @@
 //! AppState
 //!
 //!
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use iced_winit::winit;
 use iced_winit::winit::event::{WindowEvent, DeviceEvent};
 use iced_winit::runtime::user_interface::UserInterface;
@@ -23,6 +23,7 @@ pub mod model;
 pub mod instances;
 pub mod ui;
 pub mod frame_control;
+pub mod readback;
 
 use model::VertexBufferLayout;
 use model::DrawLight;
@@ -30,17 +31,19 @@ use model::DrawModel;
 
 use ui::UserInput;
 
+use crate::readback::{ReadbackBuffer, ReadbackAction, ReadbackController};
 
 
-const CAMERA_POSITION: (f32, f32, f32) = (-10.0, 40.0, -30.0);
-const YAW: cgmath::Deg<f32> = cgmath::Deg(90.0);
+
+const CAMERA_POSITION: (f32, f32, f32) = (10.0, -30.0, 40.0);
+const YAW: cgmath::Deg<f32> = cgmath::Deg(-90.0);
 const PITCH: cgmath::Deg<f32> = cgmath::Deg(-30.0);
 const SPEED: f32 = 50.0;
 const SENSITIVITY: f32 = 5.0;
 const FOVY: cgmath::Deg<f32> = cgmath::Deg(45.0);
 const ZNEAR: f32 = 0.1;
 const ZFAR: f32 = 100.;
-const LIGHT_POSITION: [f32; 3] = [100., 100., 0.];
+const LIGHT_POSITION: [f32; 3] = [2., 2., 100.];
 // const LIGHT_COLOR: Option<[f32; 3]> = Some([1., 0.5, 0.5]);
 const LIGHT_COLOR: Option<[f32; 3]> = Some([1.; 3]);
 
@@ -60,12 +63,16 @@ pub struct AppState {
     pub ui: ui::UIState,
     pub messages: Vec<UserInput>,
     pub frame: frame_control::FrameControl,
+    pub screenshot: readback::ReadbackController,
 }
 
 impl AppState {
     pub fn new(
         window: winit::window::Window,
         start_resumed: bool,
+        rendering_dir: Option<String>,
+        start_time: Option<f64>,
+        finish_time: Option<f64>,
     ) -> Result<Self, tobj::LoadError> {
         let window_arc = Arc::new(window);
 
@@ -99,11 +106,14 @@ impl AppState {
             PARTICLE_COLOR,
             BOUNDARY_PARTICLE_COLOR,
             start_resumed,
+            rendering_dir.is_some(),
         );
 
         let instances = instances::InstanceStore::new(&gpu);
 
-        let frame_control = frame_control::FrameControl::new();
+        let frame = frame_control::FrameControl::new();
+
+        let screenshot = ReadbackController::new(&gpu, size, rendering_dir, start_time, finish_time);
 
         Ok(Self {
             window: window_arc,
@@ -116,7 +126,8 @@ impl AppState {
             ui,
             instances,
             messages: Vec::new(),
-            frame: frame_control,
+            frame,
+            screenshot,
         })
     }
 
@@ -137,10 +148,13 @@ impl AppState {
                 &self.gpu.config,
                 "depth_texture"
             );
-            self.camera.projection.resize(new_size.width, new_size.height);
+            self.gpu.offscreen_texture = gpu_context::GpuContext::create_offscreen_texture(&self.gpu.device, new_size);
             self.gpu.surface.configure(&self.gpu.device, &self.gpu.config,);
+            self.camera.projection.resize(new_size.width, new_size.height);
+            self.screenshot.resize(&self.gpu, new_size);
+
             #[cfg(feature = "logging")]
-            debug!("Resized to {:?}", new_size)
+            debug!("Resized to {:?}", new_size);
         }
     }
 
@@ -237,6 +251,7 @@ impl AppState {
             self.ui.controls.particle_color,
             self.ui.controls.boundary_particle_color,
         );
+        let mut frame_new = false;
         // get next rendered instances
         match self.instances.stage_next(
             &self.gpu,
@@ -248,16 +263,27 @@ impl AppState {
             instances::StagingResult::Initialized => {
                 self.frame.rendering_new_sim_state_now();
                 self.frame.set_time_increment(self.instances.get_time_inc());
+                frame_new = true;
             },
             instances::StagingResult::SomeTaken => {
                 self.frame.rendering_new_sim_state_now();
-                self.frame.step_done();
+                self.frame.step_done(); // Action StepInTime only produces SomeTaken
                 self.frame.set_time_increment(self.instances.get_time_inc());
+                frame_new = true;
             },
-            instances::StagingResult::StoppedAtLoopEnd => {
+            instances::StagingResult::StoppedAtLoopEndWithSomeTaken => {
                 self.frame.rendering_new_sim_state_now();
-                self.frame.set_time_increment(self.instances.get_time_inc());
                 self.ui.controls.playback_controls.pause();
+                self.frame.set_time_increment(self.instances.get_time_inc());
+                frame_new = true;
+            },
+            instances::StagingResult::StoppedAtLoopEndWithNoneTaken => {
+                self.instances.update_staged(
+                    &self.gpu,
+                    &staging_settings,
+                );
+                self.ui.controls.playback_controls.pause();
+                self.frame.rendering_new_sim_state_now();
             },
             instances::StagingResult::NoneTaken | instances::StagingResult::NothingToStage => {
                 self.instances.update_staged(
@@ -273,10 +299,23 @@ impl AppState {
         }
         self.ui.update_time_step_info(self.instances.get_info(), self.instances.queue_len());
 
-        // prepare rendering
+        self.screenshot.update_rendering_status(
+            self.ui.controls.info.time,
+            &mut self.ui.controls.info.rendering_status.recording_status,
+        );
+        if let ReadbackAction::Read(path) = self.screenshot.screenshot_this(
+            frame_new,
+            self.ui.controls.info.rendering_status.recording_status,
+        ) {
+            // render to offscreen texture
+            let view = self.gpu.offscreen_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            self.render_scene(&view);
+            self.send_readback_request_for_current_frame(path);
+        }
+
+        // render to screen
         let frame = self.gpu.surface.get_current_texture()?;
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-
         self.render_scene(&view);
 
         // draw iced on top
@@ -351,6 +390,53 @@ impl AppState {
         }
         // submit will accept anything that implements IntoIter
         self.gpu.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    fn send_readback_request_for_current_frame(&mut self, output_dir:std::path::PathBuf) {
+        let (buffer, next_frame_index, padded_bytes_per_row) = self.screenshot.buffers.get_next_buffer_and_info();
+        let size = self.window.inner_size();
+
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("screenshot encoder"),
+            },
+        );
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.gpu.offscreen_texture,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+                mip_level: 0,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer.lock().unwrap().buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(size.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.gpu.queue.submit(Some(encoder.finish()));
+
+        // Send job to worker thread
+        let req = readback::ReadbackRequest {
+            buffer: buffer.clone(),
+            width: size.width,
+            height: size.height,
+            frame_index: next_frame_index,
+            device: self.gpu.device.clone(),
+            output_dir,
+        };
+
+        self.messages.push(UserInput::RequestReadback(req));
     }
 }
 

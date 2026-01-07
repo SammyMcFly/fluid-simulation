@@ -10,10 +10,11 @@ pub struct GpuContext {
     // pub instance: wgpu::Instance,
     pub surface: wgpu::Surface<'static>,
     pub adapter: wgpu::Adapter,
-    pub device: wgpu::Device,
+    pub device: Arc<wgpu::Device>,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub depth_texture: Texture,
+    pub offscreen_texture: wgpu::Texture,
 }
 
 impl GpuContext {
@@ -26,14 +27,16 @@ impl GpuContext {
         let config = Self::create_surface_config(size, surface_caps);
         surface.configure(&device, &config);
         let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
+        let offscreen_texture = Self::create_offscreen_texture(&device, size);
 
         Self {
             surface,
             adapter,
-            device,
+            device: Arc::new(device),
             queue,
             config,
             depth_texture,
+            offscreen_texture,
         }
     }
 
@@ -88,6 +91,23 @@ impl GpuContext {
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
         }
+    }
+
+    pub fn create_offscreen_texture(device: &wgpu::Device, size: winit::dpi::PhysicalSize<u32>,) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("offscreen render target"),
+            size: wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        })
     }
 }
 

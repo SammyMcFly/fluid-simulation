@@ -39,6 +39,12 @@ struct Args {
     /// File path to store measurements to (.csv file)
     #[arg(short, long,)]
     measurement_file: Option<String>,
+    /// File path to store time step info between start_time and end_time to
+    #[arg(long,)]
+    recording_file: Option<String>,
+    /// File path to store rendered images to (.png files)
+    #[arg(long,)]
+    rendering_dir: Option<String>,
     /// Time, which the first measurement/recording is taken at
     #[arg(short, long,)]
     start_time: Option<f64>,
@@ -47,9 +53,6 @@ struct Args {
     /// At the same time the simulation is paused. Currently there is no possibility to resume the simulation.
     #[arg(short, long,)]
     finish_time: Option<f64>,
-    /// File path to store time step info between start_time and end_time to
-    #[arg(long,)]
-    recording_file: Option<String>,
     /// Resume playback at start
     #[arg(short, long,)]
     resume: bool,

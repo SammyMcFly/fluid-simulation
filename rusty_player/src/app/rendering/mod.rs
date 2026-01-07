@@ -39,7 +39,7 @@ impl Player for AppState {
     ) {
         // handle user input messages
         for message in self.messages.drain(..) {
-            match message {
+            match &message {
                 // send commands to worker thread
                 UserInput::RequestCameraReset => {
                     self.camera.reset(&self.gpu);
@@ -67,6 +67,9 @@ impl Player for AppState {
                         ).unwrap()
                     }
                 },
+                UserInput::RequestScreenshot => {
+                    self.screenshot.queue_screenshot("./screenshots".to_string());
+                },
                 UserInput::PlayForward => {
                     self.frame.reset_steps();
                     if self.instances.finished_loop(true) {
@@ -88,6 +91,9 @@ impl Player for AppState {
                     self.instances.reset_allow_looping_once();
                     debug!("Pause!");
                     // control is update in ui.update not here
+                },
+                UserInput::RequestReadback(req) => {
+                    to_worker.send(WorkerCommand::SaveScreenshot(req.clone())).unwrap()
                 },
                 _ => (),
             }

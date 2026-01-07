@@ -111,7 +111,7 @@ impl Simulation {
             }
         }
         let mut final_recording = false;
-        if let RecordingStatus::Measuring = self.recording_status
+        if let RecordingStatus::InProgress = self.recording_status
                 && let Some(ft) = self.finish_time && self.time() >= ft {
             self.recording_status.advance_to_next_state();
             final_recording = true;

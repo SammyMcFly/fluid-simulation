@@ -34,13 +34,15 @@ pub trait ToRaw {
 impl ToRaw for crate::instances::Instance {
     type Raw = InstanceRaw;
 
+    /// Convert Intance to Raw
+    /// Invert y-axis, swap y and z coordinate to transform Instance into coordinates used in gpus
     fn to_raw(&self) -> Self::Raw {
         InstanceRaw {
             model: [
                 [1.0,0.0,0.0,0.0],
                 [0.0,1.0,0.0,0.0],
                 [0.0,0.0,1.0,0.0],
-                [self.position.x, self.position.y, self.position.z, 1.0]
+                [self.position.x, self.position.z, -self.position.y, 1.0]
             ],
             color: self.color,
         }

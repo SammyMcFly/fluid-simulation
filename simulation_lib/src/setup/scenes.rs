@@ -8,6 +8,8 @@ use super::super::sph::particle::{Particle3D, BoundaryParticle3D};
 use crate::sph::spring::Spring;
 use super::Scene;
 
+
+
 #[derive(Debug, Deserialize)]
 pub struct NoLidCube {
     pub particles: ParticleSetup,
@@ -138,6 +140,7 @@ impl Scene for NoLidCube {
         total_particle_volume/floor_area/rest_density_grid_spacing
     }
 }
+
 
 
 #[derive(Debug, Deserialize)]

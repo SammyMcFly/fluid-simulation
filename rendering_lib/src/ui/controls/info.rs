@@ -3,77 +3,93 @@
 use iced_widget::{column, row, text};
 use iced_winit::core::{Color, Theme};
 
-use simulation_lib::{SimulationParameters, TimeStepInfo};
+use simulation_lib::{SimulationParameters, TimeStepInfo, measurement::RecordingStatus};
 
 
+#[derive(Debug, Clone, Copy)]
+enum MRR {
+    Measurement,
+    Recording,
+    Rendering,
+}
 
-// #[derive(Debug, Clone, Default)]
-// struct MRStatus {
-//     is_measured: bool,
-//     is_recorded: bool,
-//     recording_status: RecordingStatus,
-// }
+impl std::fmt::Display for MRR {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let what = match self {
+            MRR::Measurement => "Measurement".to_string(),
+            MRR::Recording => "Recording".to_string(),
+            MRR::Rendering => "Rendering".to_string(),
+        };
+        write!(f, "{}", what)
+    }
+}
 
-// impl MRStatus {
-//     fn new(is_measured: bool, is_recorded: bool,) -> Self {
-//         let recording_status = if is_measured || is_recorded {
-//             RecordingStatus::NotStarted
-//         } else {
-//             RecordingStatus::None
-//         };
-//         Self { is_measured, is_recorded, recording_status, }
-//     }
-//     fn advance_to_next_state(&mut self) {
-//         self.recording_status.advance_to_next_state();
-//     }
-// }
+#[derive(Debug, Clone, Copy)]
+pub struct MRRStatus {
+    description: MRR,
+    is_rec: bool,
+    pub recording_status: RecordingStatus,
+}
 
-// impl std::fmt::Display for MRStatus {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let what = if self.is_measured && self.is_recorded {
-//             "Measurement/Recording: ".to_string()
-//         } else if self.is_measured {
-//             "Measurement: ".to_string()
-//         } else if self.is_recorded {
-//             "Recording: ".to_string()
-//         } else {
-//             "".to_string()
-//         };
-//         let how = match self.recording_status {
-//             RecordingStatus::None => "".to_string(),
-//             RecordingStatus::NotStarted => "not started".to_string(),
-//             RecordingStatus::Measuring => "in progress".to_string(),
-//             RecordingStatus::Finished => "Recording: finished".to_string(),
-//         };
-//         write!(f, "{}{}", what, how)
-//     }
-// }
+impl MRRStatus {
+    fn new(description: MRR, is_rec: bool,) -> Self {
+        let recording_status = if is_rec {
+            RecordingStatus::NotStarted
+        } else {
+            RecordingStatus::None
+        };
+        Self { description, is_rec, recording_status, }
+    }
+    fn advance_to_next_state(&mut self) {
+        self.recording_status.advance_to_next_state();
+    }
+}
+
+impl std::fmt::Display for MRRStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_rec {
+            self.description.fmt(f)?;
+        }
+        let how = match self.recording_status {
+            RecordingStatus::None => "".to_string(),
+            RecordingStatus::NotStarted => "not started".to_string(),
+            RecordingStatus::InProgress => "in progress".to_string(),
+            RecordingStatus::Finished => "finished".to_string(),
+        };
+        write!(f, ": {}", how)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct UIInfo {
     simulation_info: Option<SimulationParameters>,
 
     queue_length: usize,
-    time: f32,
+    pub time: f32,
     time_increment: f32,
     density_error: f32,
-    // recording_status: MRStatus,
+    measurement_status: MRRStatus,
+    recording_status: MRRStatus,
+    pub rendering_status: MRRStatus,
 }
 
 impl UIInfo {
-    pub fn new() -> Self {
+    pub fn new(is_rendered: bool) -> Self {
         Self {
             simulation_info: None,
             queue_length: usize::default(),
             time: f32::default(),
             time_increment: f32::default(),
             density_error: f32::default(),
-            // recording_status: MRStatus::default(),
+            measurement_status: MRRStatus::new(MRR::Measurement, false),
+            recording_status: MRRStatus::new(MRR::Recording, false),
+            rendering_status: MRRStatus::new(MRR::Rendering, is_rendered),
         }
     }
 
     pub fn update_simulation_info(&mut self, info: SimulationParameters) {
-        // self.recording_status = MRStatus::new(info.is_measured, info.is_recorded);
+        self.measurement_status = MRRStatus::new(MRR::Measurement, info.is_measured);
+        self.recording_status = MRRStatus::new(MRR::Recording, info.is_recorded);
         self.simulation_info = Some(info);
     }
 
@@ -88,18 +104,25 @@ impl UIInfo {
         }
     }
 
-    // pub fn advance_to_next_measurement_state(&mut self) {
-    //     self.recording_status.advance_to_next_state();
-    // }
+    pub fn advance_to_next_measurement_state(&mut self) {
+        if self.measurement_status.is_rec {
+            self.measurement_status.advance_to_next_state();
+        }
+    }
+
+    pub fn advance_to_next_recording_state(&mut self) {
+        if self.recording_status.is_rec {
+            self.recording_status.advance_to_next_state();
+        }
+    }
 
     pub fn view(
         &self,
     ) -> iced_widget::Column<'_, super::UserInput, Theme, iced_wgpu::Renderer> {
-
-        column![
+        let view = column![
             row![
-                text("Remaining time: ").color(Color::BLACK),
-                text!("{}", (self.queue_length as f32)*self.time_increment).color(Color::BLACK),
+                text("Buffer length: ").color(Color::BLACK),
+                text!("{}", self.queue_length).color(Color::BLACK),
             ],
             row![
                 text("Time: ").color(Color::BLACK),
@@ -113,10 +136,31 @@ impl UIInfo {
                 text("Density error (%): ").color(Color::BLACK),
                 text!("{}", self.density_error).color(Color::BLACK), // .size(16)
             ],
-            // row![
-            //     text!("{}", self.recording_status).color(Color::BLACK),
-            // ],
         ]
-        .spacing(10)
+        .spacing(10);
+
+        let view = if self.measurement_status.is_rec {
+            view.push(row![
+                text!("{}", self.measurement_status).color(Color::BLACK),
+            ],)
+        } else {
+            view
+        };
+
+        let view = if self.recording_status.is_rec {
+            view.push(row![
+                text!("{}", self.recording_status).color(Color::BLACK),
+            ],)
+        } else {
+            view
+        };
+
+        if self.rendering_status.is_rec {
+            view.push(row![
+                text!("{}", self.rendering_status).color(Color::BLACK),
+            ],)
+        } else {
+            view
+        }
     }
 }

@@ -36,34 +36,34 @@ pub fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std:
 }
 
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum RecordingStatus {
     #[default]
     None,
     NotStarted,
-    Measuring,
+    InProgress,
     Finished,
 }
 
 impl RecordingStatus {
     pub fn advance_to_next_state(&mut self) {
         match self {
-            Self::NotStarted => *self = Self::Measuring,
-            Self::Measuring => *self = Self::Finished,
+            Self::NotStarted => *self = Self::InProgress,
+            Self::InProgress => *self = Self::Finished,
             Self::Finished => panic!("Called advance_to_next_state on RecordingStatus::Finished"),
             _ => panic!("Called advance_to_next_state on RecordingStatus::None"),
             // _ => panic!("Called advance_to_next_state on RecordingStatus::None or RecordingStatus::Finished"),
         }
     }
     pub fn is_active(&self) -> bool {
-        matches!(self, RecordingStatus::Measuring)
+        matches!(self, RecordingStatus::InProgress)
     }
     pub fn is_finished(&self) -> bool {
         matches!(self, RecordingStatus::Finished)
     }
 }
 
-
+/// Struct that allows to save a [[TimeStepInfo]] into a binary file
 #[derive(Debug)]
 pub struct StateAppender {
     /// File path to store measurement series to

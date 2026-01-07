@@ -7,8 +7,8 @@ use iced_wgpu::wgpu;
 use iced_wgpu::wgpu::util::DeviceExt;
 use std::f32::consts::FRAC_PI_2;
 
-#[cfg(feature = "logging")]
 use tracing::debug;
+
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -20,6 +20,7 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
+/// Camera in standard kartesian coordinates
 #[derive(Debug)]
 pub struct Camera {
     pub position: Point3<f32>,
@@ -44,12 +45,17 @@ impl Camera {
         }
     }
 
+    pub fn position_in_graphics_coordinates(&self) -> Point3<f32> {
+        Point3::new(self.position.x, self.position.z, -self.position.y)
+    }
+
+    /// Calculate camera projection matrix in graphics coordinates
     pub fn calc_matrix(&self) -> Matrix4<f32> {
         let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
 
         Matrix4::look_to_rh(
-            self.position,
+            self.position_in_graphics_coordinates(),
             Vector3::new(
                 cos_pitch * cos_yaw,
                 sin_pitch,
@@ -60,8 +66,8 @@ impl Camera {
     }
 }
 
+/// Camera uniform in graphics coordinates
 #[repr(C)]
-// This is so we can store this in a buffer
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
     view_position: [f32; 4],
@@ -79,11 +85,12 @@ impl Default for CameraUniform {
 
 impl CameraUniform {
     pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
-        self.view_position = camera.position.to_homogeneous().into();
+        self.view_position = camera.position_in_graphics_coordinates().to_homogeneous().into();
         self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
     }
 }
 
+/// Projection in graphics coordinates
 pub struct Projection {
     aspect: f32,
     fovy: Rad<f32>,
@@ -211,8 +218,8 @@ impl CameraController {
 
         // Move forward/backward and left/right
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
-        let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
+        let forward = Vector3::new(yaw_cos, yaw_sin, 0.0).normalize();
+        let right = Vector3::new(-yaw_sin, yaw_cos, 0.0).normalize();
         camera.position += forward * (self.amount_forward - self.amount_backward) * self.speed * dt;
         camera.position += right * (self.amount_right - self.amount_left) * self.speed * dt;
 
@@ -222,13 +229,13 @@ impl CameraController {
         // to get closer to an object you want to focus on.
         let (pitch_sin, pitch_cos) = camera.pitch.0.sin_cos();
         let scrollward =
-            Vector3::new(pitch_cos * yaw_cos, pitch_sin, pitch_cos * yaw_sin).normalize();
+            Vector3::new(pitch_cos * yaw_cos, pitch_cos * yaw_sin, -pitch_sin).normalize();
         camera.position += scrollward * self.scroll * self.speed * self.sensitivity * dt;
         self.scroll = 0.0;
 
         // Move up/down. Since we don't use roll, we can just
         // modify the y coordinate directly.
-        camera.position.y += (self.amount_up - self.amount_down) * self.speed * dt;
+        camera.position.z += (self.amount_up - self.amount_down) * self.speed * dt;
 
         // Rotate
         camera.yaw += Rad(self.rotate_horizontal) * self.sensitivity * dt;

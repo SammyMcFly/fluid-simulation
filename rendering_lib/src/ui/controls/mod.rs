@@ -35,6 +35,7 @@ impl RenderControls {
         particle_color: ParticleColor,
         boundary_particle_color: ParticleColor,
         start_resumed: bool,
+        is_rendered: bool
     ) -> Self {
         Self {
             playback_controls: PlaybackControls::new(start_resumed),
@@ -44,7 +45,7 @@ impl RenderControls {
             background_color: Color::WHITE,
             hide_boundary: false,
             cut: Cut::default(),
-            info: info::UIInfo::new(),
+            info: info::UIInfo::new(is_rendered),
         }
     }
 
@@ -117,9 +118,12 @@ impl RenderControls {
         self.info.update_time_step_info(info, queue_length);
     }
 
-    // pub fn advance_to_next_measurement_state(&mut self) {
-    //     self.info.advance_to_next_measurement_state();
-    // }
+    pub fn advance_to_next_measurement_state(&mut self) {
+        self.info.advance_to_next_measurement_state();
+    }
+    pub fn advance_to_next_recording_state(&mut self) {
+        self.info.advance_to_next_recording_state();
+    }
 
     pub fn view(&self) -> Element<'_, UserInput, Theme, iced_wgpu::Renderer> {
         let reset_cam = row![
@@ -132,9 +136,14 @@ impl RenderControls {
             .on_press(UserInput::RequestReset).height(28),
         ];
 
-        let save = row![
+        let save_state = row![
             button("Save current state")
             .on_press(UserInput::RequestSaving).height(28),
+        ];
+
+        let screenshot = row![
+            button("Take screenshot")
+            .on_press(UserInput::RequestScreenshot).height(28),
         ];
 
         let hide_boundary = row![
@@ -149,7 +158,8 @@ impl RenderControls {
             self.loop_control.view(),
             reset_cam,
             reset,
-            save,
+            save_state,
+            screenshot,
             hide_boundary,
             self.cut.view(),
         ]

@@ -33,15 +33,15 @@ use ui::UserInput;
 
 
 
-const CAMERA_POSITION: (f32, f32, f32) = (-10.0, 40.0, -30.0);
-const YAW: cgmath::Deg<f32> = cgmath::Deg(90.0);
+const CAMERA_POSITION: (f32, f32, f32) = (10.0, -30.0, 40.0);
+const YAW: cgmath::Deg<f32> = cgmath::Deg(-90.0);
 const PITCH: cgmath::Deg<f32> = cgmath::Deg(-30.0);
 const SPEED: f32 = 50.0;
 const SENSITIVITY: f32 = 5.0;
 const FOVY: cgmath::Deg<f32> = cgmath::Deg(45.0);
 const ZNEAR: f32 = 0.1;
 const ZFAR: f32 = 100.;
-const LIGHT_POSITION: [f32; 3] = [100., 100., 0.];
+const LIGHT_POSITION_DEFAULT: [f32; 3] = [2., 2., 100.];
 // const LIGHT_COLOR: Option<[f32; 3]> = Some([1., 0.5, 0.5]);
 const LIGHT_COLOR: Option<[f32; 3]> = Some([1.; 3]);
 
@@ -94,7 +94,7 @@ impl AppState {
 
         let camera = camera::CameraBundle::new(&gpu, CAMERA_POSITION, YAW, PITCH, SPEED, SENSITIVITY, FOVY, ZNEAR, ZFAR);
 
-        let light = lighting::LightBundle::new(&gpu, LIGHT_POSITION, LIGHT_COLOR);
+        let light = lighting::LightBundle::new(&gpu, LIGHT_POSITION_DEFAULT, LIGHT_COLOR);
 
         let pipelines = pipelines::Pipelines::new(
             &gpu,
@@ -114,6 +114,7 @@ impl AppState {
             PARTICLE_COLOR,
             BOUNDARY_PARTICLE_COLOR,
             start_resumed,
+            false,
         );
 
         let instances = instances::InstanceStore::new(&gpu, 0);
@@ -294,15 +295,15 @@ impl AppState {
 
 
 
-    pub fn new_simulation(&mut self, info: SimulationParameters,) {
-        match model::ModelAssets::new(&self.gpu, info.particle_diameter) {
+    pub fn new_simulation(&mut self, sim_info: SimulationParameters,) {
+        match model::ModelAssets::new(&self.gpu, sim_info.particle_diameter) {
             Ok(model) => self.model = model,
             Err(e) => panic!("Failed to load sphere: {}", e),
         }
         self.camera.reset(&self.gpu);
-        self.light.set_light(&self.gpu, info.light_position, LIGHT_COLOR);
-        self.instances = instances::InstanceStore::new(&self.gpu, info.buffer_length_limit);
-        self.ui.new_simulation(info);
+        self.light.set_light( &self.gpu, sim_info.light_position, LIGHT_COLOR);
+        self.instances = instances::InstanceStore::new(&self.gpu, sim_info.buffer_length_limit);
+        self.ui.new_simulation(sim_info);
         self.frame.reset();
     }
 

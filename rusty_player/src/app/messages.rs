@@ -6,7 +6,7 @@ use simulation_lib::{SimulationParameters, TimeStepInfo};
 
 pub enum WorkerMessage {
     FinishedReading(SimulationParameters, Vec<TimeStepInfo>),
-    SavedImage,
+    SavedScreenshot,
     SavedState,
     Error(String),
 }

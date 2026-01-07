@@ -114,8 +114,7 @@ impl InstanceStore {
                     ParticleColor::FixedColor(color) => color,
                 };
                 Instance {
-                    // flip y and z coordinate
-                    position: nalgebra::Vector3::new(-particle.pos_now()[0] as f32, particle.pos_now()[2] as f32, particle.pos_now()[1] as f32),
+                    position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
                     color,
                 }
             }).collect());
@@ -136,7 +135,7 @@ impl InstanceStore {
                     };
                     Instance {
                         // flip y and z coordinate
-                        position: nalgebra::Vector3::new(-particle.pos_now()[0] as f32, particle.pos_now()[2] as f32, particle.pos_now()[1] as f32),
+                        position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
                         color,
                     }
                 }).collect::<Vec<Instance>>());

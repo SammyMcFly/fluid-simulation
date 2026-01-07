@@ -35,12 +35,13 @@ impl ToRaw for crate::app::rendering::instances::Instance {
     type Raw = InstanceRaw;
 
     fn to_raw(&self) -> Self::Raw {
+        // invert y-axis, swap y and z coordinate
         InstanceRaw {
             model: [
                 [1.0,0.0,0.0,0.0],
                 [0.0,1.0,0.0,0.0],
                 [0.0,0.0,1.0,0.0],
-                [self.position.x, self.position.y, self.position.z, 1.0]
+                [self.position.x, self.position.z, -self.position.y, 1.0]
             ],
             color: self.color,
         }
