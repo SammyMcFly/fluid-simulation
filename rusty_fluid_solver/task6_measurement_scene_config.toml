@@ -1,7 +1,7 @@
 # Scene configuration file
 
 [parameters]
-buffer_length_limit = 1000
+buffer_length_limit = 100
 integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 rest_density = 900.0 # rest density of fluid
 rest_density_grid_spacing = 0.8 # (not hot swappable)
@@ -10,23 +10,24 @@ disable_particles_below = -30
 fluid_viscosity = 0.2
 boundary_viscosity = 0.2
 boundary_pressure_acceleration_weighting = 0.7 # gamma
+boundary_volume_weighting = 1.0 # gamma
 
 # local pressure
 stiffness = 2560000000.0 # k
 # global pressure
 # solver_iterations = 5 # deprecated
-target_density_error = 0.8 # in percent
+target_density_error = 0.1 # in percent
 relaxation_factor = 0.6 # omega
 min_diagonal_element = 1e-25 # epsilon
 
 # constant time step
-time_increment = 0.015
+time_increment = 0.01
 # cfl time step
 max_time_increment = 0.01
 cfl_number = 0.4
 
 [light]
-position = [ 2.0, 30.0, 2.0 ] # (not hot swappable)
+position = [ 2.0, 2.0, 50.0 ] # (not hot swappable)
 
 [scene]
 type = "NoLidCube"

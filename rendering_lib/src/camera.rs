@@ -134,10 +134,11 @@ pub struct CameraController {
     scroll: f32,
     speed: f32,
     sensitivity: f32,
+    scroll_speed: f32,
 }
 
 impl CameraController {
-    pub fn new(speed: f32, sensitivity: f32) -> Self {
+    pub fn new(speed: f32, sensitivity: f32, scroll_speed: f32) -> Self {
         Self {
             amount_left: 0.0,
             amount_right: 0.0,
@@ -150,6 +151,7 @@ impl CameraController {
             scroll: 0.0,
             speed,
             sensitivity,
+            scroll_speed,
         }
     }
 
@@ -193,9 +195,8 @@ impl CameraController {
     pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
         // if inverted is set to -1 camera rotation is inverted (if 1 there is no inversion)
         let inversion = -1.;
-        let mouse_sensitivity = 5.;
-        self.rotate_horizontal = (inversion*mouse_dx*mouse_sensitivity) as f32;
-        self.rotate_vertical = (inversion*mouse_dy*mouse_sensitivity) as f32;
+        self.rotate_horizontal = (inversion*mouse_dx) as f32;
+        self.rotate_vertical = (inversion*mouse_dy) as f32;
     }
 
     pub fn process_scroll(&mut self, delta: &winit::event::MouseScrollDelta) {
@@ -207,17 +208,17 @@ impl CameraController {
             winit::event::MouseScrollDelta::PixelDelta(PhysicalPosition {
                 y: scroll,
                 ..
-            }) => (-100.0 * *scroll) as f32,
+            }) => (-100.0 * (*scroll)) as f32,
         };
     }
 
-    pub fn update_camera(&mut self, camera: &mut Camera, dt: std::time::Duration) {
-        let dt = dt.as_secs_f32();
+    pub fn update_camera(&mut self, camera: &mut Camera, time_to_last_update: std::time::Duration) {
+        let dt = time_to_last_update.as_secs_f32();
 
         // Move forward/backward and left/right
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, yaw_sin, 0.0).normalize();
-        let right = Vector3::new(-yaw_sin, yaw_cos, 0.0).normalize();
+        let forward = Vector3::new(yaw_cos, -yaw_sin, 0.0).normalize();
+        let right = Vector3::new(-yaw_sin, -yaw_cos, 0.0).normalize();
         camera.position += forward * (self.amount_forward - self.amount_backward) * self.speed * dt;
         camera.position += right * (self.amount_right - self.amount_left) * self.speed * dt;
 
@@ -227,8 +228,8 @@ impl CameraController {
         // to get closer to an object you want to focus on.
         let (pitch_sin, pitch_cos) = camera.pitch.0.sin_cos();
         let scrollward =
-            Vector3::new(pitch_cos * yaw_cos, pitch_cos * yaw_sin, -pitch_sin).normalize();
-        camera.position += scrollward * self.scroll * self.speed * self.sensitivity * dt;
+            Vector3::new(-pitch_cos * yaw_cos, pitch_cos * yaw_sin, -pitch_sin).normalize();
+        camera.position += scrollward * self.scroll * self.scroll_speed * dt;
         self.scroll = 0.0;
 
         // Move up/down. Since we don't use roll, we can just
@@ -260,6 +261,7 @@ struct CameraBundleInfo {
     pitch: Rad<f32>,
     speed: f32,
     sensitivity: f32,
+    scroll_speed: f32,
     fovy: Rad<f32>,
     znear: f32,
     zfar: f32,
@@ -292,13 +294,14 @@ impl CameraBundle {
         pitch: P,
         speed: f32,
         sensitivity: f32,
+        scroll_speed: f32,
         fovy: F,
         znear: f32,
         zfar: f32,
     ) -> Self {
         let camera = Camera::new(position.clone(), yaw.clone(), pitch.clone());
         let projection = Projection::new(gpu_context.config.width, gpu_context.config.height, fovy.clone(), znear, zfar);
-        let camera_controller = CameraController::new(speed, sensitivity);
+        let camera_controller = CameraController::new(speed, sensitivity, scroll_speed);
 
         let mut camera_uniform = CameraUniform::default(); // edit?
         camera_uniform.update_view_proj(&camera, &projection);
@@ -322,6 +325,7 @@ impl CameraBundle {
                 pitch: pitch.into(),
                 speed,
                 sensitivity,
+                scroll_speed,
                 fovy: fovy.into(),
                 znear,
                 zfar,
@@ -415,9 +419,9 @@ impl CameraBundle {
     pub fn update(
         &mut self,
         gpu_context: &super::gpu_context::GpuContext,
-        time_delta_to_last_render_time: std::time::Duration,
+        time_to_last_update: std::time::Duration,
     ) {
-        self.controller.update_camera(&mut self.camera, time_delta_to_last_render_time);
+        self.controller.update_camera(&mut self.camera, time_to_last_update);
         self.uniform.update_view_proj(&self.camera, &self.projection);
         gpu_context.queue.write_buffer(
             &self.buffer,
@@ -429,7 +433,7 @@ impl CameraBundle {
     pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext,) {
         self.camera = Camera::new(self.params.position, self.params.yaw, self.params.pitch);
         self.projection = Projection::new(gpu_context.config.width, gpu_context.config.height, self.params.fovy, self.params.znear, self.params.zfar);
-        self.controller = CameraController::new(self.params.speed, self.params.sensitivity);
+        self.controller = CameraController::new(self.params.speed, self.params.sensitivity, self.params.scroll_speed);
 
         self.uniform = CameraUniform::default(); // edit?
         self.uniform.update_view_proj(&self.camera, &self.projection);

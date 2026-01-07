@@ -13,7 +13,7 @@ pub enum Action {
 
 pub struct FrameControl {
     /// Time of last rendering
-    pub last_render_time: std::time::Instant,
+    pub last_update_time: std::time::Instant,
     /// Time at which a new simulation step was rendered the last time
     pub last_sim_state_render_time: std::time::Instant,
     // pub simulation_time: f32,
@@ -27,7 +27,7 @@ pub struct FrameControl {
 impl FrameControl {
     pub fn new() -> Self {
         Self {
-            last_render_time: std::time::Instant::now(),
+            last_update_time: std::time::Instant::now(),
             last_sim_state_render_time: std::time::Instant::now(),
             time_increment: f32::default(),
             // time_steps_dequeued: usize::default(),
@@ -39,16 +39,16 @@ impl FrameControl {
         self.time_increment = time_inc;
     }
 
-    pub fn rendering_now(&mut self) {
-        self.last_render_time = std::time::Instant::now();
+    pub fn updating_now(&mut self) {
+        self.last_update_time = std::time::Instant::now();
     }
 
     pub fn rendering_new_sim_state_now(&mut self) {
         self.last_sim_state_render_time = std::time::Instant::now();
     }
 
-    pub fn time_since_last_render(&self) -> std::time::Duration {
-        self.last_render_time.elapsed()
+    pub fn time_since_last_update(&self) -> std::time::Duration {
+        self.last_update_time.elapsed()
     }
 
     pub fn step_forward(&mut self) {

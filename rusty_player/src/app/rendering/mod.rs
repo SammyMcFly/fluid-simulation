@@ -16,8 +16,6 @@ use ui::UserInput;
 
 
 
-// const LIGHT_COLOR: Option<[f32; 3]> = Some([1., 0.5, 0.5]);
-const LIGHT_COLOR: Option<[f32; 3]> = Some([1.; 3]);
 
 
 pub trait Player {
@@ -102,10 +100,13 @@ impl Player for AppState {
         }
 
         // Update camera
-        self.camera.update(&self.gpu, self.frame.time_since_last_render());
+        self.camera.update(&self.gpu, self.frame.time_since_last_update());
 
         // Update the light
-        self.light.update(&self.gpu, self.frame.time_since_last_render());
+        self.light.update(&self.gpu, self.frame.time_since_last_update());
+
+        // set time since last update
+        self.frame.updating_now();
     }
 
 
@@ -118,7 +119,7 @@ impl Player for AppState {
             Err(e) => panic!("Failed to load sphere: {}", e),
         }
         self.camera.reset(&self.gpu);
-        self.light.set_light(&self.gpu, sim_info.light_position, LIGHT_COLOR);
+        self.light.set_light(&self.gpu, sim_info.light_position);
         self.instances.store(time_steps);
         self.ui.new_simulation(sim_info);
         self.frame.reset();

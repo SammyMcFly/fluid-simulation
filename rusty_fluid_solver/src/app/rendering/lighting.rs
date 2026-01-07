@@ -5,7 +5,7 @@ use iced_wgpu::wgpu::util::DeviceExt;
 use cgmath::Rotation3;
 
 
-const LIGHT_MOVEMENT_SPEED: f32 = 100.;
+const LIGHT_MOVEMENT_SPEED: f32 = 5.;
 
 
 /// Light in standard kartesian coordinates
@@ -13,14 +13,16 @@ const LIGHT_MOVEMENT_SPEED: f32 = 100.;
 pub struct Light {
     pub position: [f32; 3],
     pub color: [f32; 3],
+    movement_speed: f32,
 }
 
 impl Light {
-    pub fn new(position: [f32; 3], color: Option<[f32; 3]>) -> Self {
+    pub fn new(position: [f32; 3], color: Option<[f32; 3]>, movement_speed: f32) -> Self {
         let color = color.unwrap_or([1.; 3]);
         Self {
             position,
             color,
+            movement_speed,
         }
     }
 
@@ -28,11 +30,12 @@ impl Light {
         [self.position[0], self.position[2], -self.position[1]]
     }
 
-    pub fn update_position(mut self, time_delta_to_last_render_time: std::time::Duration) {
+    pub fn update_position(&mut self, time_to_last_update: std::time::Duration) {
         let old_position: cgmath::Vector3<_> = self.position.into();
+
         self.position = (cgmath::Quaternion::from_axis_angle(
             (0.0, 0.0, 1.0).into(),
-            cgmath::Deg(std::f32::consts::PI * time_delta_to_last_render_time.as_secs_f32()*LIGHT_MOVEMENT_SPEED),
+            cgmath::Deg(std::f32::consts::PI * time_to_last_update.as_secs_f32()*self.movement_speed),
         ) * old_position)
             .into();
     }
@@ -84,8 +87,9 @@ impl LightBundle {
         gpu_context: &super::gpu_context::GpuContext,
         light_position: [f32; 3],
         light_color: Option<[f32; 3]>,
+        light_movement_speed: f32,
     ) -> Self {
-        let light = Light::new(light_position, light_color);
+        let light = Light::new(light_position, light_color, light_movement_speed);
         let mut light_uniform = LightUniform::default();
         light_uniform.update(&light);
         let light_buffer = Self::create_uniform_buffer(gpu_context, light_uniform, "Light Buffer");
@@ -156,9 +160,8 @@ impl LightBundle {
         &mut self,
         gpu_context: &super::gpu_context::GpuContext,
         light_position: [f32; 3],
-        light_color: Option<[f32; 3]>,
     ) {
-        self.light = Light::new(light_position, light_color);
+        self.light = Light::new(light_position, Some(self.light.color), self.light.movement_speed);
         self.uniform.update(&self.light);
         gpu_context.queue.write_buffer(
             &self.buffer,
@@ -170,9 +173,9 @@ impl LightBundle {
     pub fn update(
         &mut self,
         gpu_context: &super::gpu_context::GpuContext,
-        time_delta_to_last_render_time: std::time::Duration,
+        time_to_last_update: std::time::Duration,
     ) {
-        self.light.update_position(time_delta_to_last_render_time);
+        self.light.update_position(time_to_last_update);
         self.uniform.update(&self.light);
         gpu_context.queue.write_buffer(
             &self.buffer,

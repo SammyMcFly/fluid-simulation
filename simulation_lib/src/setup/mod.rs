@@ -40,6 +40,7 @@ pub struct Parameters {
     pub fluid_viscosity: f64,
     pub boundary_viscosity: f64,
     pub boundary_pressure_acceleration_weighting: f64,
+    pub boundary_volume_weighting: f64,
     #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
     #[cfg(feature = "global_pressure")]
@@ -146,6 +147,7 @@ impl System3DConfigConstructor {
             self.config.parameters.fluid_viscosity,
             self.config.parameters.boundary_viscosity,
             self.config.parameters.boundary_pressure_acceleration_weighting,
+            self.config.parameters.boundary_volume_weighting,
             #[cfg(feature = "local_pressure")]
             self.config.parameters.stiffness,
             #[cfg(feature = "global_pressure")]

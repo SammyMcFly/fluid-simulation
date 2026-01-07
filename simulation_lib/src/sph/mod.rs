@@ -12,7 +12,7 @@ use serde::{Serialize, Deserialize};
 use rayon::prelude::*;
 
 // #[cfg(feature = "logging")]
-use tracing::{warn, info, debug}; // debug, error, info, span, trace, warn,
+use tracing::{warn, debug}; // debug, error, info, span, trace, warn,
 
 pub mod particle;
 use particle::*;
@@ -126,11 +126,13 @@ pub struct SystemParameters {
     /// disable particles below this threshold
     disable_particles_below: f64,
     rest_density: f64, // rho_0
+    rest_volume: f64, // rho_0
     /// Grid spacing when particles are ordered in a cubic grid at rest density
     rest_density_grid_spacing: f64,
     fluid_viscosity: f64,
     boundary_viscosity: f64,
     boundary_pressure_acceleration_weighting: f64,
+    boundary_volume_weighting: f64,
     #[cfg(feature = "local_pressure")]
     stiffness: f64,
     #[cfg(feature = "global_pressure")]
@@ -159,6 +161,7 @@ impl SystemParameters {
         fluid_viscosity: f64,
         boundary_viscosity: f64,
         boundary_pressure_acceleration_weighting: f64,
+        boundary_volume_weighting: f64,
         #[cfg(feature = "local_pressure")]
         stiffness: f64,
         #[cfg(feature = "global_pressure")]
@@ -183,10 +186,12 @@ impl SystemParameters {
             smoothing_length,
             disable_particles_below,
             rest_density,
+            rest_volume: rest_density_grid_spacing.powi(3),
             rest_density_grid_spacing,
             fluid_viscosity,
             boundary_viscosity,
             boundary_pressure_acceleration_weighting,
+            boundary_volume_weighting,
             #[cfg(feature = "local_pressure")]
             stiffness,
             #[cfg(feature = "global_pressure")]
@@ -254,24 +259,24 @@ impl System3D {
             properties: systemconfig.properties,
         };
         // set boundary mass such that the density is equal to the fluids rest density
-        system.init_boundary_mass();
+        system.init_boundary_volume();
         // Update uniform grid
         system.update();
         system
     }
 
     /// Calculate and set pseudo mass of all boundary particles
-    #[cfg(not(feature = "pseudo_mass_boundary"))]
-    fn init_boundary_mass(&mut self) {
+    #[cfg(not(feature = "pseudo_volume_boundary"))]
+    fn init_boundary_volume(&mut self) {
         for boundary_particle_index in 0..self.boundary_particles.len() {
             // simple mass
-            self.boundary_particles[boundary_particle_index].set_mass(self.properties.rest_density*self.properties.rest_density_grid_spacing.powi(3));
+            self.boundary_particles[boundary_particle_index].set_volume(self.parameters.rest_volume);
         }
     }
 
         /// Calculate and set pseudo mass of all boundary particles
-    #[cfg(feature = "pseudo_mass_boundary")]
-    fn init_boundary_mass(&mut self) {
+    #[cfg(feature = "pseudo_volume_boundary")]
+    fn init_boundary_volume(&mut self) {
         for boundary_particle_index in 0..self.boundary_particles.len() {
             // add inverse volume for every boundary neighbor
             let mut inverse_volume = 0.;
@@ -287,8 +292,8 @@ impl System3D {
                 );
             }
             // calculate mass with rest density of fluid
-            let pseudo_mass = self.parameters.rest_density/inverse_volume;
-            self.boundary_particles[boundary_particle_index].set_mass(pseudo_mass);
+            let pseudo_volume = self.parameters.boundary_volume_weighting/inverse_volume;
+            self.boundary_particles[boundary_particle_index].set_volume(pseudo_volume);
             // #[cfg(feature = "logging")]
             // debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
             // #[cfg(feature = "logging")]
@@ -336,10 +341,12 @@ impl System3D {
         let mut count = 0.;
         for particle in &self.particles {
             if particle.is_enabled() {
-                if particle.density() > self.parameters.rest_density {
-                    average_density += particle.density();
+                // if density > self.parameters.rest_density {
+                if particle.volume() < self.parameters.rest_volume {
+                    average_density += particle.mass()/particle.volume();
                 } else {
-                    average_density += self.parameters.rest_density;
+                    // average_density += self.parameters.rest_density;
+                    average_density += particle.mass()/self.parameters.rest_volume;
 
                 }
                 count += 1.;
@@ -384,177 +391,176 @@ impl System3D {
         });
     }
 
-    /// Calculate and update density for all particles for the current point in time
+    /// Calculate and update volume for all particles for the current point in time
     #[cfg(not(feature = "parallelized_sph"))]
-    fn update_density(&mut self) {
+    fn update_volume(&mut self) {
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
-                // reset density
-                self.particles[particle_index].set_density(0.);
-                // add density for every neighbor
+                // reset volume
+                self.particles[particle_index].set_volume(0.);
+                let mut accumulator = 0.;
+                // add volume for every neighbor
                 for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                    let density = self.particles[neighbor].mass()
-                        *(self.properties.kernel_fn)(
+                    accumulator += self.parameters.rest_volume
+                        *(self.parameters.kernel_fn)(
                             &self.particles[particle_index].pos().now(),
                             &self.particles[neighbor].pos().now(),
-                            self.properties.smoothing_length,
+                            self.parameters.smoothing_length,
                         );
-                    self.particles[particle_index].add_density(density);
                 }
-                // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
+                // add volume for every boundary neighbor (mirror mass of moving particle onto boundary particle)
                 for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                    // add density for every neighbor
-                    let density =
-                        // self.particles[particle_index].mass()
-                        self.boundary_particles[boundary_neighbor].mass()
-                        *(self.properties.kernel_fn)(
+                    // add volume for every neighbor
+                    accumulator +=
+                        self.boundary_particles[boundary_neighbor].volume()
+                        *(self.parameters.kernel_fn)(
                             &self.particles[particle_index].pos().now(),
                             &self.boundary_particles[boundary_neighbor].pos(),
-                            self.properties.smoothing_length,
+                            self.parameters.smoothing_length,
                         );
-                    self.particles[particle_index].add_density(density);
                 }
+                self.particles[particle_index].add_volume(self.parameters.rest_volume/accumulator);
                 // if cfg!(feature = "logging") {
-                //     debug!("density: {}", self.particles[particle_index].density());
+                //     debug!("volume: {}", self.particles[particle_index].volume());
                 // }
             }
         }
     }
 
-    /// Calculate and update density for all particles for the current point in time
+    /// Calculate and update volume for all particles for the current point in time
     #[cfg(feature = "parallelized_sph")]
-    fn update_density(&mut self) {
+    fn update_volume(&mut self) {
         let immutable_clone_of_particles = self.particles.clone();
         self.particles.par_iter_mut().for_each(|particle| {
             if particle.is_enabled() {
-                // reset density
-                particle.set_density(0.);
-                // add density for every neighbor
+                // reset volume
+                particle.set_volume(0.);
+                let mut accumulator = 0.;
+                // add volume for every neighbor
                 for &neighbor in &particle.neighbors.clone() {
-                    let density = immutable_clone_of_particles[neighbor].mass()
+                    accumulator += self.parameters.rest_volume
                         *(self.parameters.kernel_fn)(
                             &particle.pos().now(),
                             &immutable_clone_of_particles[neighbor].pos().now(),
                             self.parameters.smoothing_length,
                         );
-                    particle.add_density(density);
                 }
-                // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
+                // add volume for every boundary neighbor (mirror mass of moving particle onto boundary particle)
                 for &boundary_neighbor in &particle.boundary_neighbors.clone() {
-                    // add density for every neighbor
-                    let density =
-                        self.boundary_particles[boundary_neighbor].mass()
+                    // add volume for every neighbor
+                    accumulator +=
+                        self.boundary_particles[boundary_neighbor].volume()
                         *(self.parameters.kernel_fn)(
                             &particle.pos().now(),
                             &self.boundary_particles[boundary_neighbor].pos(),
                             self.parameters.smoothing_length,
                         );
-                    particle.add_density(density);
                 }
+                particle.add_volume(self.parameters.rest_volume/accumulator);
                 // if cfg!(feature = "logging") {
-                    // debug!("density: {}", particle.density());
+                    // debug!("volume: {}", particle.volume());
                 // }
             }
         });
     }
 
-    // perform splitting step conditionally
-    #[cfg(all(not(feature = "parallelized_sph"), feature = "splitting"))]
-    fn calc_predicted_density(&mut self) {
-        for particle_index in 0..self.particles.len() {
-            if self.particles[particle_index].is_enabled() {
-                // reset density
-                self.particles[particle_index].pred_density = 0.;
-                // add density for every neighbor
-                for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                    let density = self.particles[neighbor].mass()
-                        *(self.properties.kernel_fn)(
-                            &self.particles[particle_index].pos().now(),
-                            &self.particles[neighbor].pos().now(),
-                            self.properties.smoothing_length,
-                        )
-                        +self.properties.time_increment*(self.particles[particle_index].vel().pred()-self.particles[neighbor].vel().pred())
-                        .dot(&(self.properties.kernel_gradient_fn)(
-                            &self.particles[particle_index].pos().now(),
-                            &self.particles[neighbor].pos().now(),
-                            self.properties.smoothing_length,
-                        ));
-                    self.particles[particle_index].pred_density += density;
-                }
-                // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
-                for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                    // add density for every neighbor
-                    let density =
-                        // self.particles[particle_index].mass()
-                        self.boundary_particles[boundary_neighbor].mass()
-                        *(self.properties.kernel_fn)(
-                            &self.particles[particle_index].pos().now(),
-                            &self.boundary_particles[boundary_neighbor].pos(),
-                            self.properties.smoothing_length,
-                        )
-                        +self.properties.time_increment*self.particles[particle_index].vel().pred()
-                        .dot(&(self.properties.kernel_gradient_fn)(
-                            &self.particles[particle_index].pos().now(),
-                            &self.boundary_particles[boundary_neighbor].pos(),
-                            self.properties.smoothing_length,
-                        ));
-                    self.particles[particle_index].pred_density += density;
-                }
-                // if cfg!(feature = "logging") {
-                //     debug!("density: {}", self.particles[particle_index].density());
-                // }
-            }
-        }
-    }
+    // // perform splitting step conditionally
+    // #[cfg(all(not(feature = "parallelized_sph"), feature = "splitting"))]
+    // fn calc_predicted_density(&mut self) {
+    //     for particle_index in 0..self.particles.len() {
+    //         if self.particles[particle_index].is_enabled() {
+    //             // reset density
+    //             self.particles[particle_index].pred_density = 0.;
+    //             // add density for every neighbor
+    //             for &neighbor in &self.particles[particle_index].neighbors.clone() {
+    //                 let density = self.particles[neighbor].mass()
+    //                     *(self.properties.kernel_fn)(
+    //                         &self.particles[particle_index].pos().now(),
+    //                         &self.particles[neighbor].pos().now(),
+    //                         self.properties.smoothing_length,
+    //                     )
+    //                     +self.properties.time_increment*(self.particles[particle_index].vel().pred()-self.particles[neighbor].vel().pred())
+    //                     .dot(&(self.properties.kernel_gradient_fn)(
+    //                         &self.particles[particle_index].pos().now(),
+    //                         &self.particles[neighbor].pos().now(),
+    //                         self.properties.smoothing_length,
+    //                     ));
+    //                 self.particles[particle_index].pred_density += density;
+    //             }
+    //             // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
+    //             for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
+    //                 // add density for every neighbor
+    //                 let density =
+    //                     // self.particles[particle_index].mass()
+    //                     self.boundary_particles[boundary_neighbor].mass()
+    //                     *(self.properties.kernel_fn)(
+    //                         &self.particles[particle_index].pos().now(),
+    //                         &self.boundary_particles[boundary_neighbor].pos(),
+    //                         self.properties.smoothing_length,
+    //                     )
+    //                     +self.properties.time_increment*self.particles[particle_index].vel().pred()
+    //                     .dot(&(self.properties.kernel_gradient_fn)(
+    //                         &self.particles[particle_index].pos().now(),
+    //                         &self.boundary_particles[boundary_neighbor].pos(),
+    //                         self.properties.smoothing_length,
+    //                     ));
+    //                 self.particles[particle_index].pred_density += density;
+    //             }
+    //             // if cfg!(feature = "logging") {
+    //             //     debug!("density: {}", self.particles[particle_index].density());
+    //             // }
+    //         }
+    //     }
+    // }
 
-    // perform splitting step conditionally
-    #[cfg(all(feature = "parallelized_sph", feature = "splitting"))]
-    fn calc_predicted_density(&mut self) {
-        let immutable_clone_of_particles = self.particles.clone();
-        self.particles.par_iter_mut().for_each(|particle| {
-            if particle.is_enabled() {
-                // reset density
-                particle.pred_density = 0.;
-                // add density for every neighbor
-                for &neighbor in &particle.neighbors.clone() {
-                    let density = immutable_clone_of_particles[neighbor].mass()
-                        *(self.properties.kernel_fn)(
-                            &particle.pos().now(),
-                            &immutable_clone_of_particles[neighbor].pos().now(),
-                            self.properties.smoothing_length,
-                        )
-                        +self.properties.time_increment*(particle.vel().pred()-immutable_clone_of_particles[neighbor].vel().pred())
-                        .dot(&(self.properties.kernel_gradient_fn)(
-                            &particle.pos().now(),
-                            &immutable_clone_of_particles[neighbor].pos().now(),
-                            self.properties.smoothing_length,
-                        ));
-                    particle.pred_density += density;
-                }
-                // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
-                for &boundary_neighbor in &particle.boundary_neighbors.clone() {
-                    // add density for every neighbor
-                    let density =
-                        self.boundary_particles[boundary_neighbor].mass()
-                        *(self.properties.kernel_fn)(
-                            &particle.pos().now(),
-                            &self.boundary_particles[boundary_neighbor].pos(),
-                            self.properties.smoothing_length,
-                        )
-                        +self.properties.time_increment*particle.vel().pred()
-                        .dot(&(self.properties.kernel_gradient_fn)(
-                            &particle.pos().now(),
-                            &self.boundary_particles[boundary_neighbor].pos(),
-                            self.properties.smoothing_length,
-                        ));
-                    particle.pred_density += density;
-                }
-                // if cfg!(feature = "logging") {
-                    // debug!("density: {}", particle.density());
-                // }
-            }
-        });
-    }
+    // // perform splitting step conditionally
+    // #[cfg(all(feature = "parallelized_sph", feature = "splitting"))]
+    // fn calc_predicted_density(&mut self) {
+    //     let immutable_clone_of_particles = self.particles.clone();
+    //     self.particles.par_iter_mut().for_each(|particle| {
+    //         if particle.is_enabled() {
+    //             // reset density
+    //             particle.pred_density = 0.;
+    //             // add density for every neighbor
+    //             for &neighbor in &particle.neighbors.clone() {
+    //                 let density = immutable_clone_of_particles[neighbor].mass()
+    //                     *(self.properties.kernel_fn)(
+    //                         &particle.pos().now(),
+    //                         &immutable_clone_of_particles[neighbor].pos().now(),
+    //                         self.properties.smoothing_length,
+    //                     )
+    //                     +self.properties.time_increment*(particle.vel().pred()-immutable_clone_of_particles[neighbor].vel().pred())
+    //                     .dot(&(self.properties.kernel_gradient_fn)(
+    //                         &particle.pos().now(),
+    //                         &immutable_clone_of_particles[neighbor].pos().now(),
+    //                         self.properties.smoothing_length,
+    //                     ));
+    //                 particle.pred_density += density;
+    //             }
+    //             // add density for every boundary neighbor (mirror mass of moving particle onto boundary particle)
+    //             for &boundary_neighbor in &particle.boundary_neighbors.clone() {
+    //                 // add density for every neighbor
+    //                 let density =
+    //                     self.boundary_particles[boundary_neighbor].mass()
+    //                     *(self.properties.kernel_fn)(
+    //                         &particle.pos().now(),
+    //                         &self.boundary_particles[boundary_neighbor].pos(),
+    //                         self.properties.smoothing_length,
+    //                     )
+    //                     +self.properties.time_increment*particle.vel().pred()
+    //                     .dot(&(self.properties.kernel_gradient_fn)(
+    //                         &particle.pos().now(),
+    //                         &self.boundary_particles[boundary_neighbor].pos(),
+    //                         self.properties.smoothing_length,
+    //                     ));
+    //                 particle.pred_density += density;
+    //             }
+    //             // if cfg!(feature = "logging") {
+    //                 // debug!("density: {}", particle.density());
+    //             // }
+    //         }
+    //     });
+    // }
 
     /// Add gravity acceleration to all not boundary particles
     fn add_gravity(&mut self) {
@@ -600,25 +606,25 @@ impl System3D {
             if self.particles[particle_index].is_enabled() {
                 // add viscostiy acceleration from other moving particles
                 for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                    let acc = self.properties.fluid_viscosity*2.*(3.+2.)*self.particles[neighbor].mass()/self.particles[neighbor].density()
+                    let acc = self.parameters.fluid_viscosity*2.*(3.+2.)*self.particles[neighbor].volume()
                         *(self.particles[particle_index].vel().now() - self.particles[neighbor].vel().now()).dot(&(self.particles[particle_index].pos().now() - self.particles[neighbor].pos().now()))
-                        /((self.particles[particle_index].pos().now() - self.particles[neighbor].pos().now()).norm_squared() + 0.01*self.properties.smoothing_length.powi(2))
-                        *(self.properties.kernel_gradient_fn)(
+                        /((self.particles[particle_index].pos().now() - self.particles[neighbor].pos().now()).norm_squared() + 0.01*self.parameters.smoothing_length.powi(2))
+                        *(self.parameters.kernel_gradient_fn)(
                             &self.particles[particle_index].pos().now(),
                             &self.particles[neighbor].pos().now(),
-                            self.properties.smoothing_length,
+                            self.parameters.smoothing_length,
                         );
                     self.particles[particle_index].add_acc(acc);
                 }
                 // add viscostiy acceleration from boundary particles
                 for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                    let acc = self.properties.boundary_viscosity*2.*(3.+2.)*self.boundary_particles[boundary_neighbor].mass()/self.properties.rest_density
+                    let acc = self.parameters.boundary_viscosity*2.*(3.+2.)*self.boundary_particles[boundary_neighbor].volume()
                         *(self.particles[particle_index].vel().now()-self.boundary_particles[boundary_neighbor].vel()).dot(&(self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()))
-                        /((self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.properties.smoothing_length.powi(2))
-                        *(self.properties.kernel_gradient_fn)(
+                        /((self.particles[particle_index].pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.parameters.smoothing_length.powi(2))
+                        *(self.parameters.kernel_gradient_fn)(
                             &self.particles[particle_index].pos().now(),
                             &self.boundary_particles[boundary_neighbor].pos(),
-                            self.properties.smoothing_length,
+                            self.parameters.smoothing_length,
                         );
                     self.particles[particle_index].add_acc(acc);
                 }
@@ -634,7 +640,8 @@ impl System3D {
             if particle.is_enabled() {
                 // add viscostiy acceleration from other moving particles
                 for &neighbor in &particle.neighbors.clone() {
-                    let acc = self.parameters.fluid_viscosity*2.*(3.+2.)*immutable_clone_of_particles[neighbor].mass()/immutable_clone_of_particles[neighbor].density()
+                    let acc = self.parameters.fluid_viscosity*2.*(3.+2.)
+                        *immutable_clone_of_particles[neighbor].volume()
                         *(particle.vel().now() - immutable_clone_of_particles[neighbor].vel().now()).dot(&(particle.pos().now() - immutable_clone_of_particles[neighbor].pos().now()))
                         /((particle.pos().now() - immutable_clone_of_particles[neighbor].pos().now()).norm_squared() + 0.01*self.parameters.smoothing_length.powi(2))
                         *(self.parameters.kernel_gradient_fn)(
@@ -648,7 +655,8 @@ impl System3D {
                 }
                 // add viscostiy acceleration from boundary particles
                 for &boundary_neighbor in &particle.boundary_neighbors.clone() {
-                    let acc = self.parameters.boundary_viscosity*2.*(3.+2.)*self.boundary_particles[boundary_neighbor].mass()/self.parameters.rest_density
+                    let acc = self.parameters.boundary_viscosity*2.*(3.+2.)
+                        *self.boundary_particles[boundary_neighbor].volume()
                         *(particle.vel().now()-self.boundary_particles[boundary_neighbor].vel()).dot(&(particle.pos().now()-self.boundary_particles[boundary_neighbor].pos()))
                         /((particle.pos().now()-self.boundary_particles[boundary_neighbor].pos()).norm_squared()+0.01*self.parameters.smoothing_length.powi(2))
                         *(self.parameters.kernel_gradient_fn)(
@@ -673,12 +681,12 @@ impl System3D {
             if self.particles[particle_index].is_enabled() {
                 // select density
                 #[cfg(not(feature = "splitting"))]
-                let particle_density = self.particles[particle_index].density();
-                #[cfg(feature = "splitting")]
-                let particle_density = self.particles[particle_index].pred_density;
+                let particle_volume = self.particles[particle_index].volume();
+                // #[cfg(feature = "splitting")]
+                // let particle_volume = self.particles[particle_index].pred_density;
                 // calc pressure with state equation
-                let pressure = self.properties.stiffness*f64::max(
-                    particle_density/self.properties.rest_density - 1.,
+                let pressure = self.parameters.stiffness*f64::max(
+                    self.parameters.rest_volume/particle_volume - 1.,
                     0.
                 );
                 self.particles[particle_index].set_pressure(pressure);
@@ -697,62 +705,29 @@ impl System3D {
             if self.particles[particle_index].is_enabled() {
                 // add pressure acceleration from other moving particles
                 for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                    // select density
-                    #[cfg(all(not(feature = "splitting"), not(feature = "global_pressure")))]
-                    let particle_density = self.particles[particle_index].density();
-                    #[cfg(feature = "splitting")]
-                    let particle_density = self.particles[particle_index].pred_density;
-                    #[cfg(feature = "global_pressure")]
-                    let particle_density = self.properties.rest_density;
-                    // let particle_density = self.particles[particle_index].density();
-                    #[cfg(all(not(feature = "splitting"), not(feature = "global_pressure")))]
-                    let neighbor_density = self.particles[neighbor].density();
-                    #[cfg(feature = "splitting")]
-                    let neighbor_density = self.particles[neighbor].pred_density;
-                    #[cfg(feature = "global_pressure")]
-                    let neighbor_density = self.properties.rest_density;
-                    // let neighbor_density = self.particles[neighbor].density();
                     // calc acceleration
-                    let acc = -self.particles[neighbor].mass()
-                        *(self.particles[particle_index].pressure()/particle_density.powi(2) + self.particles[neighbor].pressure()/neighbor_density.powi(2))
-                        *(self.properties.kernel_gradient_fn)(
+                    let acc = -self.particles[particle_index].volume()/self.particles[particle_index].mass()
+                        *self.particles[neighbor].volume()
+                        *(self.particles[particle_index].pressure() + self.particles[neighbor].pressure())
+                        *(self.parameters.kernel_gradient_fn)(
                             &self.particles[particle_index].pos().now(),
                             &self.particles[neighbor].pos().now(),
-                            self.properties.smoothing_length,
+                            self.parameters.smoothing_length,
                         );
-                    #[cfg(not(feature = "global_pressure"))]
                     self.particles[particle_index].add_acc(acc);
-                    #[cfg(feature = "global_pressure")]
-                    self.particles[particle_index].add_acc(acc);
-                    // #[cfg(feature = "logging")]
-                    // debug!("kernel gradient: {}", (self.properties.kernel_gradient_fn)(
-                    //     &self.particles[particle_index].pos().now(),
-                    //     &self.particles[neighbor].pos().now(),
-                    //     self.properties.smoothing_length,
-                    // ));
-                    // #[cfg(feature = "logging")]
-                    // debug!("positions: {}, {}", self.particles[particle_index].pos().now(), self.particles[neighbor].pos().now());
                 }
                 // add pressure acceleration from boundary particles
                 for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
                     // select weighting
-                    let weighting = self.properties.boundary_pressure_acceleration_weighting;
-                    // select density
-                    #[cfg(all(not(feature = "splitting"), not(feature = "global_pressure")))]
-                    let particle_density = self.particles[particle_index].density();
-                    #[cfg(feature = "splitting")]
-                    let particle_density = self.particles[particle_index].pred_density;
-                    #[cfg(feature = "global_pressure")]
-                    let particle_density = self.properties.rest_density;
+                    let weighting = self.parameters.boundary_pressure_acceleration_weighting;
                     // calc acceleration
                     // mirror only pressure into boundary particle, set density to rest density
-                    let acc = -weighting
-                        *self.boundary_particles[boundary_neighbor].mass()
-                        *self.particles[particle_index].pressure()*(1./particle_density.powi(2)+1./self.properties.rest_density.powi(2))
-                        *(self.properties.kernel_gradient_fn)(
+                    let acc = -2.*weighting*self.particles[particle_index].volume()/self.particles[particle_index].mass()
+                        *self.boundary_particles[boundary_neighbor].volume()*self.particles[particle_index].pressure()
+                        *(self.parameters.kernel_gradient_fn)(
                             &self.particles[particle_index].pos().now(),
                             &self.boundary_particles[boundary_neighbor].pos(),
-                            self.properties.smoothing_length,
+                            self.parameters.smoothing_length,
                         );
                     self.particles[particle_index].add_acc(acc);
                 }
@@ -770,26 +745,10 @@ impl System3D {
             if particle.is_enabled() {
                 // add pressure acceleration from other moving particles
                 for &neighbor in &particle.neighbors.clone() {
-                    // select density
-                    #[cfg(all(not(feature = "splitting"), not(feature = "global_pressure")))]
-                    let particle_density = particle.density();
-                    #[cfg(feature = "splitting")]
-                    let particle_density = particle.pred_density;
-                    #[cfg(feature = "global_pressure")]
-                    let particle_density = self.parameters.rest_density;
-                    // let particle_density = particle.density();
-                    #[cfg(all(not(feature = "splitting"), not(feature = "global_pressure")))]
-                    let neighbor_density = immutable_clone_of_particles[neighbor].density();
-                    #[cfg(feature = "splitting")]
-                    let neighbor_density = immutable_clone_of_particles[neighbor].pred_density;
-                    #[cfg(feature = "global_pressure")]
-                    let neighbor_density = self.parameters.rest_density;
-                    // let neighbor_density = immutable_clone_of_particles[neighbor].density();
-
                     // calc acceleration
-                    let acc = -immutable_clone_of_particles[neighbor].mass()
-                        *(particle.pressure()/particle_density.powi(2)
-                            + immutable_clone_of_particles[neighbor].pressure()/neighbor_density.powi(2))
+                    let acc = -particle.volume()/particle.mass()
+                        *immutable_clone_of_particles[neighbor].volume()
+                        *(particle.pressure() + immutable_clone_of_particles[neighbor].pressure())
                         *(self.parameters.kernel_gradient_fn)(
                             &particle.pos().now(),
                             &immutable_clone_of_particles[neighbor].pos().now(),
@@ -801,18 +760,10 @@ impl System3D {
                 for &boundary_neighbor in &particle.boundary_neighbors.clone() {
                     // select weighting
                     let weighting = self.parameters.boundary_pressure_acceleration_weighting;
-                    // select density
-                    #[cfg(all(not(feature = "splitting"), not(feature = "global_pressure")))]
-                    let particle_density = particle.density();
-                    #[cfg(feature = "splitting")]
-                    let particle_density = particle.pred_density;
-                    #[cfg(feature = "global_pressure")]
-                    let particle_density = self.parameters.rest_density;
                     // calc acceleration
                     // mirror only pressure into boundary particle, set density to rest density
-                    let acc = -weighting
-                        *self.boundary_particles[boundary_neighbor].mass()
-                        *particle.pressure()*(1./particle_density.powi(2)+1./self.parameters.rest_density.powi(2))
+                    let acc = -2.*weighting*particle.volume()/particle.mass()
+                        *self.boundary_particles[boundary_neighbor].volume()*particle.pressure()
                         *(self.parameters.kernel_gradient_fn)(
                             &particle.pos().now(),
                             &self.boundary_particles[boundary_neighbor].pos(),
@@ -835,31 +786,31 @@ impl System3D {
         // also initialize pressure
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
-                let vel = self.particles[particle_index].vel().now()+self.properties.time_increment*self.particles[particle_index].acc();
+                let vel = self.particles[particle_index].vel().now()+self.parameters.time_increment*self.particles[particle_index].acc();
                 self.particles[particle_index].set_pred_vel(vel);
             }
         }
         // compute source term s_f of pressure linear equation system
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
-                self.particles[particle_index].s_f = self.properties.rest_density - self.particles[particle_index].density();
+                self.particles[particle_index].s_f = 1. - self.parameters.rest_volume/self.particles[particle_index].volume();
                 for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                    self.particles[particle_index].s_f -= self.properties.time_increment*self.particles[neighbor].mass()
+                    self.particles[particle_index].s_f -= self.parameters.time_increment*self.particles[neighbor].volume()
                         *(self.particles[particle_index].vel().pred() - self.particles[neighbor].vel().pred()).dot(
-                            &(self.properties.kernel_gradient_fn)(
+                            &(self.parameters.kernel_gradient_fn)(
                                 &self.particles[particle_index].pos().now(),
                                 &self.particles[neighbor].pos().now(),
-                                self.properties.smoothing_length,
+                                self.parameters.smoothing_length,
                             )
                         );
                 }
                 for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                    self.particles[particle_index].s_f -= self.properties.time_increment*self.boundary_particles[boundary_neighbor].mass()
+                    self.particles[particle_index].s_f -= self.parameters.time_increment*self.boundary_particles[boundary_neighbor].volume()
                         *(self.particles[particle_index].vel().pred() - self.boundary_particles[boundary_neighbor].vel()).dot(
-                            &(self.properties.kernel_gradient_fn)(
+                            &(self.parameters.kernel_gradient_fn)(
                                 &self.particles[particle_index].pos().now(),
                                 &self.boundary_particles[boundary_neighbor].pos(),
-                                self.properties.smoothing_length,
+                                self.parameters.smoothing_length,
                             )
                         );
                 }
@@ -871,94 +822,40 @@ impl System3D {
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
                 self.particles[particle_index].a_ff = 0.;
-                // calc intermediate variable
-                // let mut test_1 = 0.;
-                // let mut test_2 = Vector3::zeros();
-
-                let mut c_f = Vector3::zeros();
+                // calc intermediate variables
+                let mut sum_fluid = Vector3::zeros();
                 for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                    // select density
-                    let particle_density = self.properties.rest_density;
-                    // let particle_density = self.particles[particle_index].density();
-
-                    c_f -= self.particles[neighbor].mass()/particle_density.powi(2)
-                        *(self.properties.kernel_gradient_fn)(
+                    sum_fluid += self.particles[neighbor].volume()
+                        *(self.parameters.kernel_gradient_fn)(
                                 &self.particles[particle_index].pos().now(),
                                 &self.particles[neighbor].pos().now(),
-                                self.properties.smoothing_length,
+                                self.parameters.smoothing_length,
                             );
-
-                    // test_1 += self.particles[neighbor].mass().powi(2)
-                    //     *(self.properties.kernel_gradient_fn)(
-                    //         &self.particles[particle_index].pos().now(),
-                    //         &self.particles[neighbor].pos().now(),
-                    //         self.properties.smoothing_length,
-                    //     ).dot(&(self.properties.kernel_gradient_fn)(
-                    //         &self.particles[particle_index].pos().now(),
-                    //         &self.particles[neighbor].pos().now(),
-                    //         self.properties.smoothing_length,
-                    //     ));
-                    // test_2 += self.particles[neighbor].mass()
-                    //     *(self.properties.kernel_gradient_fn)(
-                    //         &self.particles[particle_index].pos().now(),
-                    //         &self.particles[neighbor].pos().now(),
-                    //         self.properties.smoothing_length,
-                    //     );
                 }
-                // test_outer.push(test_1/test_2.dot(&test_2));
+                let mut sum_boundary = Vector3::zeros();
                 for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                    // select density
-                    let particle_density = self.properties.rest_density;
-                    // let particle_density = self.particles[particle_index].density();
-
-                    // select weighting
-                    let weighting = self.properties.boundary_pressure_acceleration_weighting;
-
-                    c_f -= 2.*weighting
-                        *self.boundary_particles[boundary_neighbor].mass()/particle_density.powi(2)
-                        *(self.properties.kernel_gradient_fn)(
+                    sum_boundary += self.boundary_particles[boundary_neighbor].volume()
+                        *(self.parameters.kernel_gradient_fn)(
                             &self.particles[particle_index].pos().now(),
                             &self.boundary_particles[boundary_neighbor].pos(),
-                            self.properties.smoothing_length,
+                            self.parameters.smoothing_length,
                         );
                 }
-                // use intermediate variable c_f to calc a_ff
+                // select weighting
+                let weighting = self.parameters.boundary_pressure_acceleration_weighting;
+                // calc intermediate variable c_f
+                let c_f = -self.particles[particle_index].volume()/self.particles[particle_index].mass()*(sum_fluid + 2.*weighting*sum_boundary);
+                // use intermediate variables to calc a_ff
+                self.particles[particle_index].a_ff += self.parameters.time_increment.powi(2)*c_f.dot(&(sum_fluid + sum_boundary));
                 for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                    // select density
-                    let particle_density = self.properties.rest_density;
-                    // let particle_density = self.particles[particle_index].density();
-
-                    self.particles[particle_index].a_ff += self.properties.time_increment.powi(2)*self.particles[neighbor].mass()
-                        *c_f.dot(
-                            &(self.properties.kernel_gradient_fn)(
-                                &self.particles[particle_index].pos().now(),
-                                &self.particles[neighbor].pos().now(),
-                                self.properties.smoothing_length,
-                            )
-                        );
-                    self.particles[particle_index].a_ff += self.properties.time_increment.powi(2)*self.particles[neighbor].mass()
-                        *self.particles[particle_index].mass()/particle_density.powi(2)
-                        *(self.properties.kernel_gradient_fn)(
-                                &self.particles[neighbor].pos().now(),
-                                &self.particles[particle_index].pos().now(),
-                                self.properties.smoothing_length,
-                            ).dot(
-                            &(self.properties.kernel_gradient_fn)(
-                                &self.particles[particle_index].pos().now(),
-                                &self.particles[neighbor].pos().now(),
-                                self.properties.smoothing_length,
-                            )
-                        );
-                }
-                for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                    self.particles[particle_index].a_ff += self.properties.time_increment.powi(2)*self.boundary_particles[boundary_neighbor].mass()
-                        *c_f.dot(
-                            &(self.properties.kernel_gradient_fn)(
-                                &self.particles[particle_index].pos().now(),
-                                &self.boundary_particles[boundary_neighbor].pos(),
-                                self.properties.smoothing_length,
-                            )
-                        );
+                    self.particles[particle_index].a_ff -= self.parameters.time_increment.powi(2)*self.particles[particle_index].volume()
+                        *self.particles[neighbor].volume().powi(2)
+                        /self.particles[neighbor].mass()
+                        *(self.parameters.kernel_gradient_fn)(
+                            &self.particles[particle_index].pos().now(),
+                            &self.particles[neighbor].pos().now(),
+                            self.parameters.smoothing_length,
+                        ).norm_squared();
                 }
             }
         }
@@ -967,9 +864,9 @@ impl System3D {
         for particle_index in 0..self.particles.len() {
             if self.particles[particle_index].is_enabled() {
                 // Update pressure
-                if self.particles[particle_index].a_ff > self.properties.min_diagonal_element
-                        || self.particles[particle_index].a_ff < -self.properties.min_diagonal_element {
-                    let p_next_iter = self.properties.relaxation_factor
+                if self.particles[particle_index].a_ff > self.parameters.min_diagonal_element
+                        || self.particles[particle_index].a_ff < -self.parameters.min_diagonal_element {
+                    let p_next_iter = self.parameters.relaxation_factor
                         *self.particles[particle_index].s_f/self.particles[particle_index].a_ff;
                     self.particles[particle_index].set_pressure(p_next_iter.max(0.));
                 }
@@ -987,7 +884,7 @@ impl System3D {
         let min_solver_iterations = 2;
         let mut solver_iteration = 0;
         let mut predicted_density_error = f64::INFINITY;
-        while solver_iteration < min_solver_iterations || predicted_density_error > self.properties.target_density_error {
+        while solver_iteration < min_solver_iterations || predicted_density_error > self.parameters.target_density_error {
             // compute pressure acceleration
             for particle_index in 0..self.particles.len() {
                 if self.particles[particle_index].is_enabled() {
@@ -995,38 +892,28 @@ impl System3D {
                     self.particles[particle_index].pressure_acc_f = Vector3::zeros();
                     // add pressure acceleration from other moving particles
                     for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                        // select density
-                        let particle_density = self.properties.rest_density;
-                        // let particle_density = self.particles[particle_index].density();
-                        let neighbor_density = self.properties.rest_density;
-                        // let neighbor_density = self.particles[neighbor].density();
-
-                        let acc = -self.particles[neighbor].mass()
-                            *(self.particles[particle_index].pressure()/particle_density.powi(2)
-                                + self.particles[neighbor].pressure()/neighbor_density.powi(2))
-                            *(self.properties.kernel_gradient_fn)(
+                        let acc = -self.particles[particle_index].volume()/self.particles[particle_index].mass()
+                            *self.particles[neighbor].volume()
+                            *(self.particles[particle_index].pressure() + self.particles[neighbor].pressure())
+                            *(self.parameters.kernel_gradient_fn)(
                                 &self.particles[particle_index].pos().now(),
                                 &self.particles[neighbor].pos().now(),
-                                self.properties.smoothing_length,
+                                self.parameters.smoothing_length,
                             );
                         self.particles[particle_index].pressure_acc_f += acc;
                     }
                     // add pressure acceleration from boundary particles
                     for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                        // select density
-                        let particle_density = self.properties.rest_density;
-                        // let particle_density = self.particles[particle_index].density();
-
                         // select weighting
-                        let weighting = self.properties.boundary_pressure_acceleration_weighting;
+                        let weighting = self.parameters.boundary_pressure_acceleration_weighting;
 
-                        let acc = -weighting
-                            *self.boundary_particles[boundary_neighbor].mass()
-                            *2.*self.particles[particle_index].pressure()/particle_density.powi(2) // mirror pressure
-                            *(self.properties.kernel_gradient_fn)(
+                        let acc = -2.*weighting*self.particles[particle_index].volume()/self.particles[particle_index].mass()
+                            *self.boundary_particles[boundary_neighbor].volume()
+                            *self.particles[particle_index].pressure() // mirror pressure
+                            *(self.parameters.kernel_gradient_fn)(
                                 &self.particles[particle_index].pos().now(),
                                 &self.boundary_particles[boundary_neighbor].pos(),
-                                self.properties.smoothing_length,
+                                self.parameters.smoothing_length,
                             );
                         self.particles[particle_index].pressure_acc_f += acc;
                     }
@@ -1040,29 +927,29 @@ impl System3D {
                     // calculate the divergence of the velocity change due to the pressure acceleration: a_dot_p_f
                     let mut a_dot_p_f = 0.;
                     for &neighbor in &self.particles[particle_index].neighbors.clone() {
-                        a_dot_p_f += self.properties.time_increment.powi(2)*self.particles[neighbor].mass()
+                        a_dot_p_f += self.parameters.time_increment.powi(2)*self.particles[neighbor].volume()
                             *(self.particles[particle_index].pressure_acc_f - self.particles[neighbor].pressure_acc_f).dot(
-                                &(self.properties.kernel_gradient_fn)(
+                                &(self.parameters.kernel_gradient_fn)(
                                     &self.particles[particle_index].pos().now(),
                                     &self.particles[neighbor].pos().now(),
-                                    self.properties.smoothing_length,
+                                    self.parameters.smoothing_length,
                                 )
                             );
                     }
                     for &boundary_neighbor in &self.particles[particle_index].boundary_neighbors.clone() {
-                        a_dot_p_f += self.properties.time_increment.powi(2)*self.boundary_particles[boundary_neighbor].mass()
+                        a_dot_p_f += self.parameters.time_increment.powi(2)*self.boundary_particles[boundary_neighbor].volume()
                             *self.particles[particle_index].pressure_acc_f.dot(
-                                &(self.properties.kernel_gradient_fn)(
+                                &(self.parameters.kernel_gradient_fn)(
                                     &self.particles[particle_index].pos().now(),
                                     &self.boundary_particles[boundary_neighbor].pos(),
-                                    self.properties.smoothing_length,
+                                    self.parameters.smoothing_length,
                                 )
                             );
                     }
                     // Update pressure
-                    if self.particles[particle_index].a_ff > self.properties.min_diagonal_element
-                            || self.particles[particle_index].a_ff < -self.properties.min_diagonal_element {
-                        let p_next_iter = self.particles[particle_index].pressure() + self.properties.relaxation_factor
+                    if self.particles[particle_index].a_ff > self.parameters.min_diagonal_element
+                            || self.particles[particle_index].a_ff < -self.parameters.min_diagonal_element {
+                        let p_next_iter = self.particles[particle_index].pressure() + self.parameters.relaxation_factor
                             *(self.particles[particle_index].s_f - a_dot_p_f)/self.particles[particle_index].a_ff;
                         self.particles[particle_index].set_pressure(p_next_iter.max(0.));
                     }
@@ -1095,7 +982,7 @@ impl System3D {
                     // }
                 }
             }
-            predicted_density_error = predicted_density_error_accumulator/(count as f64)/self.properties.rest_density*100.;
+            predicted_density_error = predicted_density_error_accumulator/(count as f64)*100.;
             // #[cfg(feature = "logging")]
             // if print_flag {
             //     debug!("predicted_density_error: {predicted_density_error}");
@@ -1135,9 +1022,9 @@ impl System3D {
         let immutable_clone_of_particles = self.particles.clone();
         self.particles.par_iter_mut().for_each(|particle| {
             if particle.is_enabled() {
-                particle.s_f = self.parameters.rest_density - particle.density();
+                particle.s_f = 1. - self.parameters.rest_volume/particle.volume();
                 for &neighbor in &particle.neighbors.clone() {
-                    particle.s_f -= self.parameters.time_increment*immutable_clone_of_particles[neighbor].mass()
+                    particle.s_f -= self.parameters.time_increment*immutable_clone_of_particles[neighbor].volume()
                         *(particle.vel().pred() - immutable_clone_of_particles[neighbor].vel().pred()).dot(
                             &(self.parameters.kernel_gradient_fn)(
                                 &particle.pos().now(),
@@ -1147,7 +1034,7 @@ impl System3D {
                         );
                 }
                 for &boundary_neighbor in &particle.boundary_neighbors.clone() {
-                    particle.s_f -= self.parameters.time_increment*self.boundary_particles[boundary_neighbor].mass()
+                    particle.s_f -= self.parameters.time_increment*self.boundary_particles[boundary_neighbor].volume()
                         *(particle.vel().pred() - self.boundary_particles[boundary_neighbor].vel()).dot(
                             &(self.parameters.kernel_gradient_fn)(
                                 &particle.pos().now(),
@@ -1163,73 +1050,40 @@ impl System3D {
         self.particles.par_iter_mut().for_each(|particle| {
             if particle.is_enabled() {
                 particle.a_ff = 0.;
-                // calc intermediate variable
-                let mut int_var = Vector3::zeros();
+                // calc intermediate variables
+                let mut sum_fluid = Vector3::zeros();
                 for &neighbor in &particle.neighbors.clone() {
-                    // select density
-                    let particle_density = self.parameters.rest_density;
-                    // let particle_density = particle.density();
-
-                    int_var -= immutable_clone_of_particles[neighbor].mass()/particle_density.powi(2)*
-                        (self.parameters.kernel_gradient_fn)(
+                    sum_fluid += immutable_clone_of_particles[neighbor].volume()
+                        *(self.parameters.kernel_gradient_fn)(
                                 &particle.pos().now(),
                                 &immutable_clone_of_particles[neighbor].pos().now(),
                                 self.parameters.smoothing_length,
                             );
                 }
+                let mut sum_boundary = Vector3::zeros();
                 for &boundary_neighbor in &particle.boundary_neighbors.clone() {
-                    // select density
-                    let particle_density = self.parameters.rest_density;
-                    // let particle_density = particle.density();
-
-                    // select weighting
-                    let weighting = self.parameters.boundary_pressure_acceleration_weighting;
-
-                    int_var -= 2.*weighting
-                        *self.boundary_particles[boundary_neighbor].mass()/particle_density.powi(2)*
-                        (self.parameters.kernel_gradient_fn)(
+                    sum_boundary += self.boundary_particles[boundary_neighbor].volume()
+                        *(self.parameters.kernel_gradient_fn)(
                             &particle.pos().now(),
                             &self.boundary_particles[boundary_neighbor].pos(),
                             self.parameters.smoothing_length,
                         );
                 }
+                // select weighting
+                let weighting = self.parameters.boundary_pressure_acceleration_weighting;
+                // calc intermediate variable c_f
+                let c_f = -particle.volume()/particle.mass()*(sum_fluid + 2.*weighting*sum_boundary);
                 // use intermediate variables to calc a_ff
+                particle.a_ff += self.parameters.time_increment.powi(2)*c_f.dot(&(sum_fluid+sum_boundary));
                 for &neighbor in &particle.neighbors.clone() {
-                    // select density
-                    let particle_density = self.parameters.rest_density;
-                    // let particle_density = particle.density();
-
-                    particle.a_ff += self.parameters.time_increment.powi(2)*immutable_clone_of_particles[neighbor].mass()
-                        *int_var.dot(
-                            &(self.parameters.kernel_gradient_fn)(
-                                &particle.pos().now(),
-                                &immutable_clone_of_particles[neighbor].pos().now(),
-                                self.parameters.smoothing_length,
-                            )
-                        );
-                    particle.a_ff += self.parameters.time_increment.powi(2)*immutable_clone_of_particles[neighbor].mass()
-                        *particle.mass()/particle_density.powi(2)
+                    particle.a_ff -= self.parameters.time_increment.powi(2)*particle.volume()
+                        *immutable_clone_of_particles[neighbor].volume().powi(2)
+                        /immutable_clone_of_particles[neighbor].mass()
                         *(self.parameters.kernel_gradient_fn)(
-                                &immutable_clone_of_particles[neighbor].pos().now(),
-                                &particle.pos().now(),
-                                self.parameters.smoothing_length,
-                            ).dot(
-                            &(self.parameters.kernel_gradient_fn)(
-                                &particle.pos().now(),
-                                &immutable_clone_of_particles[neighbor].pos().now(),
-                                self.parameters.smoothing_length,
-                            )
-                        );
-                }
-                for &boundary_neighbor in &particle.boundary_neighbors.clone() {
-                    particle.a_ff += self.parameters.time_increment.powi(2)*self.boundary_particles[boundary_neighbor].mass()
-                        *int_var.dot(
-                            &(self.parameters.kernel_gradient_fn)(
-                                &particle.pos().now(),
-                                &self.boundary_particles[boundary_neighbor].pos(),
-                                self.parameters.smoothing_length,
-                            )
-                        );
+                            &particle.pos().now(),
+                            &immutable_clone_of_particles[neighbor].pos().now(),
+                            self.parameters.smoothing_length,
+                        ).norm_squared();
                 }
             }
         });
@@ -1260,15 +1114,9 @@ impl System3D {
                     particle.pressure_acc_f = Vector3::zeros();
                     // add pressure acceleration from other moving particles
                     for &neighbor in &particle.neighbors.clone() {
-                        // select density
-                        let particle_density = self.parameters.rest_density;
-                        // let particle_density = particle.density();
-                        let neighbor_density = self.parameters.rest_density;
-                        // let neighbor_density = particle.density();
-
-                        let acc = -immutable_clone_of_particles[neighbor].mass()
-                            *(particle.pressure()/particle_density.powi(2)
-                                + immutable_clone_of_particles[neighbor].pressure()/neighbor_density.powi(2))
+                        let acc = -particle.volume()/particle.mass()
+                            *immutable_clone_of_particles[neighbor].volume()
+                            *(particle.pressure() + immutable_clone_of_particles[neighbor].pressure())
                             *(self.parameters.kernel_gradient_fn)(
                                 &particle.pos().now(),
                                 &immutable_clone_of_particles[neighbor].pos().now(),
@@ -1278,16 +1126,12 @@ impl System3D {
                     }
                     // add pressure acceleration from boundary particles
                     for &boundary_neighbor in &particle.boundary_neighbors.clone() {
-                        // select density
-                        let particle_density = self.parameters.rest_density;
-                        // let particle_density = particle.density();
-
                         // select weighting
                         let weighting = self.parameters.boundary_pressure_acceleration_weighting;
 
-                        let acc = -weighting
-                            *self.boundary_particles[boundary_neighbor].mass()
-                            *2.*particle.pressure()/particle_density.powi(2) // mirror pressure
+                        let acc = -2.*weighting*particle.volume()/particle.mass()
+                            *self.boundary_particles[boundary_neighbor].volume()
+                            *particle.pressure() // mirror pressure
                             *(self.parameters.kernel_gradient_fn)(
                                 &particle.pos().now(),
                                 &self.boundary_particles[boundary_neighbor].pos(),
@@ -1305,7 +1149,7 @@ impl System3D {
                     // calculate the divergence of the velocity change due to the pressure acceleration: a_dot_p_f
                     let mut a_dot_p_f = 0.;
                     for &neighbor in &particle.neighbors.clone() {
-                        a_dot_p_f += self.parameters.time_increment.powi(2)*immutable_clone_of_particles[neighbor].mass()
+                        a_dot_p_f += self.parameters.time_increment.powi(2)*immutable_clone_of_particles[neighbor].volume()
                             *(particle.pressure_acc_f - immutable_clone_of_particles[neighbor].pressure_acc_f).dot(
                                 &(self.parameters.kernel_gradient_fn)(
                                     &particle.pos().now(),
@@ -1315,7 +1159,7 @@ impl System3D {
                             );
                     }
                     for &boundary_neighbor in &particle.boundary_neighbors.clone() {
-                        a_dot_p_f += self.parameters.time_increment.powi(2)*self.boundary_particles[boundary_neighbor].mass()
+                        a_dot_p_f += self.parameters.time_increment.powi(2)*self.boundary_particles[boundary_neighbor].volume()
                             *particle.pressure_acc_f.dot(
                                 &(self.parameters.kernel_gradient_fn)(
                                     &particle.pos().now(),
@@ -1349,7 +1193,7 @@ impl System3D {
                 }
                 average_predicted_density_error/(count as f64)
             });
-            predicted_density_error = handle.join().unwrap()/self.parameters.rest_density*100.;
+            predicted_density_error = handle.join().unwrap()*100.;
 
             // #[cfg(feature = "logging")]
             // debug!("solver_iteration {}", solver_iteration);
@@ -1371,15 +1215,15 @@ impl System3D {
         self.properties.predicted_density_error = predicted_density_error;
     }
 
-    #[cfg(feature = "splitting")]
-    fn calc_predicted_velocity(&mut self) {
-        for particle in &mut self.particles {
-            if particle.is_enabled() {
-                // update velocities
-                particle.set_pred_vel(particle.vel().now() + self.properties.time_increment*particle.acc());
-            }
-        }
-    }
+    // #[cfg(feature = "splitting")]
+    // fn calc_predicted_velocity(&mut self) {
+    //     for particle in &mut self.particles {
+    //         if particle.is_enabled() {
+    //             // update velocities
+    //             particle.set_pred_vel(particle.vel().now() + self.properties.time_increment*particle.acc());
+    //         }
+    //     }
+    // }
 
     /// Calculate non-pressure accelerations and add them to each particles acceleration
     fn add_non_pressure_acceleration(&mut self) {
@@ -1404,10 +1248,10 @@ impl System3D {
         // add non-pressure acceleration
         self.add_non_pressure_acceleration();
         // perform splitting step conditionally
-        #[cfg(feature = "splitting")]
-        self.calc_predicted_velocity();
-        #[cfg(feature = "splitting")]
-        self.calc_predicted_density();
+        // #[cfg(feature = "splitting")]
+        // self.calc_predicted_velocity();
+        // #[cfg(feature = "splitting")]
+        // self.calc_predicted_density();
         // compute pressure
         self.update_pressure_locally();
         // add pressure acceleration
@@ -1578,7 +1422,7 @@ impl System3D {
         // update neighbors of all fluid particles
         self.update_particle_neighbors();
         // compute density
-        self.update_density();
+        self.update_volume();
         // calculate new accelerations
         self.calc_acceleration();
         // update properties
@@ -1605,7 +1449,7 @@ impl System3D {
             density: self.properties.average_density,
             kinetic_energy: self.calc_average_kinetic_energy(),
             #[cfg(feature = "local_pressure")]
-            stiffness: self.properties.stiffness,
+            stiffness: self.parameters.stiffness,
             #[cfg(feature = "global_pressure")]
             stiffness: 0.,
             fluid_viscosity: self.parameters.fluid_viscosity,

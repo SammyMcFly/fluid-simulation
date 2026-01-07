@@ -139,9 +139,9 @@ pub trait ParticleQ3 {
     fn accept_pred_vel(&mut self);
 
     fn mass(&self) -> f64;
-    fn density(&self) -> f64;
-    fn set_density(&mut self, density: f64);
-    fn add_density(&mut self, density: f64);
+    fn volume(&self) -> f64;
+    fn set_volume(&mut self, volume: f64);
+    fn add_volume(&mut self, volume: f64);
     fn pressure(&self) -> f64;
     fn set_pressure(&mut self, pressure: f64);
 }
@@ -164,8 +164,8 @@ pub struct Particle3D {
     velocity: Q3<Vector3<f64>>,
     acceleration: Vector3<f64>,
     mass: f64,
-    /// density (necessary for sph fluid)
-    density: f64,
+    /// volume (necessary for sph fluid)
+    volume: f64,
     pressure: f64,
     disabled: bool,
     /// neighbors
@@ -249,14 +249,14 @@ impl ParticleQ3 for Particle3D {
     fn mass(&self) -> f64 {
         self.mass
     }
-    fn density(&self) -> f64 {
-        self.density
+    fn volume(&self) -> f64 {
+        self.volume
     }
-    fn set_density(&mut self, density: f64) {
-        self.density = density;
+    fn set_volume(&mut self, volume: f64) {
+        self.volume = volume;
     }
-    fn add_density(&mut self, density: f64) {
-        self.density += density;
+    fn add_volume(&mut self, volume: f64) {
+        self.volume += volume;
     }
     fn pressure(&self) -> f64 {
         self.pressure
@@ -277,7 +277,7 @@ impl Initializable for Particle3D {
             velocity: Q3::new(velocity, Vector3::default()),
             acceleration: Vector3::default(),
             mass,
-            density: f64::default(),
+            volume: f64::default(),
             pressure: f64::default(),
             disabled: false,
             neighbors: vec![],
@@ -331,7 +331,7 @@ impl From<SerParticle3D> for Particle3D {
             velocity: Q3::new(particle.velocity[0].into(), particle.velocity[2].into()),
             acceleration: Vector3::default(),
             mass: particle.mass,
-            density: f64::default(),
+            volume: f64::default(),
             pressure: f64::default(),
             // custom_color: particle.custom_color,
             // color: particle.color,
@@ -363,7 +363,7 @@ impl From<SerParticle3D> for Particle3D {
 pub struct BoundaryParticle3D {
     position: Vector3<f64>,
     velocity: Vector3<f64>,
-    mass: f64,
+    volume: f64,
 }
 
 impl Positional for BoundaryParticle3D {
@@ -376,12 +376,12 @@ impl Initializable for BoundaryParticle3D {
     fn new(
             position: [Vector3<f64>; 2],
             _: Vector3<f64>,
-            mass: f64,
+            volume: f64,
         ) -> Self {
         Self {
             position: position[0],
             velocity: Vector3::zeros(),
-            mass,
+            volume,
         }
     }
 }
@@ -395,12 +395,12 @@ impl BoundaryParticle3D {
         self.velocity
     }
 
-    pub fn set_mass(&mut self, mass: f64) {
-        self.mass = mass;
+    pub fn set_volume(&mut self, volume: f64) {
+        self.volume = volume;
     }
 
-    pub fn mass(&self) -> f64 {
-        self.mass
+    pub fn volume(&self) -> f64 {
+        self.volume
     }
 }
 
@@ -410,7 +410,7 @@ impl From<SerBoundaryParticle3D> for BoundaryParticle3D {
         Self {
             position: Vector3::new(particle.position[0], particle.position[1], particle.position[2],),
             velocity: Vector3::new(particle.velocity[0], particle.velocity[1], particle.velocity[2],),
-            mass: 0.,
+            volume: 0.,
         }
     }
 }

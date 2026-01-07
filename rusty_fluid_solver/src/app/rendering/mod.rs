@@ -36,14 +36,16 @@ use ui::UserInput;
 const CAMERA_POSITION: (f32, f32, f32) = (10.0, -30.0, 40.0);
 const YAW: cgmath::Deg<f32> = cgmath::Deg(-90.0);
 const PITCH: cgmath::Deg<f32> = cgmath::Deg(-30.0);
-const SPEED: f32 = 50.0;
-const SENSITIVITY: f32 = 5.0;
+const SPEED: f32 = 0.25;
+const SENSITIVITY: f32 = 1.25;
+const SCROLL_SPEED: f32 = 5.;
 const FOVY: cgmath::Deg<f32> = cgmath::Deg(45.0);
 const ZNEAR: f32 = 0.1;
 const ZFAR: f32 = 100.;
 const LIGHT_POSITION_DEFAULT: [f32; 3] = [2., 2., 100.];
 // const LIGHT_COLOR: Option<[f32; 3]> = Some([1., 0.5, 0.5]);
 const LIGHT_COLOR: Option<[f32; 3]> = Some([1.; 3]);
+const LIGHT_MOVEMENT_SPEED: f32 = 5.;
 
 const PARTICLE_COLOR: ParticleColor = ParticleColor::VelocityGraded;
 const BOUNDARY_PARTICLE_COLOR: ParticleColor = ParticleColor::FixedColor([0.; 3]);
@@ -92,9 +94,9 @@ impl AppState {
 
         let gpu = gpu_context::GpuContext::new(window_arc.clone(), size);
 
-        let camera = camera::CameraBundle::new(&gpu, CAMERA_POSITION, YAW, PITCH, SPEED, SENSITIVITY, FOVY, ZNEAR, ZFAR);
+        let camera = camera::CameraBundle::new(&gpu, CAMERA_POSITION, YAW, PITCH, SPEED, SENSITIVITY, SCROLL_SPEED, FOVY, ZNEAR, ZFAR);
 
-        let light = lighting::LightBundle::new(&gpu, LIGHT_POSITION_DEFAULT, LIGHT_COLOR);
+        let light = lighting::LightBundle::new(&gpu, LIGHT_POSITION_DEFAULT, LIGHT_COLOR, LIGHT_MOVEMENT_SPEED);
 
         let pipelines = pipelines::Pipelines::new(
             &gpu,
@@ -286,10 +288,13 @@ impl AppState {
         }
 
         // Update camera
-        self.camera.update(&self.gpu, self.frame.time_since_last_render());
+        self.camera.update(&self.gpu, self.frame.time_since_last_update());
 
         // Update the light
-        self.light.update(&self.gpu, self.frame.time_since_last_render());
+        self.light.update(&self.gpu, self.frame.time_since_last_update());
+
+        // set time since last update
+        self.frame.updating_now();
     }
 
 
@@ -301,7 +306,7 @@ impl AppState {
             Err(e) => panic!("Failed to load sphere: {}", e),
         }
         self.camera.reset(&self.gpu);
-        self.light.set_light( &self.gpu, sim_info.light_position, LIGHT_COLOR);
+        self.light.set_light( &self.gpu, sim_info.light_position);
         self.instances = instances::InstanceStore::new(&self.gpu, sim_info.buffer_length_limit);
         self.ui.new_simulation(sim_info);
         self.frame.reset();
@@ -373,8 +378,6 @@ impl AppState {
 
         // present the frame
         frame.present();
-
-        self.frame.rendering_now();
 
         Ok(())
     }
