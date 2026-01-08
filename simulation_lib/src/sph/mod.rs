@@ -6,12 +6,11 @@
 use bincode::Decode;
 use bincode::Encode;
 use nalgebra::Vector3; // Matrix3,
-use num_traits::identities::Zero;
 use serde::{Serialize, Deserialize};
 #[cfg(feature = "parallelized_sph")]
 use rayon::prelude::*;
 
-// #[cfg(feature = "logging")]
+#[cfg(feature = "logging")]
 use tracing::{warn, debug}; // debug, error, info, span, trace, warn,
 
 pub mod particle;
@@ -1266,7 +1265,7 @@ impl System3D {
         // reset acceleration
         for particle in &mut self.particles {
             if particle.is_enabled() {
-                particle.set_acc(Vector3::zero());
+                particle.set_acc(Vector3::zeros());
             }
         }
         // add non-pressure acceleration

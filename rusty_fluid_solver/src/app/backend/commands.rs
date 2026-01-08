@@ -1,6 +1,6 @@
 //! Worker commands
 use crate::app::backend::sph::particle::SerParticle3D;
-
+use rendering_lib::readback::ReadbackRequest;
 
 
 pub enum WorkerCommand {
@@ -13,6 +13,7 @@ pub enum WorkerCommand {
         recording_file: Option<String>,
     },
     AddTimeStepsToCompute(usize),
+    SaveScreenshot(ReadbackRequest),
     SaveState { particles: Vec<SerParticle3D>, filepath: String, },
     // Resume,
     // Pause,

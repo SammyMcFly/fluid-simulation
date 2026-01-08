@@ -12,13 +12,19 @@ use tracing::{
     error,
 }; // error, trace, warn, debug, info,
 
+use rendering_lib::AppState;
+
 mod backend;
 pub mod rendering;
 pub mod messages;
 
 use backend::{worker_loop, commands::WorkerCommand};
-use rendering::AppState;
 use messages::WorkerMessage;
+use rendering::Simulator;
+
+
+
+const DISCARD_PAST: bool = true;
 
 
 /// Application does:
@@ -28,10 +34,8 @@ pub struct StateApplication {
     state: Option<AppState>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     to_worker: Sender<WorkerCommand>,
-    /// Start simulation with resumed playback
-    start_resumed: bool,
-    /// Exit upon reaching the simulations finish time
-    exit_when_finished: bool,
+    /// Command line arguments
+    args: crate::Args,
 }
 
 impl StateApplication {
@@ -48,13 +52,13 @@ impl StateApplication {
         // send commands to backend depending on user input (args)
         if args.config.is_some() {
             to_worker.send(WorkerCommand::Simulate {
-                config: args.config.unwrap(),
+                config: args.config.as_ref().unwrap().clone(),
                 // config: args.config,
                 state: args.state.clone(),
                 measure: args.measurement_file.clone(),
                 start_time: args.start_time,
                 finish_time: args.finish_time,
-                recording_file: args.recording_file,
+                recording_file: args.recording_file.clone(),
             }).unwrap();
         }
 
@@ -62,8 +66,7 @@ impl StateApplication {
             state: Option::default(),
             worker_handle: handle,
             to_worker,
-            start_resumed: args.resume,
-            exit_when_finished: args.exit,
+            args,
         }
     }
 }
@@ -73,7 +76,14 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
         let window = event_loop.create_window(winit::window::Window::default_attributes()
             .with_visible(true).with_title("Rusty Fluid Solver")).unwrap();
 
-        match AppState::new(window, self.start_resumed) {
+        match AppState::new(
+            window,
+            self.args.resume,
+            self.args.rendering_dir.clone(),
+            self.args.start_time,
+            self.args.finish_time,
+            DISCARD_PAST,
+        ) {
             Ok(state) => self.state = Some(state),
             Err(e) => panic!("Failed to load sphere: {}", e),
         }
@@ -137,18 +147,19 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                     sim_info.buffer_length_limit-1
                 )).unwrap();
             },
+            WorkerMessage::SavedScreenshot => (),
             WorkerMessage::SavedState => (),
             WorkerMessage::SavedMeasurement => (),
             WorkerMessage::FinishedResetting(sim_info) => {
                 if let Some(state) = &mut self.state {
-                    state.continue_after_reset(sim_info);
+                    state.continue_after_reset(sim_info.clone());
                     // tell backend to simulate and return "buffer_length_limit" number
                     // of states in time,
                     // minus 1 for the initial state that is sent immediately, anyway,
                     // any will be registered as new state:
                     // it will be dequeued and a replacement will be requested automatically
                     self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
-                        state.instances.length_limit-1
+                        sim_info.buffer_length_limit-1
                     )).unwrap();
                 }
             },
@@ -159,7 +170,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             WorkerMessage::ReachedFinishTime => {
                 self.state.as_mut().unwrap().ui.advance_to_next_measurement_state();
                 self.state.as_mut().unwrap().ui.advance_to_next_recording_state();
-                if self.exit_when_finished {
+                if self.args.exit {
                     event_loop.exit();
                 }
             },

@@ -24,8 +24,9 @@ pub struct RenderControls {
     pub particle_color: ParticleColor,
     pub boundary_particle_color: ParticleColor,
     pub background_color: iced_winit::core::Color,
-    pub cut: cut::Cut,
     pub hide_boundary: bool,
+    pub cut: cut::Cut,
+    pub discard_past: bool,
 
     pub info: info::UIInfo,
 }
@@ -35,7 +36,8 @@ impl RenderControls {
         particle_color: ParticleColor,
         boundary_particle_color: ParticleColor,
         start_resumed: bool,
-        is_rendered: bool
+        is_rendered: bool,
+        discard_past: bool,
     ) -> Self {
         Self {
             playback_controls: PlaybackControls::new(start_resumed),
@@ -45,6 +47,8 @@ impl RenderControls {
             background_color: Color::WHITE,
             hide_boundary: false,
             cut: Cut::default(),
+            discard_past,
+
             info: info::UIInfo::new(is_rendered),
         }
     }
@@ -104,6 +108,9 @@ impl RenderControls {
             UserInput::FlipCutY => {
                 self.cut.y_flip();
             }
+            UserInput::DiscardPastToggle => {
+                self.discard_past = !self.discard_past;
+            },
             _ => (),
         }
     }
@@ -152,6 +159,14 @@ impl RenderControls {
                 .on_toggle(|_| UserInput::ToggleHideBoundary),
         ];
 
+        let forget_past = row![
+            Toggler::new(self.discard_past)
+                .label("Discard past ")
+                .on_toggle(|_| UserInput::DiscardPastToggle),
+            button("Dicard now")
+                .on_press(UserInput::DiscardPast).height(28)
+        ];
+
         // build ui controls
         let ui_controls = column![
             self.playback_controls.view(),
@@ -162,6 +177,7 @@ impl RenderControls {
             screenshot,
             hide_boundary,
             self.cut.view(),
+            forget_past,
         ]
         .spacing(10);
 

@@ -6,6 +6,6 @@ use rendering_lib::readback::ReadbackRequest;
 pub enum WorkerCommand {
     ReadRecording(String),
     SaveScreenshot(ReadbackRequest),
-    SaveState { particles: Vec<SerParticle3D>, file_path: String, },
+    SaveState { particles: Vec<SerParticle3D>, filepath: String, },
     Stop,
 }

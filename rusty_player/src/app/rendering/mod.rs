@@ -8,11 +8,10 @@ use tracing::{
 }; // error, trace, warn, debug, info,
 
 use rendering_lib::*;
+use ui::UserInput;
+use simulation_lib::{SimulationParameters, TimeStepInfo};
 
 use crate::app::backend::commands::WorkerCommand;
-use simulation_lib::{SimulationParameters, TimeStepInfo};
-use ui::UserInput;
-
 
 
 
@@ -56,11 +55,11 @@ impl Player for AppState {
                     self.frame.reset();
                 },
                 UserInput::RequestSaving => {
-                    if !self.instances.is_empty() {
+                    if self.instances.is_active() {
                         to_worker.send(
                             WorkerCommand::SaveState {
                                 particles: self.instances.get_info().unwrap().fluid.clone(),
-                                file_path: "./state.ron".to_string()
+                                filepath: "./state.ron".to_string()
                             }
                         ).unwrap()
                     }
@@ -92,6 +91,10 @@ impl Player for AppState {
                 },
                 UserInput::RequestReadback(req) => {
                     to_worker.send(WorkerCommand::SaveScreenshot(req.clone())).unwrap()
+                },
+                UserInput::DiscardPast => {
+                    let discarded = self.instances.discard_past();
+                    self.frame.steps_discarded(discarded, self.ui.controls.discard_past);
                 },
                 _ => (),
             }

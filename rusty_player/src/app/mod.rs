@@ -13,15 +13,18 @@ use tracing::{
 }; // error, trace, warn, debug, info,
 
 use rendering_lib::AppState;
-use backend::{worker_loop, commands::WorkerCommand};
-use messages::WorkerMessage;
-use rendering::Player;
 
 mod backend;
 pub mod rendering;
 pub mod messages;
 
+use backend::{worker_loop, commands::WorkerCommand};
+use messages::WorkerMessage;
+use rendering::Player;
 
+
+
+const DISCARD_PAST: bool = false;
 
 
 /// Application does:
@@ -64,7 +67,14 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             self.to_worker.send(WorkerCommand::ReadRecording(fp.clone())).unwrap();
         }
 
-        match AppState::new(window, self.args.resume, self.args.rendering_dir.clone(), self.args.start_time, self.args.finish_time) {
+        match AppState::new(
+            window,
+            self.args.resume,
+            self.args.rendering_dir.clone(),
+            self.args.start_time,
+            self.args.finish_time,
+            DISCARD_PAST,
+        ) {
             Ok(state) => self.state = Some(state),
             Err(e) => panic!("Failed to load sphere: {}", e),
         }

@@ -1,7 +1,7 @@
 //! AppState
 //!
 //!
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use iced_winit::winit;
 use iced_winit::winit::event::{WindowEvent, DeviceEvent};
 use iced_winit::runtime::user_interface::UserInterface;
@@ -31,7 +31,7 @@ use model::DrawModel;
 
 use ui::UserInput;
 
-use crate::readback::{ReadbackBuffer, ReadbackAction, ReadbackController};
+use crate::readback::{ReadbackAction, ReadbackController};
 
 
 
@@ -75,6 +75,7 @@ impl AppState {
         rendering_dir: Option<String>,
         start_time: Option<f64>,
         finish_time: Option<f64>,
+        discard_past: bool,
     ) -> Result<Self, tobj::LoadError> {
         let window_arc = Arc::new(window);
 
@@ -109,11 +110,12 @@ impl AppState {
             BOUNDARY_PARTICLE_COLOR,
             start_resumed,
             rendering_dir.is_some(),
+            discard_past,
         );
 
         let instances = instances::InstanceStore::new(&gpu);
 
-        let frame = frame_control::FrameControl::new();
+        let frame = frame_control::FrameControl::default();
 
         let screenshot = ReadbackController::new(&gpu, size, rendering_dir, start_time, finish_time);
 
@@ -261,20 +263,30 @@ impl AppState {
             next_action,
             self.ui.controls.playback_controls.plays_forward(),
             self.ui.controls.loop_control.play_looped(),
+            self.ui.controls.discard_past,
         ) {
             instances::StagingResult::Initialized => {
                 self.frame.rendering_new_sim_state_now();
+                self.frame.steps_discarded(1, self.ui.controls.discard_past);
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
             },
-            instances::StagingResult::SomeTaken => {
+            instances::StagingResult::SteppedInTime => {
                 self.frame.rendering_new_sim_state_now();
-                self.frame.step_done(); // Action StepInTime only produces SomeTaken
+                self.frame.stepped_in_time();
+                self.frame.steps_discarded(1, self.ui.controls.discard_past);
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
             },
-            instances::StagingResult::StoppedAtLoopEndWithSomeTaken => {
+            instances::StagingResult::SomeTaken(discarded) => {
                 self.frame.rendering_new_sim_state_now();
+                self.frame.steps_discarded(discarded, self.ui.controls.discard_past);
+                self.frame.set_time_increment(self.instances.get_time_inc());
+                frame_new = true;
+            },
+            instances::StagingResult::StoppedAtLoopEndWithSomeTaken(discarded) => {
+                self.frame.rendering_new_sim_state_now();
+                self.frame.steps_discarded(discarded, self.ui.controls.discard_past);
                 self.ui.controls.playback_controls.pause();
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;

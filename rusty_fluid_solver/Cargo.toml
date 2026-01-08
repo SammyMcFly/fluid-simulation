@@ -52,6 +52,12 @@ toml = "0.9"
 # writing to binary files
 bincode = "2.0.1"
 
+# saving rendered image to image file
+image = "0.25.9"
+
+# error handling
+anyhow = "1.0.100"
+
 # visualization
 iced_widget = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4",  package = "iced_widget", features = ["wgpu"]}
 iced_wgpu = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa7889435c78305d287449dd05a4", package = "iced_wgpu" }

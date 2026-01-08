@@ -52,6 +52,7 @@ bincode = "2.0.1"
 # saving rendered image to image file
 image = "0.25.9"
 
+# error handling
 anyhow = "1.0.100"
 
 # visualization

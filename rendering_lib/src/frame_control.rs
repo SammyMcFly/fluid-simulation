@@ -18,23 +18,24 @@ pub struct FrameControl {
     pub last_sim_state_render_time: std::time::Instant,
     // pub simulation_time: f32,
     pub time_increment: f32,
-    // // new time steps dequeued
-    // pub time_steps_dequeued: usize,
+    /// time steps discarded from stored instances in frontend
+    pub time_steps_discarded: usize,
     // steps to do
     pub steps_to_do: usize,
 }
 
-impl FrameControl {
-    pub fn new() -> Self {
+impl Default for FrameControl {
+    fn default() -> Self {
         Self {
             last_update_time: std::time::Instant::now(),
             last_sim_state_render_time: std::time::Instant::now(),
             time_increment: f32::default(),
-            // time_steps_dequeued: usize::default(),
+            time_steps_discarded: usize::default(),
             steps_to_do: 0,
         }
     }
-
+}
+impl FrameControl {
     pub fn set_time_increment(&mut self, time_inc: f32) {
         self.time_increment = time_inc;
     }
@@ -63,9 +64,20 @@ impl FrameControl {
         self.steps_to_do = 0;
     }
 
-    pub fn step_done(&mut self) {
+    pub fn stepped_in_time(&mut self) {
         self.steps_to_do = self.steps_to_do.saturating_sub(1);
-        // self.time_steps_dequeued += num;
+    }
+
+    pub fn steps_discarded(&mut self, number: usize, discard_past: bool) {
+        if discard_past {
+            self.time_steps_discarded += number;
+        }
+    }
+
+    pub fn get_time_steps_discarded(&mut self) -> usize {
+        let timesteps = self.time_steps_discarded;
+        self.time_steps_discarded = 0;
+        timesteps
     }
 
     pub fn get_next_action(&mut self, is_playing: bool) -> Action {
@@ -80,7 +92,7 @@ impl FrameControl {
 
     pub fn reset(&mut self) {
         self.last_sim_state_render_time = std::time::Instant::now();
-        // self.time_steps_dequeued = 0;
+        self.time_steps_discarded = 0;
         self.steps_to_do = 0;
     }
 }

@@ -1,9 +1,10 @@
 //! Backend module
 use std::time::Duration;
-use std::io::{Write, Read, BufWriter};
 use std::path::{Path};
-use image::{ImageBuffer, Rgba};
 use std::fs::File;
+use std::io::{Write, Read, BufWriter};
+use image::{ImageBuffer, Rgba};
+
 
 use iced_winit::winit::event_loop::EventLoopProxy;
 use crossbeam::channel::Receiver;
@@ -11,12 +12,14 @@ use iced_wgpu::wgpu;
 
 use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
-use commands::WorkerCommand;
-use crate::app::messages::WorkerMessage;
 use simulation_lib::{SimulationParameters, TimeStepInfo, sph::particle::SerParticle3D};
 use rendering_lib::readback::{ReadbackRequest, ReadbackBuffer};
 
 pub mod commands;
+
+use commands::WorkerCommand;
+use crate::app::messages::WorkerMessage;
+
 
 
 
@@ -204,6 +207,16 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                             },
                         }
                     },
+                    WorkerCommand::SaveState { particles, filepath } => {
+                        let save_message = if save_system_state(particles, &filepath).is_ok() {
+                            info!("Successfully saved state: {}", filepath);
+                            WorkerMessage::SavedState
+                        } else {
+                            error!("Failed to save state!");
+                            WorkerMessage::Error("Failed to save state!".to_string())
+                        };
+                        let _ = to_ui.send_event(save_message);
+                    },
                     WorkerCommand::SaveScreenshot(rbr) => {
                         let buffer = rbr.buffer.lock().unwrap();
                         let buffer_slice = buffer.buffer.slice(..);
@@ -235,16 +248,6 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                                 let _ = to_ui.send_event(WorkerMessage::Error(e.to_string()));
                             },
                         }
-                    },
-                    WorkerCommand::SaveState { particles, file_path } => {
-                        let save_message = if save_system_state(particles, &file_path).is_ok() {
-                            info!("Successfully saved state: {}", file_path);
-                            WorkerMessage::SavedState
-                        } else {
-                            error!("Failed to save state!");
-                            WorkerMessage::Error("Failed to save state!".to_string())
-                        };
-                        let _ = to_ui.send_event(save_message);
                     },
                     WorkerCommand::Stop => {
                         info!("Stopped backend!");

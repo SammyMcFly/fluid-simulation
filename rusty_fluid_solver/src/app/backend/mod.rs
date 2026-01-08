@@ -3,18 +3,19 @@ use std::time::Duration;
 
 use iced_winit::winit::event_loop::EventLoopProxy;
 use crossbeam::channel::Receiver;
+use iced_wgpu::wgpu;
 
 use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
 use simulation_lib::*;
+use simulation_lib::measurement::RecordingStatus;
 
-use commands::WorkerCommand;
 use crate::app::messages::WorkerMessage;
-use recording::RecordingStatus;
 
 pub mod commands;
 pub mod recording;
 
+use commands::WorkerCommand;
 
 
 
@@ -304,6 +305,38 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                         WorkerMessage::Error("Failed to save state!".to_string())
                     };
                     let _ = to_ui.send_event(save_message);
+                },
+                WorkerCommand::SaveScreenshot(rbr) => {
+                    let buffer = rbr.buffer.lock().unwrap();
+                    let buffer_slice = buffer.buffer.slice(..);
+                    let (tx, rx) = crossbeam::channel::bounded::<()>(1);
+                    // rbr.buffer.lock().unwrap().mapping_started = true;
+                    buffer_slice.map_async(wgpu::MapMode::Read, move |_| {
+                        tx.send(()).ok();
+                    });
+                    // Drive the future to completion
+                    rbr.device.poll(wgpu::Maintain::Wait);
+
+                    // Wait for callback
+                    rx.recv().unwrap();
+
+                    let data = {
+                        let slice = buffer_slice.get_mapped_range();
+                        slice.to_vec()
+                    };
+
+                    // Free buffer for next use
+                    buffer.buffer.unmap();
+                    // buffer.mapping_started = false;
+
+                    match recording::save_screenshot(&data, &rbr, &buffer, &rbr.output_dir) {
+                        Ok(_) => {
+                            let _ = to_ui.send_event(WorkerMessage::SavedScreenshot);
+                        },
+                        Err(e) => {
+                            let _ = to_ui.send_event(WorkerMessage::Error(e.to_string()));
+                        },
+                    }
                 },
                 // WorkerCommand::Resume => {
                 //     info!("Run simulation!");

@@ -47,8 +47,9 @@ impl StagingSettings {
 
 pub enum StagingResult {
     Initialized,
-    SomeTaken,
-    StoppedAtLoopEndWithSomeTaken,
+    SteppedInTime,
+    SomeTaken(usize),
+    StoppedAtLoopEndWithSomeTaken(usize),
     StoppedAtLoopEndWithNoneTaken,
     NoneTaken,
     NothingToStage,
@@ -56,7 +57,6 @@ pub enum StagingResult {
 }
 
 pub struct InstanceStore {
-    pub staged_info: Option<TimeStepInfo>,
     staging_settings: Option<StagingSettings>,
     pub rendered_instances: Option<Vec<Instance>>,
     pub buffer: wgpu::Buffer,
@@ -72,7 +72,6 @@ impl InstanceStore {
         let instance_buffer = Self::create_instance_buffer(gpu_context, rendered_instances.as_deref());
 
         Self {
-            staged_info: None,
             staging_settings: None,
             rendered_instances,
             buffer: instance_buffer,
@@ -110,14 +109,24 @@ impl InstanceStore {
         )
     }
 
+    pub fn is_active(&self) -> bool {
+        self.rendered_instances.is_some()
+    }
+
     pub fn store(&mut self, time_steps: Vec<TimeStepInfo>) {
+        self.staging_settings = None;
+        self.rendered_instances = None;
         self.info_buffer = time_steps;
         self.current_index = 0;
     }
 
+    pub fn push(&mut self, time_step_info: TimeStepInfo) {
+        self.info_buffer.push(time_step_info);
+    }
+
     pub fn get_info(&self) -> Option<&TimeStepInfo> {
-        if let Some(info) = &self.staged_info {
-            Some(info)
+        if self.is_active() {
+            Some(&self.info_buffer[self.current_index])
         } else {
             None
         }
@@ -125,8 +134,8 @@ impl InstanceStore {
 
     /// Get time increment
     pub fn get_time_inc(&self) -> f32 {
-        if let Some(info) = &self.staged_info {
-            info.time_increment
+        if self.is_active() {
+            self.info_buffer[self.current_index].time_increment
         } else {
             0.
         }
@@ -134,18 +143,36 @@ impl InstanceStore {
 
     /// Filter particles and pass selected to rendered instances
     fn info_to_instances(&mut self,) {
-        if let Some(info) = &self.staged_info {
-            let info = info.clone();
-            let settings = self.staging_settings.as_ref().unwrap().clone();
-            self.rendered_instances = Some(info.fluid.into_iter().filter(|particle| {
+        let settings = self.staging_settings.as_ref().unwrap().clone();
+        self.rendered_instances = Some(self.info_buffer[self.current_index].fluid.iter().filter(|&particle| {
+            settings.cut.cut(particle)
+        }).filter(|&particle| {
+            particle.is_enabled()
+        }).map(|particle| {
+            let color = match settings.particle_color {
+                    ParticleColor::VelocityGraded => {
+                    let whiteness = f64::min(
+                        (particle.vel_now()[0].powi(2)+particle.vel_now()[1].powi(2)+particle.vel_now()[2].powi(2)).powf(0.5)/10.,
+                        1.,
+                    );
+                    [ whiteness as f32, whiteness as f32, 1. ]
+                },
+                ParticleColor::FixedColor(color) => color,
+            };
+            Instance {
+                position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
+                color,
+            }
+        }).collect());
+        if !settings.is_boundary_hidden {
+            self.rendered_instances.as_mut().unwrap().extend(self.info_buffer[self.current_index].boundary.iter().filter(|&particle| {
                 settings.cut.cut(particle)
-            }).filter(|particle| {
-                particle.is_enabled()
             }).map(|particle| {
-                let color = match settings.particle_color {
-                        ParticleColor::VelocityGraded => {
+                let color = match settings.boundary_particle_color {
+                    ParticleColor::VelocityGraded => {
+                        let vel = particle.vel_now();
                         let whiteness = f64::min(
-                            (particle.vel_now()[0].powi(2)+particle.vel_now()[1].powi(2)+particle.vel_now()[2].powi(2)).powf(0.5)/10.,
+                            (vel[0].powi(2)+vel[1].powi(2)+vel[2].powi(2)).powf(0.5)/10.,
                             1.,
                         );
                         [ whiteness as f32, whiteness as f32, 1. ]
@@ -156,28 +183,7 @@ impl InstanceStore {
                     position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
                     color,
                 }
-            }).collect());
-            if !settings.is_boundary_hidden {
-                self.rendered_instances.as_mut().unwrap().extend(info.boundary.into_iter().filter(|particle| {
-                    settings.cut.cut(particle)
-                }).map(|particle| {
-                    let color = match settings.boundary_particle_color {
-                        ParticleColor::VelocityGraded => {
-                            let vel = particle.vel_now();
-                            let whiteness = f64::min(
-                                (vel[0].powi(2)+vel[1].powi(2)+vel[2].powi(2)).powf(0.5)/10.,
-                                1.,
-                            );
-                            [ whiteness as f32, whiteness as f32, 1. ]
-                        },
-                        ParticleColor::FixedColor(color) => color,
-                    };
-                    Instance {
-                        position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
-                        color,
-                    }
-                }).collect::<Vec<Instance>>());
-            }
+            }).collect::<Vec<Instance>>());
         }
     }
 
@@ -233,19 +239,27 @@ impl InstanceStore {
         }
     }
 
-    fn prestage(&mut self) {
-        let ts_info = &self.info_buffer[self.current_index];
-        self.staged_info = Some(ts_info.clone());
+    pub fn discard_past(&mut self) -> usize {
+        let discarded: Vec<TimeStepInfo> = self.info_buffer.drain(0..self.current_index).collect();
+        self.current_index = 0;
+        discarded.len()
     }
 
     fn stage(
         &mut self,
         gpu_context: &super::gpu_context::GpuContext,
         staging_settings: &StagingSettings,
-    ) {
+        discard_past: bool,
+    ) -> usize {
+        let discarded = if discard_past {
+            self.discard_past()
+        } else {
+            0
+        };
         self.staging_settings = Some(staging_settings.clone());
         self.info_to_instances();
         self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
+        discarded
     }
 
     pub fn stage_next(
@@ -255,46 +269,44 @@ impl InstanceStore {
         action: Action,
         forward: bool,
         looped_playback: bool,
+        discard_past: bool,
     ) -> StagingResult {
 
-        if self.info_buffer.is_empty() && self.staged_info.is_none() {
+        if self.info_buffer.is_empty() && !self.is_active() {
             StagingResult::Uninitialized
         } else if self.info_buffer.is_empty() { // && self.staged_info.is_some()
             StagingResult::NothingToStage
-        } else if self.staged_info.is_none() {
+        } else if !self.is_active() {
             assert!(self.current_index == 0);
-            self.prestage();
-            self.stage(gpu_context, staging_settings);
+            self.stage(gpu_context, staging_settings, false);
             StagingResult::Initialized
         } else {
             match action {
                 Action::PlayTimeInterval(interval) => {
                     let mut taken = 0;
-                    let mut interval = interval-self.staged_info.as_ref().unwrap().time_increment;
+                    let mut interval = interval-self.info_buffer[self.current_index].time_increment;
                     while interval >= 0. {
                         if self.next_index(forward, looped_playback) {
                             if taken > 0 {
-                                self.stage(gpu_context, staging_settings);
-                                return StagingResult::StoppedAtLoopEndWithSomeTaken;
+                                let discarded = self.stage(gpu_context, staging_settings, discard_past);
+                                return StagingResult::StoppedAtLoopEndWithSomeTaken(discarded);
                             }
                             return StagingResult::StoppedAtLoopEndWithNoneTaken;
                         }
                         taken += 1;
-                        self.prestage();
-                        interval -= self.staged_info.as_ref().unwrap().time_increment;
+                        interval -= self.info_buffer[self.current_index].time_increment;
                     }
                     if taken > 0 {
-                        self.stage(gpu_context, staging_settings);
-                        StagingResult::SomeTaken
+                        let discarded = self.stage(gpu_context, staging_settings, discard_past);
+                        StagingResult::SomeTaken(discarded)
                     } else {
                         StagingResult::NoneTaken
                     }
                 },
                 Action::StepInTime => {
                     self.next_index(forward, true);
-                    self.prestage();
-                    self.stage(gpu_context, staging_settings);
-                    StagingResult::SomeTaken
+                    self.stage(gpu_context, staging_settings, discard_past);
+                    StagingResult::SteppedInTime
                 },
                 Action::Wait => StagingResult::NoneTaken,
             }
@@ -315,16 +327,11 @@ impl InstanceStore {
     }
 
     pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext,) {
-        self.staged_info = None;
         self.staging_settings = None;
         self.rendered_instances = None;
         self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
         self.current_index = 0;
         self.allow_looping_once = false;
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.staged_info.is_none()
     }
 
     pub fn queue_len(&self) -> usize {

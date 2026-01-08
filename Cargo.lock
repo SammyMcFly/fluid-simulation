@@ -2790,6 +2790,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 name = "rusty_fluid_solver"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bincode",
  "bytemuck",
  "cgmath",
@@ -2799,6 +2800,7 @@ dependencies = [
  "iced_wgpu",
  "iced_widget",
  "iced_winit",
+ "image",
  "nalgebra",
  "num-traits",
  "pollster",

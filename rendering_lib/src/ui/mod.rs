@@ -34,6 +34,8 @@ pub enum UserInput {
     ToggleCutY,
     CutYBoundChanged(f32),
     FlipCutY,
+    DiscardPast,
+    DiscardPastToggle,
     RequestReadback(ReadbackRequest),
 }
 
@@ -58,7 +60,8 @@ impl UIState {
         particle_color: ParticleColor,
         boundary_particle_color: ParticleColor,
         start_resumed: bool,
-        is_rendered: bool
+        is_rendered: bool,
+        discard_past: bool,
     ) -> Self {
         // initialize GUI controls
         let controls = controls::RenderControls::new(
@@ -66,6 +69,7 @@ impl UIState {
             boundary_particle_color,
             start_resumed,
             is_rendered,
+            discard_past,
         );
 
         // initialize iced renderer

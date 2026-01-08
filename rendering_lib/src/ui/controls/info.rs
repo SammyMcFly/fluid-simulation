@@ -121,7 +121,7 @@ impl UIInfo {
     ) -> iced_widget::Column<'_, super::UserInput, Theme, iced_wgpu::Renderer> {
         let view = column![
             row![
-                text("Buffer length: ").color(Color::BLACK),
+                text("Remaining buffer length: ").color(Color::BLACK),
                 text!("{}", self.queue_length).color(Color::BLACK),
             ],
             row![
