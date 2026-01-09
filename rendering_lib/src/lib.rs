@@ -24,6 +24,7 @@ pub mod instances;
 pub mod ui;
 pub mod frame_control;
 pub mod readback;
+pub mod settings;
 
 use model::VertexBufferLayout;
 use model::DrawLight;
@@ -66,6 +67,7 @@ pub struct AppState {
     pub messages: Vec<UserInput>,
     pub frame: frame_control::FrameControl,
     pub screenshot: readback::ReadbackController,
+    pub settings: settings::Settings,
 }
 
 impl AppState {
@@ -76,6 +78,7 @@ impl AppState {
         start_time: Option<f64>,
         finish_time: Option<f64>,
         discard_past: bool,
+        wait_for_timesteps: bool,
     ) -> Result<Self, tobj::LoadError> {
         let window_arc = Arc::new(window);
 
@@ -119,6 +122,8 @@ impl AppState {
 
         let screenshot = ReadbackController::new(&gpu, size, rendering_dir, start_time, finish_time);
 
+        let settings = settings::Settings::new(wait_for_timesteps);
+
         Ok(Self {
             window: window_arc,
             viewport,
@@ -132,6 +137,7 @@ impl AppState {
             messages: Vec::new(),
             frame,
             screenshot,
+            settings,
         })
     }
 
@@ -245,9 +251,8 @@ impl AppState {
     /// - rendering ui
     /// - setting time of this rendering
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let next_action = self.frame.get_next_action(self.ui.controls.playback_controls.is_playing());
-        // #[cfg(feature = "logging")]
-        // debug!("next_action: {:?}", next_action);
+        // choose frame
+        let next_action = self.frame.get_next_action(self.ui.controls.is_playing());
 
         let staging_settings = instances::StagingSettings::new(
             self.ui.controls.get_cut().clone(),
@@ -261,33 +266,34 @@ impl AppState {
             &self.gpu,
             &staging_settings,
             next_action,
-            self.ui.controls.playback_controls.plays_forward(),
-            self.ui.controls.loop_control.play_looped(),
-            self.ui.controls.discard_past,
+            self.ui.controls.is_playing_forward(),
+            self.ui.controls.is_playing_looped(),
+            self.ui.controls.is_past_discarded(),
         ) {
             instances::StagingResult::Initialized => {
                 self.frame.rendering_new_sim_state_now();
-                self.frame.steps_discarded(1, self.ui.controls.discard_past);
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
             },
             instances::StagingResult::SteppedInTime => {
                 self.frame.rendering_new_sim_state_now();
                 self.frame.stepped_in_time();
-                self.frame.steps_discarded(1, self.ui.controls.discard_past);
+                self.frame.count_discarded_timesteps(1, self.ui.controls.is_past_discarded());
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
             },
             instances::StagingResult::SomeTaken(discarded) => {
                 self.frame.rendering_new_sim_state_now();
-                self.frame.steps_discarded(discarded, self.ui.controls.discard_past);
+                self.frame.count_discarded_timesteps(discarded, self.ui.controls.is_past_discarded());
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
             },
             instances::StagingResult::StoppedAtLoopEndWithSomeTaken(discarded) => {
                 self.frame.rendering_new_sim_state_now();
-                self.frame.steps_discarded(discarded, self.ui.controls.discard_past);
-                self.ui.controls.playback_controls.pause();
+                self.frame.count_discarded_timesteps(discarded, self.ui.controls.is_past_discarded());
+                if !self.ui.controls.is_past_discarded() || !self.settings.wait_for_timesteps {
+                    self.ui.controls.playback_controls.pause();
+                }
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
             },
@@ -296,7 +302,9 @@ impl AppState {
                     &self.gpu,
                     &staging_settings,
                 );
-                self.ui.controls.playback_controls.pause();
+                if !self.ui.controls.is_past_discarded() || !self.settings.wait_for_timesteps {
+                    self.ui.controls.playback_controls.pause();
+                }
                 self.frame.rendering_new_sim_state_now();
             },
             instances::StagingResult::NoneTaken | instances::StagingResult::NothingToStage => {
@@ -304,14 +312,14 @@ impl AppState {
                     &self.gpu,
                     &staging_settings,
                 );
-                if !self.ui.controls.playback_controls.is_playing() {
+                if !self.ui.controls.is_playing() {
                     self.frame.rendering_new_sim_state_now();
                 }
             },
             instances::StagingResult::Uninitialized => (),
 
         }
-        self.ui.update_time_step_info(self.instances.get_info(), self.instances.queue_len());
+        self.ui.update_time_step_info(self.instances.get_info(), self.instances.remaining_buffer_len());
 
         self.screenshot.update_rendering_status(
             self.ui.controls.info.time,

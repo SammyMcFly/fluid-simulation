@@ -78,11 +78,11 @@ impl PlaybackControls {
         self.state.is_playing()
     }
 
-    pub fn plays_forward(&self) -> bool {
+    pub fn is_playing_forward(&self) -> bool {
         matches!(self.direction, PlaybackDirection::Forward)
     }
 
-    pub fn view(&self) -> row::Row<'_, UserInput> {
+    pub fn view(&self, discard_past: bool) -> row::Row<'_, UserInput> {
         let play_forward = row![
             button("Play forward")
             .on_press(UserInput::PlayForward).height(28),
@@ -108,17 +108,26 @@ impl PlaybackControls {
             .on_press(UserInput::StepBackward).height(28),
         ];
 
-        if self.is_playing() && self.plays_forward() {
+        if self.is_playing() && self.is_playing_forward() && discard_past {
+            row![
+                pause,
+            ].spacing(10)
+        } else if self.is_playing() && self.is_playing_forward() { // not discard_past
             row![
                 pause,
                 play_backward,
             ].spacing(10)
-        } else if self.is_playing() { // !self.plays_forward()
+        } else if self.is_playing() { // not self.plays_forward()
             row![
                 pause,
                 play_forward,
             ].spacing(10)
-        } else {
+        } else if discard_past { // not self.is_playing()
+            row![
+                play_forward,
+                step_forward,
+            ].spacing(10)
+        } else {// not self.is_playing() && not discard_past
             row![
                 step_backward,
                 play_forward,
@@ -130,22 +139,51 @@ impl PlaybackControls {
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub struct LoopControl {
-    state: bool,
+pub struct BufferControl {
+    discard_past: bool,
+    play_looped: bool,
 }
 
-impl LoopControl {
-    pub fn toggle(&mut self) {
-        self.state = !self.state;
+impl BufferControl {
+    pub fn new(discard_past: bool) -> Self {
+        Self { discard_past, play_looped: false }
     }
 
-    pub fn play_looped(&self) -> bool {
-        self.state
+    pub fn toggle_looped(&mut self) {
+        self.play_looped = !self.play_looped;
     }
 
-    pub fn view(&self) -> Toggler<'_, UserInput> {
-        Toggler::new(self.state)
-            .label("Loop")
-            .on_toggle(|_| UserInput::ToggleLooping)
+    pub fn toggle_discard_past(&mut self) {
+        self.discard_past = !self.discard_past;
+    }
+
+    pub fn is_playing_looped(&self) -> bool {
+        if self.discard_past {
+            false
+        } else {
+            self.play_looped
+        }
+    }
+
+    pub fn is_past_discarded(&self) -> bool {
+        self.discard_past
+    }
+
+    pub fn view(&self) -> row::Row<'_, UserInput> {
+        let buffer_control = row![
+            Toggler::new(self.discard_past)
+                .label("Discard past ")
+                .on_toggle(|_| UserInput::DiscardPastToggle),
+        ];
+        if !self.discard_past {
+            let buffer_control = buffer_control.push(
+                button("Dicard now").on_press(UserInput::DiscardPast).height(28),
+            );
+            buffer_control.push(Toggler::new(
+                self.play_looped).label("Loop").on_toggle(|_| UserInput::ToggleLooping),
+            )
+        } else {
+            buffer_control
+        }
     }
 }

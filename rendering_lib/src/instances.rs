@@ -326,7 +326,10 @@ impl InstanceStore {
         }
     }
 
-    pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext,) {
+    pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext, clear_buffer: bool) {
+        if clear_buffer {
+            self.info_buffer.clear();
+        }
         self.staging_settings = None;
         self.rendered_instances = None;
         self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
@@ -334,7 +337,7 @@ impl InstanceStore {
         self.allow_looping_once = false;
     }
 
-    pub fn queue_len(&self) -> usize {
+    pub fn remaining_buffer_len(&self) -> usize {
         self.info_buffer.len()-(self.current_index+1)
     }
 }

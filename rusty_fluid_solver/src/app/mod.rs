@@ -25,6 +25,7 @@ use rendering::Simulator;
 
 
 const DISCARD_PAST: bool = true;
+const WAIT_FOR_TIMESTEPS: bool = true;
 
 
 /// Application does:
@@ -83,6 +84,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             self.args.start_time,
             self.args.finish_time,
             DISCARD_PAST,
+            WAIT_FOR_TIMESTEPS,
         ) {
             Ok(state) => self.state = Some(state),
             Err(e) => panic!("Failed to load sphere: {}", e),
@@ -140,11 +142,11 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                 self.state.as_mut().unwrap().new_simulation(sim_info.clone());
                 // tell backend to simulate and return "buffer_length_limit" number
                 // of states in time,
-                // minus 1 for the initial state that is sent immediately, anyway,
-                // any will be registered as new state:
-                // it will be dequeued and a replacement will be requested automatically
+                // // minus 1 for the initial state that is sent immediately, anyway,
+                // // any will be registered as new state:
+                // // it will be dequeued and a replacement will be requested automatically
                 self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
-                    sim_info.buffer_length_limit-1
+                    sim_info.buffer_length_limit
                 )).unwrap();
             },
             WorkerMessage::SavedScreenshot => (),
@@ -155,11 +157,11 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                     state.continue_after_reset(sim_info.clone());
                     // tell backend to simulate and return "buffer_length_limit" number
                     // of states in time,
-                    // minus 1 for the initial state that is sent immediately, anyway,
-                    // any will be registered as new state:
-                    // it will be dequeued and a replacement will be requested automatically
+                    // // minus 1 for the initial state that is sent immediately, anyway,
+                    // // any will be registered as new state:
+                    // // it will be dequeued and a replacement will be requested automatically
                     self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
-                        sim_info.buffer_length_limit-1
+                        sim_info.buffer_length_limit
                     )).unwrap();
                 }
             },

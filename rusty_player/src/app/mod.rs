@@ -25,6 +25,7 @@ use rendering::Player;
 
 
 const DISCARD_PAST: bool = false;
+const WAIT_FOR_TIMESTEPS: bool = false;
 
 
 /// Application does:
@@ -74,6 +75,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             self.args.start_time,
             self.args.finish_time,
             DISCARD_PAST,
+            WAIT_FOR_TIMESTEPS,
         ) {
             Ok(state) => self.state = Some(state),
             Err(e) => panic!("Failed to load sphere: {}", e),

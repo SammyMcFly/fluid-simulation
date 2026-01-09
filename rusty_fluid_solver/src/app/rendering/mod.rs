@@ -78,7 +78,7 @@ impl Simulator for AppState {
                 UserInput::PlayForward => {
                     self.frame.reset_steps();
                     if self.instances.finished_loop(true) {
-                        self.instances.allow_looping_once(self.ui.controls.loop_control.play_looped());
+                        self.instances.allow_looping_once(self.ui.controls.is_playing_looped());
                     }
                     debug!("Play forward!");
                     // control is update in ui.update not here
@@ -86,7 +86,7 @@ impl Simulator for AppState {
                 UserInput::PlayBackward => {
                     self.frame.reset_steps();
                     if self.instances.finished_loop(false) {
-                        self.instances.allow_looping_once(self.ui.controls.loop_control.play_looped());
+                        self.instances.allow_looping_once(self.ui.controls.is_playing_looped());
                     }
                     debug!("Play backward!");
                     // control is update in ui.update not here
@@ -102,7 +102,7 @@ impl Simulator for AppState {
                 },
                 UserInput::DiscardPast => {
                     let discarded = self.instances.discard_past();
-                    self.frame.steps_discarded(discarded, self.ui.controls.discard_past);
+                    self.frame.count_discarded_timesteps(discarded, true);
                 },
                 _ => (),
             }
@@ -147,8 +147,8 @@ impl Simulator for AppState {
         }
         // self.camera.reset(&self.gpu);
         // self.light.set_light(&self.gpu, sim_info.light_position);
-        self.instances.reset(&self.gpu);
-        self.ui.new_simulation(info);
+        self.instances.reset(&self.gpu, true);
         self.frame.reset();
+        self.ui.new_simulation(info);
     }
 }

@@ -51,7 +51,7 @@ impl Player for AppState {
                     debug!("Pressed Step!");
                 },
                 UserInput::RequestReset => {
-                    self.instances.reset(&self.gpu);
+                    self.instances.reset(&self.gpu, false);
                     self.frame.reset();
                 },
                 UserInput::RequestSaving => {
@@ -70,7 +70,7 @@ impl Player for AppState {
                 UserInput::PlayForward => {
                     self.frame.reset_steps();
                     if self.instances.finished_loop(true) {
-                        self.instances.allow_looping_once(self.ui.controls.loop_control.play_looped());
+                        self.instances.allow_looping_once(self.ui.controls.is_playing_looped());
                     }
                     debug!("Play forward!");
                     // control is update in ui.update not here
@@ -78,7 +78,7 @@ impl Player for AppState {
                 UserInput::PlayBackward => {
                     self.frame.reset_steps();
                     if self.instances.finished_loop(false) {
-                        self.instances.allow_looping_once(self.ui.controls.loop_control.play_looped());
+                        self.instances.allow_looping_once(self.ui.controls.is_playing_looped());
                     }
                     debug!("Play backward!");
                     // control is update in ui.update not here
@@ -94,7 +94,7 @@ impl Player for AppState {
                 },
                 UserInput::DiscardPast => {
                     let discarded = self.instances.discard_past();
-                    self.frame.steps_discarded(discarded, self.ui.controls.discard_past);
+                    self.frame.count_discarded_timesteps(discarded, true);
                 },
                 _ => (),
             }

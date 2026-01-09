@@ -20,13 +20,12 @@ pub mod info;
 #[derive(Debug, Clone)]
 pub struct RenderControls {
     pub playback_controls: PlaybackControls,
-    pub loop_control: LoopControl,
+    pub buffer_control: BufferControl,
+    pub hide_boundary: bool,
+    pub cut: cut::Cut,
     pub particle_color: ParticleColor,
     pub boundary_particle_color: ParticleColor,
     pub background_color: iced_winit::core::Color,
-    pub hide_boundary: bool,
-    pub cut: cut::Cut,
-    pub discard_past: bool,
 
     pub info: info::UIInfo,
 }
@@ -41,13 +40,13 @@ impl RenderControls {
     ) -> Self {
         Self {
             playback_controls: PlaybackControls::new(start_resumed),
-            loop_control: LoopControl::default(),
+            buffer_control: BufferControl::new(discard_past),
+            hide_boundary: false,
+            cut: Cut::default(),
             particle_color,
             boundary_particle_color,
             background_color: Color::WHITE,
-            hide_boundary: false,
-            cut: Cut::default(),
-            discard_past,
+
 
             info: info::UIInfo::new(is_rendered),
         }
@@ -55,6 +54,22 @@ impl RenderControls {
 
     pub fn background_color(&self) -> Color {
         self.background_color
+    }
+
+    pub fn is_playing(&self) -> bool {
+        self.playback_controls.is_playing()
+    }
+
+    pub fn is_playing_forward(&self) -> bool {
+        self.playback_controls.is_playing_forward()
+    }
+
+    pub fn is_playing_looped(&self) -> bool {
+        self.buffer_control.is_playing_looped()
+    }
+
+    pub fn is_past_discarded(&self) -> bool {
+        self.buffer_control.is_past_discarded()
     }
 
     pub fn is_boundary_hidden(&self) -> bool {
@@ -85,7 +100,7 @@ impl RenderControls {
                 self.playback_controls.backward();
             }
             UserInput::ToggleLooping => {
-                self.loop_control.toggle();
+                self.buffer_control.toggle_looped();
             },
             UserInput::ToggleHideBoundary => {
                 self.hide_boundary = !self.hide_boundary
@@ -109,7 +124,7 @@ impl RenderControls {
                 self.cut.y_flip();
             }
             UserInput::DiscardPastToggle => {
-                self.discard_past = !self.discard_past;
+                self.buffer_control.toggle_discard_past();
             },
             _ => (),
         }
@@ -133,6 +148,12 @@ impl RenderControls {
     }
 
     pub fn view(&self) -> Element<'_, UserInput, Theme, iced_wgpu::Renderer> {
+        let hide_boundary = row![
+            Toggler::new(self.hide_boundary)
+                .label("Hide boundary")
+                .on_toggle(|_| UserInput::ToggleHideBoundary),
+        ];
+
         let reset_cam = row![
             button("Reset Camera")
             .on_press(UserInput::RequestCameraReset).height(28),
@@ -153,31 +174,16 @@ impl RenderControls {
             .on_press(UserInput::RequestScreenshot).height(28),
         ];
 
-        let hide_boundary = row![
-            Toggler::new(self.hide_boundary)
-                .label("Hide boundary")
-                .on_toggle(|_| UserInput::ToggleHideBoundary),
-        ];
-
-        let forget_past = row![
-            Toggler::new(self.discard_past)
-                .label("Discard past ")
-                .on_toggle(|_| UserInput::DiscardPastToggle),
-            button("Dicard now")
-                .on_press(UserInput::DiscardPast).height(28)
-        ];
-
         // build ui controls
         let ui_controls = column![
-            self.playback_controls.view(),
-            self.loop_control.view(),
+            self.playback_controls.view(self.is_past_discarded()),
+            self.buffer_control.view(),
+            hide_boundary,
+            self.cut.view(),
             reset_cam,
             reset,
             save_state,
             screenshot,
-            hide_boundary,
-            self.cut.view(),
-            forget_past,
         ]
         .spacing(10);
 

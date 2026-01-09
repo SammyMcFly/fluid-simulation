@@ -13,10 +13,10 @@ pub mod setup;
 pub mod sph;
 
 
-// #[cfg(all(feature = "local_pressure", feature = "global_pressure"))]
-// compile_error!("Only one of the features `local_pressure` and `global_pressure` can be activated at the same time.");
-// #[cfg(all(not(feature = "local_pressure"), not(feature = "global_pressure")))]
-// compile_error!("One of the features `local_pressure` and `global_pressure` must be activated.");
+#[cfg(all(feature = "local_pressure", feature = "global_pressure"))]
+compile_error!("Only one of the features `local_pressure` and `global_pressure` can be activated at the same time.");
+#[cfg(all(not(feature = "local_pressure"), not(feature = "global_pressure")))]
+compile_error!("One of the features `local_pressure` and `global_pressure` must be activated.");
 
 
 

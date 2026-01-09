@@ -68,7 +68,7 @@ impl FrameControl {
         self.steps_to_do = self.steps_to_do.saturating_sub(1);
     }
 
-    pub fn steps_discarded(&mut self, number: usize, discard_past: bool) {
+    pub fn count_discarded_timesteps(&mut self, number: usize, discard_past: bool) {
         if discard_past {
             self.time_steps_discarded += number;
         }
