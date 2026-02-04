@@ -3,7 +3,7 @@
 use nalgebra::Vector3;
 use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
-use super::particle::{Positional, ParticleQ3};
+use super::particle::{Positional, ParticleQ3, Disableable};
 use super::distance;
 
 

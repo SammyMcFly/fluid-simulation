@@ -154,6 +154,10 @@ pub trait Initializable {
     ) -> Self;
 }
 
+pub trait Disableable {
+    fn is_enabled(&self) -> bool;
+}
+
 
 // # 3D Implementation
 
@@ -302,6 +306,12 @@ impl Initializable for Particle3D {
     }
 }
 
+impl Disableable for Particle3D {
+    fn is_enabled(&self) -> bool {
+        !self.disabled
+    }
+}
+
 impl Particle3D {
     pub fn set_neighbors(&mut self, neighbors: Vec<usize>) {
         self.neighbors = neighbors;
@@ -309,10 +319,6 @@ impl Particle3D {
 
     pub fn set_boundary_neighbors(&mut self, boundary_neighbors: Vec<usize>) {
         self.boundary_neighbors = boundary_neighbors;
-    }
-
-    pub fn is_enabled(&self) -> bool {
-        !self.disabled
     }
 
     pub fn disable(&mut self) {

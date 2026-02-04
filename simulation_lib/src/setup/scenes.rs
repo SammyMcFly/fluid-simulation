@@ -1,4 +1,3 @@
-use cgmath::Zero;
 use serde::Deserialize;
 use nalgebra::Vector3;
 use super::super::sph::particle::Initializable;
@@ -81,7 +80,7 @@ impl Scene for NoLidCube {
                             || y > (self.boundary_particles.y_offset + ((self.boundary_particles.n_floor_particles_y as f64 - 1.) - self.boundary_particles.y_wall_thickness as f64) * self.boundary_particles.particle_spacing) {
                         let boundary_particle = BoundaryParticle3D::new(
                             [Vector3::new(x, y, z), Vector3::zeros()],
-                            Vector3::zero(),
+                            Vector3::zeros(),
                             0., // still needs to be initialized
                         );
                         boundary_particles.push(boundary_particle);

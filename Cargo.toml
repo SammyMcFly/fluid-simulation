@@ -7,3 +7,4 @@ members = [
     "simulation_lib",
 ]
 resolver = "3"
+
