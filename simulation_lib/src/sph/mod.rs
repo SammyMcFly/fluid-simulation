@@ -512,14 +512,14 @@ impl System3D {
 
     /// reset acceleration, i. e. set it to 0.
     fn reset_acceleration(&mut self) {
-        self.particles.for_each_enabled(|_i, particle, imm_particles| {
+        self.particles.for_each_enabled(|_i, particle, _imm_particles| {
             particle.set_acc(Vector3::zeros());
         });
     }
 
     /// Add gravity acceleration to all not boundary particles
     fn add_gravity(&mut self) {
-        self.particles.for_each_enabled(|_i, particle, imm_particles| {
+        self.particles.for_each_enabled(|_i, particle, _imm_particles| {
             let strength_of_gravity = 9.81;
             // gravitate downwards
             let acc = Vector3::new(0.0, 0.0, -strength_of_gravity);
@@ -807,6 +807,7 @@ impl System3D {
         self.particles.for_each_enabled(|_i, particle, imm_particles| {
             // calc intermediate variables
             let mut sum_fluid = Vector3::zeros();
+            let mut sum_fluid2 = 0.;
             for &neighbor in &particle.neighbors {
                 // select positions
                 let particle_pos = if with_pred_positions {
@@ -826,6 +827,16 @@ impl System3D {
                         &fluid_neighbor_pos,
                         self.parameters.smoothing_length,
                     );
+
+                sum_fluid2 -= self.parameters.time_increment.powi(2)
+                    *particle.volume()
+                    *imm_particles[neighbor].volume().powi(2)
+                    /imm_particles[neighbor].mass()
+                    *(self.parameters.kernel_gradient_fn)(
+                        &particle_pos,
+                        &fluid_neighbor_pos,
+                        self.parameters.smoothing_length,
+                    ).norm_squared();
             }
             let mut sum_boundary = Vector3::zeros();
             for &boundary_neighbor in &particle.boundary_neighbors {
@@ -848,35 +859,9 @@ impl System3D {
             // calc intermediate variable c_f
             let c_f = -particle.volume()/particle.mass()*(sum_fluid + 2.*weighting*sum_boundary);
             // use intermediate variables to calc a_ff
-            let mut acc = 0.;
-            acc += self.parameters.time_increment.powi(2)*c_f.dot(&(sum_fluid + sum_boundary));
-            for &neighbor in &particle.neighbors {
-                // select positions
-                let particle_pos = if with_pred_positions {
-                    particle.pos().pred()
-                } else {
-                    particle.pos().now()
-                };
-                let fluid_neighbor_pos = if with_pred_positions {
-                    imm_particles[neighbor].pos().pred()
-                } else {
-                    imm_particles[neighbor].pos().now()
-                };
+            particle.a_ff = self.parameters.time_increment.powi(2)*c_f.dot(&(sum_fluid + sum_boundary)) + sum_fluid2;
 
-                acc -= self.parameters.time_increment.powi(2)
-                    *particle.volume()
-                    *imm_particles[neighbor].volume().powi(2)
-                    /imm_particles[neighbor].mass()
-                    *(self.parameters.kernel_gradient_fn)(
-                        &particle_pos,
-                        &fluid_neighbor_pos,
-                        self.parameters.smoothing_length,
-                    ).norm_squared();
-            }
-            particle.a_ff = acc;
-        });
-        // initialize pressure with fixed result of first solver iteration
-        self.particles.for_each_enabled(|_i, particle, _imm_particles| {
+            // initialize pressure with fixed result of first solver iteration
             // Update pressure
             if particle.a_ff > self.parameters.min_diagonal_element
                     || particle.a_ff < -self.parameters.min_diagonal_element {
