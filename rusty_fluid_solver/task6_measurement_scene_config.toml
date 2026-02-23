@@ -10,10 +10,10 @@ disable_particles_below = -30
 fluid_viscosity = 0.2
 boundary_viscosity = 0.2
 boundary_pressure_acceleration_weighting = 0.7 # gamma
-boundary_volume_weighting = 1.0 # gamma
+boundary_rest_volume_weighting = 1.0 # gamma
 
 # local pressure
-stiffness = 2560000000.0 # k
+stiffness = 40000000.0 # k
 # global pressure
 # solver_iterations = 5 # deprecated
 target_density_error = 0.1 # in percent

@@ -11,17 +11,18 @@ rendering_lib = { path = "../rendering_lib", default-features = false }
 # Default-Features: werden automatisch aktiv, wenn nichts anderes angegeben ist
 # default = ["logging", "local_pressure", "pseudo_volume_boundary"]
 # default = ["logging", "parallelized_sph", "local_pressure", "pseudo_volume_boundary"]
+# default = ["logging", "parallelized_sph", "splitting", "pseudo_volume_boundary"]
 # default = ["logging", "parallelized_sph", "local_pressure", "optimized_source_term", "pseudo_volume_boundary"]
 # default = ["logging", "global_pressure", "pseudo_volume_boundary"]
 # default = ["logging", "global_pressure", "optimized_source_term", "pseudo_volume_boundary"]
 default = ["logging", "parallelized_sph", "global_pressure", "pseudo_volume_boundary"]
 # default = ["logging", "parallelized_sph", "global_pressure", "optimized_source_term", "pseudo_volume_boundary"]
-#, "cfl_time_step"] # "parallelized_sph",
+#, "cfl_time_step"]
 
 logging = ["simulation_lib/logging", "rendering_lib/logging"]
 parallelized_sph = ["simulation_lib/parallelized_sph"]
-implicit_euler = ["simulation_lib/implicit_euler"]
-springs = ["simulation_lib/springs"]
+implicit_euler = ["simulation_lib/implicit_euler"] # does not work yet
+springs = ["simulation_lib/springs"] # does not work yet
 pseudo_volume_boundary = ["simulation_lib/pseudo_volume_boundary"]
 local_pressure = ["simulation_lib/local_pressure"]
 splitting = ["simulation_lib/splitting"]
