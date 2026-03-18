@@ -12,7 +12,6 @@ rendering_lib = { path = "../rendering_lib", default-features = false }
 # default = ["logging", "local_pressure", "pseudo_volume_boundary"]
 # default = ["logging", "parallelized_sph", "local_pressure", "pseudo_volume_boundary"]
 # default = ["logging", "parallelized_sph", "splitting", "pseudo_volume_boundary"]
-# default = ["logging", "parallelized_sph", "local_pressure", "optimized_source_term", "pseudo_volume_boundary"]
 # default = ["logging", "global_pressure", "pseudo_volume_boundary"]
 # default = ["logging", "global_pressure", "optimized_source_term", "pseudo_volume_boundary"]
 default = ["logging", "parallelized_sph", "global_pressure", "pseudo_volume_boundary"]

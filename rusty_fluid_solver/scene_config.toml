@@ -21,7 +21,7 @@ relaxation_factor = 0.6 # omega
 min_diagonal_element = 1e-25 # epsilon
 
 # constant time step
-time_increment = 0.01
+time_increment = 0.006
 # cfl time step
 max_time_increment = 0.015
 cfl_number = 0.4
@@ -33,9 +33,9 @@ position = [ 2.0, 2.0, 100.0 ] # (not hot swappable)
 type = "NoLidCube"
 
 [scene.parameters.particles]
-n_particles_x = 20
-n_particles_y = 20
-n_particles_z = 40
+n_particles_x = 15
+n_particles_y = 15
+n_particles_z = 20
 x_offset = -0.0
 y_offset = -0.0
 z_offset = 0.0
@@ -44,10 +44,10 @@ particle_spacing = 0.85
 [scene.parameters.boundary_particles]
 n_floor_particles_x = 30
 n_floor_particles_y = 30
-n_floor_particles_z = 2
-wall_height = 50 # wall is at the edge but above floor
-x_wall_thickness = 2
-y_wall_thickness = 2
+n_floor_particles_z = 1
+wall_height = 30 # wall is at the edge but above floor
+x_wall_thickness = 1
+y_wall_thickness = 1
 x_offset = -2.0
 y_offset = -2.0
 z_offset = -3.0

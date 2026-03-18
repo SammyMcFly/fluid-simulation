@@ -33,7 +33,7 @@ struct Args {
     /// File path to input .toml file with scene info
     // #[arg(default_value_t=String::from("scene_config.toml"))]
     config: Option<String>,
-    /// File path to file with state of all particles of a system, where to start simulating from
+    /// File path to file with state of all fluid particles of a system, where to start simulating from
     #[arg(long)]
     state: Option<String>,
     /// File path to store measurements to (.csv file)
@@ -45,10 +45,10 @@ struct Args {
     /// File path to store rendered images to (.png files)
     #[arg(long,)]
     rendering_dir: Option<String>,
-    /// Time, which the first measurement/recording is taken at
+    /// Time, which measurement/recording/rendering is started at
     #[arg(short, long,)]
     start_time: Option<f64>,
-    /// Time, which the final measurement/recording is taken at
+    /// Time, which measurement/recording/rendering is terminated at
     ///
     /// At the same time the simulation is paused. Currently there is no possibility to resume the simulation.
     #[arg(short, long,)]

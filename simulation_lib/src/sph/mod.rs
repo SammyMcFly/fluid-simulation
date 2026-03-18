@@ -30,6 +30,11 @@ use crate::setup;
 
 
 
+use std::error::Error;
+use std::collections::HashMap;
+use std::fs::File;
+
+
 /// Calculate the distance between two 3D points
 pub fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
     (to - from).norm()
@@ -83,7 +88,7 @@ pub trait ParallelForEachEnabled<T> {
     fn for_each_enabled<F>(&mut self, f: F)
     where
         T: Disableable + Clone,
-        F: Fn(&mut T, &[T]);
+        F: Fn(usize, &mut T, &[T]);
 }
 
 #[cfg(not(feature = "parallelized_sph"))]
@@ -91,12 +96,12 @@ impl<T> ParallelForEachEnabled<T> for [T] {
     fn for_each_enabled<F>(&mut self, f: F)
     where
         T: Disableable + Clone,
-        F: Fn(&mut T, &[T]),
+        F: Fn(usize, &mut T, &[T]),
     {
         let data_immutable = self.to_vec();
-        self.iter_mut().for_each(|particle| {
+        self.iter_mut().enumerate().for_each(|(i, particle)| {
             if particle.is_enabled() {
-                f(particle, data_immutable.as_slice())
+                f(i, particle, data_immutable.as_slice())
             }
         });
     }
@@ -193,6 +198,7 @@ pub struct SystemParameters {
     #[cfg(feature = "local_pressure")]
     stiffness: f64,
     #[cfg(feature = "global_pressure")]
+    // solver_iterations: u32,
     target_density_error: f64,
     #[cfg(feature = "global_pressure")]
     relaxation_factor: f64,
@@ -252,6 +258,7 @@ impl SystemParameters {
             #[cfg(feature = "local_pressure")]
             stiffness,
             #[cfg(feature = "global_pressure")]
+            // solver_iterations,
             target_density_error,
             #[cfg(feature = "global_pressure")]
             relaxation_factor,
@@ -391,6 +398,77 @@ impl System3D {
         }
         average_kin_energy
     }
+
+    // fn save_pressure_profile(&self) -> Result<(), Box<dyn Error>> {
+    //     let mut bin_daten: HashMap<i32, (f64, u32)> = HashMap::new();
+
+    //     for particle in &self.particles {
+    //         if particle.is_enabled() {
+    //             let rounded: f64 = particle.pos_now().z.round();
+    //             let bin = rounded as i32;
+    //             let entry = bin_daten.entry(bin).or_insert((0.0, 0));
+    //             entry.0 += particle.pressure();
+    //             entry.1 += 1;
+    //         }
+    //     }
+
+    //     let file = File::create(format!("pressure_profile_at_time_{}.csv", self.time()))?;
+    //     let mut writer = csv::Writer::from_writer(file);
+
+    //     writer.write_record(["Bin", "Average", "Count"])?;
+
+    //     // Sort
+    //     let mut sorted_bins: Vec<_> = bin_daten.into_iter().collect();
+    //     sorted_bins.sort_by_key(|k| k.0);
+
+    //     for (bin, (summe, anzahl)) in sorted_bins {
+    //         let average = summe / anzahl as f64;
+    //         writer.write_record(&[
+    //             bin.to_string(),
+    //             format!("{}", average),
+    //             anzahl.to_string(),
+    //         ])?;
+    //     }
+
+    //     writer.flush()?;
+    //     Ok(())
+    // }
+
+    // fn save_kinetic_energy_profile(&self) -> Result<(), Box<dyn Error>> {
+    //     let mut bin_daten: HashMap<i32, (f64, u32)> = HashMap::new();
+
+    //     for particle in &self.particles {
+    //         if particle.is_enabled() {
+    //             let kin_energy = 1./2.*particle.mass()*particle.vel().now().norm_squared();
+    //             let rounded: f64 = particle.pos_now().z.round();
+    //             let bin = rounded as i32;
+    //             let entry = bin_daten.entry(bin).or_insert((0.0, 0));
+    //             entry.0 += kin_energy;
+    //             entry.1 += 1;
+    //         }
+    //     }
+
+    //     let file = File::create(format!("kin_energy_profile_at_time_{}.csv", self.time()))?;
+    //     let mut writer = csv::Writer::from_writer(file);
+
+    //     writer.write_record(["Bin", "Average", "Count"])?;
+
+    //     // Sort
+    //     let mut sorted_bins: Vec<_> = bin_daten.into_iter().collect();
+    //     sorted_bins.sort_by_key(|k| k.0);
+
+    //     for (bin, (summe, anzahl)) in sorted_bins {
+    //         let average = summe / anzahl as f64;
+    //         writer.write_record(&[
+    //             bin.to_string(),
+    //             format!("{}", average),
+    //             anzahl.to_string(),
+    //         ])?;
+    //     }
+
+    //     writer.flush()?;
+    //     Ok(())
+    // }
 
     /// Calculate average mass density for all fluid particles
     fn calc_average_mass_density(&self) -> f64 {
@@ -1081,6 +1159,7 @@ impl System3D {
             // solve pressure equation system
             self.resolve_pressure_globally(
                 false,
+                // TerminationCondition::AfterIteration(self.parameters.solver_iterations),
                 TerminationCondition::TargetDensityError(self.parameters.target_density_error),
                 true,
             );
@@ -1108,7 +1187,7 @@ impl System3D {
             // solve pressure equation system
             self.resolve_pressure_globally(
                 false,
-                TerminationCondition::AfterIteration(20),
+                TerminationCondition::AfterIteration(3),
                 // TerminationCondition::TargetDensityError(self.parameters.target_density_error),
                 true,
             );
@@ -1166,11 +1245,11 @@ impl System3D {
                             self.parameters.smoothing_length,
                         ));
                 }
-                // calculate and set new velocity as pressure_acc_f to avoid race condition on .vel().pred()
-                // particle.pressure_acc_f = particle.vel().pred() + jac_vel*(new_pos - particle.pos().pred());
-                // particle.pressure_acc_f = particle.vel().pred() + jac_vel*(new_pos - particle.pos().pred()) + self.parameters.time_increment*particle.acc(); // TODO remove
-                particle.pressure_acc_f = particle.vel().pred(); // TODO remove
-                // particle.pressure_acc_f = particle.vel().pred() + self.parameters.time_increment*particle.acc(); // TODO remove
+                // calculate new velocity and intermediately store it as pressure_acc_f to avoid race condition on .vel().pred()
+                // particle.pressure_acc_f = particle.vel().pred() + jac_vel*(new_pos - particle.pos().pred()); // original "optimized source term" approach
+                // particle.pressure_acc_f = particle.vel().pred() + jac_vel*(new_pos - particle.pos().pred()) + self.parameters.time_increment*particle.acc(); // TODO test
+                // particle.pressure_acc_f = particle.vel().pred(); // TODO test
+                particle.pressure_acc_f = particle.vel().pred() + self.parameters.time_increment*particle.acc(); // DFSPH approach
                 // store new position in predicted position
                 particle.set_pred_pos(new_pos);
             });
@@ -1353,6 +1432,11 @@ impl System3D {
         self.parameters.set_cfl_time_step(max_speed);
         #[cfg(all(feature = "logging", not(feature = "cfl_time_step")))]
         debug!("cfl number: {}", self.parameters.time_increment*max_speed/self.parameters.rest_density_grid_spacing);
+        // // take and store additional measurements
+        // if self.time() >= 2.0 && self.time() < 2.1 {
+        //     let _ = self.save_pressure_profile();
+        //     let _ = self.save_kinetic_energy_profile();
+        // }
     }
 
     /// Measure (physical) quantities at current time step
@@ -1382,6 +1466,7 @@ impl System3D {
             #[cfg(feature = "local_pressure")]
             target_density_error: 0.,
             #[cfg(feature = "global_pressure")]
+            // target_density_error: 0.,
             target_density_error: self.parameters.target_density_error,
             #[cfg(feature = "local_pressure")]
             solver_iterations: 0,

@@ -29,7 +29,7 @@ pub fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std:
         std::fs::create_dir_all(file_path_parent.clone())?;
         info!("Created directory: {}", file_path_parent.display());
     } else if global_file_path.exists() { // Throw an error if file already exist
-        error!("File already exists: {}", file_path_parent.display());
+        error!("File already exists: {}", global_file_path.display());
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
     }
 

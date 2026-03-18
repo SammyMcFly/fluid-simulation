@@ -12,19 +12,25 @@ boundary_viscosity = 0.2
 boundary_pressure_acceleration_weighting = 0.7 # gamma
 boundary_rest_volume_weighting = 1.0 # gamma
 
-# local pressure
-stiffness = 40000000.0 # k
-# global pressure
-# solver_iterations = 5 # deprecated
-target_density_error = 0.1 # in percent
-relaxation_factor = 0.5 # omega
-min_diagonal_element = 1e-25 # epsilon
-
 # constant time step
-time_increment = 0.005
+time_increment = 0.01
 # cfl time step
 max_time_increment = 0.01
 cfl_number = 0.4
+
+# local pressure
+stiffness = 80000000.0 # k
+# global pressure
+# solver_iterations = 10 # deprecated
+target_density_error = 0.1 # in percent
+relaxation_factor = 0.5 # omega
+min_diagonal_element = 1e-12 # epsilon
+
+# [parameters.termination_condition]
+# type = "AfterIteration"
+# value = 5
+# # type = "TargetDensityError"
+# # value = 0.1 # in percent
 
 [light]
 position = [ 2.0, 2.0, 50.0 ] # (not hot swappable)
@@ -35,7 +41,7 @@ type = "NoLidCube"
 [scene.parameters.particles]
 n_particles_x = 9
 n_particles_y = 9
-n_particles_z = 50 # 50
+n_particles_z = 25 # 25, 50
 x_offset = 0.9
 y_offset = 0.9
 z_offset = 0.9
