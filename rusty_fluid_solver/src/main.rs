@@ -1,18 +1,9 @@
-//! # Rusty fluid solver
-//!
-//! Sketched fluid solver aiming to be powerful
-//!
-//! BUGS:
-//! -
-//!
-//! IDEAS:
-//! -
-//!
-//! DONE:
-//! -
-//!
-//! flamegraph profiling:
-//! - cargo flamegraph -- ./scene_config.toml
+/// # Rusty fluid solver
+///
+/// Fluid solver aiming to be powerful
+///
+/// flamegraph profiling:
+/// - cargo flamegraph -- ./scene_config.toml
 use clap::Parser;
 use iced_winit::winit::event_loop::{ControlFlow, EventLoop};
 
@@ -26,7 +17,7 @@ use app::messages::WorkerMessage;
 
 
 
-/// Simple fluid solver written in rust
+/// Simple fluid solver written in rust.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {

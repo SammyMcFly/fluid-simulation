@@ -1,8 +1,8 @@
-//! ## Physics based simulation backend
-//!
-//! Contains all necessary components to initialize a scene and simulate the trajectories
-//! of its containing particles by propagating the system time.
-//!
+/// # Core SPH simulation
+///
+/// Contains the simulated system, the information of the individual samples
+/// and provides the methods for propagating the system in time.
+///
 use bincode::Decode;
 use bincode::Encode;
 use nalgebra::{Vector3, Matrix3};

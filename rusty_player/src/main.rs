@@ -1,16 +1,8 @@
-//! # Rusty player
-//!
-//! Player for recordings of fluid simulations done with rusty fluid solver. This is purely meant for graphical playback.
-//!
-//! BUGS:
-//! -
-//!
-//! IDEAS:
-//! -
-//!
-//! DONE:
-//! -
-//!
+/// # Rusty player
+///
+/// Player for recordings of fluid simulations done with rusty fluid solver.
+/// This is purely meant for graphical playback.
+///
 use clap::Parser;
 use iced_winit::winit::event_loop::{ControlFlow, EventLoop};
 
@@ -25,7 +17,7 @@ use app::messages::WorkerMessage;
 
 
 
-/// Simple fluid solver written in rust
+/// Program for playing back a recording of an SPH fluid simulation.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {

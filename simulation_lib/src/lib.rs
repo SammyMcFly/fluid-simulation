@@ -1,4 +1,9 @@
-
+/// # Physics based simulation backend
+///
+/// Contains all necessary components to initialize a scene, simulate the trajectories
+/// of its containing samples by propagating the system time and taking measurements
+/// at the simulation.
+///
 use serde::{Serialize, Deserialize};
 use bincode::{Encode, Decode};
 
