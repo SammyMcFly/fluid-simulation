@@ -182,6 +182,24 @@ cargo run --release -p rusty_player -- output/sim.bin \
     --rendering-dir output/frames/ --resume
 ```
 
+## Related Tools
+
+| Tool | Description |
+|------|-------------|
+| [`rusty_measurement_runner`](https://github.com/SammyMcFly/fluid-simulation-automation) | Automates parameter sweeps by executing `rusty_fluid_solver` across predefined combinations of simulation parameters |
+| [`rusty_plotter`](https://github.com/SammyMcFly/fluid-simulation-plotting) | Visualizes `.csv` measurement outputs as 2D/3D plots for analysis and comparison |
+
+### Workflow
+
+```
+rusty_fluid_solver ──► .csv measurement files ──► rusty_plotter ──► plots (.png / .svg)
+        ▲
+        │
+rusty_measurement_runner (automates parameter sweeps)
+```
+
+Both tools are designed to work with the `.csv` measurement files produced by the `--measurement-file` flag.
+
 ## Dependencies
 
 | Crate | Purpose |
