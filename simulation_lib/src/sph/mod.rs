@@ -22,7 +22,7 @@ pub mod spring;
 #[cfg(feature = "springs")]
 use spring::*;
 
-pub mod uniform_grid;
+pub mod neighbor_search;
 
 use crate::TimeStepInfo;
 use crate::measurement;
@@ -284,13 +284,13 @@ pub struct System3D {
     /// Uniform grid for fluid particles
     ///
     /// Accelerates neighbor search
-    particle_grid: uniform_grid::UniformGrid,
+    particle_grid: neighbor_search::UniformGrid,
     /// Collection of all boundary (not moving) particles
     boundary_particles: Vec<BoundaryParticle3D>,
     /// Uniform grid for boundary particles
     ///
     /// Accelerates neighbor search
-    boundary_particle_grid: uniform_grid::UniformGrid,
+    boundary_particle_grid: neighbor_search::UniformGrid,
     /// Springs connecting different particles
     ///
     /// Spring stores indices of particles connected to via spring force,
@@ -308,8 +308,8 @@ impl System3D {
     pub fn new(
         systemconfig: setup::System3DConfig,
     ) -> Self {
-        let particle_grid = uniform_grid::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
-        let mut boundary_particle_grid = uniform_grid::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
+        let particle_grid = neighbor_search::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
+        let mut boundary_particle_grid = neighbor_search::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
         boundary_particle_grid.populate_boundary_particles(&systemconfig.boundary_particles);
         let mut system = Self {
             particles: systemconfig.particles,
