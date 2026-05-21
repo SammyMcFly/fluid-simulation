@@ -1,13 +1,12 @@
 //! Record states or measurements of the simulation system
 //!
 //!
-use std::path::{Path, PathBuf};
-use std::collections::VecDeque;
 use serde::Serialize;
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "logging")]
-use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
-
+use tracing::{error, info, warn}; // debug, error, info, span, trace, warn,
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum RecordingStatus {
@@ -36,7 +35,6 @@ impl RecordingStatus {
     }
 }
 
-
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Measurement {
     pub time: f64,
@@ -63,7 +61,6 @@ pub struct Measurement {
     pub predicted_density_error: f64,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct MeasurementSeries {
     /// Container for intermediate storage of measurements
@@ -77,24 +74,31 @@ impl MeasurementSeries {
         let file_path = std::path::Path::new(&file_path);
         // convert to global path
         let file_path_parent = std::fs::canonicalize(
-            file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
+            file_path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new(".")),
         )?;
-        let mut global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+        let mut global_file_path =
+            file_path_parent.join(file_path.file_name().expect("No final component found."));
 
-        if !file_path_parent.exists() { // Create the parent directory if it does not exist
+        if !file_path_parent.exists() {
+            // Create the parent directory if it does not exist
             std::fs::create_dir_all(file_path_parent.clone())?;
             #[cfg(feature = "logging")]
             info!("Created directory: {}", file_path_parent.display());
         } else if global_file_path.exists() {
             let immutable_global_file_path = global_file_path.clone();
             let mut counter: u16 = 2;
-            while global_file_path.exists() { // modify file name with added number to make it unique
+            while global_file_path.exists() {
+                // modify file name with added number to make it unique
                 let path = Path::new(&immutable_global_file_path);
                 let stem = path.file_stem().unwrap().to_string_lossy();
-                let ext  = path.extension().unwrap_or_default().to_string_lossy();
+                let ext = path.extension().unwrap_or_default().to_string_lossy();
                 if counter == u16::MAX {
                     #[cfg(feature = "logging")]
-                    error!("File '{}' and all files with the following pattern already exists: {}",
+                    error!(
+                        "File '{}' and all files with the following pattern already exists: {}",
                         format!("{}.{}", stem, ext),
                         format!("{}_#123.{}", stem, ext),
                     );

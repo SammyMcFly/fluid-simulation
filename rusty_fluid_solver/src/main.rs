@@ -15,8 +15,6 @@ mod app;
 
 use app::messages::WorkerMessage;
 
-
-
 /// Simple fluid solver written in rust.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -28,27 +26,27 @@ struct Args {
     #[arg(long)]
     state: Option<String>,
     /// File path to store measurements to (.csv file)
-    #[arg(short, long,)]
+    #[arg(short, long)]
     measurement_file: Option<String>,
     /// File path to store time step info between start_time and end_time to
-    #[arg(long,)]
+    #[arg(long)]
     recording_file: Option<String>,
     /// File path to store rendered images to (.png files)
-    #[arg(long,)]
+    #[arg(long)]
     rendering_dir: Option<String>,
     /// Time, which measurement/recording/rendering is started at
-    #[arg(short, long,)]
+    #[arg(short, long)]
     start_time: Option<f64>,
     /// Time, which measurement/recording/rendering is terminated at
     ///
     /// At the same time the simulation is paused. Currently there is no possibility to resume the simulation.
-    #[arg(short, long,)]
+    #[arg(short, long)]
     finish_time: Option<f64>,
     /// Resume playback at start
-    #[arg(short, long,)]
+    #[arg(short, long)]
     resume: bool,
     /// Exit when finished
-    #[arg(short, long,)]
+    #[arg(short, long)]
     exit: bool,
     /// Log severity level (Options: TRACE, DEBUG, INFO, WARN, ERROR, OFF)
     #[arg(short, long, default_value_t=String::from("INFO"))]
@@ -72,7 +70,7 @@ fn init_logging(args: &Args) {
         // .with_ansi(false)
         // .pretty()
         .finish();
-        // .with(debug_log);
+    // .with(debug_log);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
 }
 

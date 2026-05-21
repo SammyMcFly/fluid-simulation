@@ -1,10 +1,10 @@
-use cgmath::{Matrix4, SquareMatrix, Point3, Rad, Vector3, InnerSpace, perspective};
-use iced_winit::winit;
-use iced_winit::winit::event::{WindowEvent, DeviceEvent};
-use iced_winit::winit::dpi::PhysicalPosition;
-use iced_winit::winit::keyboard::KeyCode;
+use cgmath::{InnerSpace, Matrix4, Point3, Rad, SquareMatrix, Vector3, perspective};
 use iced_wgpu::wgpu;
 use iced_wgpu::wgpu::util::DeviceExt;
+use iced_winit::winit;
+use iced_winit::winit::dpi::PhysicalPosition;
+use iced_winit::winit::event::{DeviceEvent, WindowEvent};
+use iced_winit::winit::keyboard::KeyCode;
 use std::f32::consts::FRAC_PI_2;
 
 #[cfg(feature = "logging")]
@@ -29,11 +29,7 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new<
-        V: Into<Point3<f32>>,
-        Y: Into<Rad<f32>>,
-        P: Into<Rad<f32>>,
-    >(
+    pub fn new<V: Into<Point3<f32>>, Y: Into<Rad<f32>>, P: Into<Rad<f32>>>(
         position: V,
         yaw: Y,
         pitch: P,
@@ -55,11 +51,7 @@ impl Camera {
 
         Matrix4::look_to_rh(
             self.position_in_graphics_coordinates(),
-            Vector3::new(
-                cos_pitch * cos_yaw,
-                sin_pitch,
-                cos_pitch * sin_yaw
-            ).normalize(),
+            Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
             Vector3::unit_y(),
         )
     }
@@ -84,7 +76,10 @@ impl Default for CameraUniform {
 
 impl CameraUniform {
     pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
-        self.view_position = camera.position_in_graphics_coordinates().to_homogeneous().into();
+        self.view_position = camera
+            .position_in_graphics_coordinates()
+            .to_homogeneous()
+            .into();
         self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
     }
 }
@@ -97,13 +92,7 @@ pub struct Projection {
 }
 
 impl Projection {
-    pub fn new<F: Into<Rad<f32>>>(
-        width: u32,
-        height: u32,
-        fovy: F,
-        znear: f32,
-        zfar: f32,
-    ) -> Self {
+    pub fn new<F: Into<Rad<f32>>>(width: u32, height: u32, fovy: F, znear: f32, zfar: f32) -> Self {
         Self {
             aspect: width as f32 / height as f32,
             fovy: fovy.into(),
@@ -156,37 +145,53 @@ impl CameraController {
     }
 
     pub fn process_keyboard(&mut self, key: KeyCode, state: winit::event::ElementState) {
-        let amount = if state == winit::event::ElementState::Pressed { 100.0 } else { 0.0 };
+        let amount = if state == winit::event::ElementState::Pressed {
+            100.0
+        } else {
+            0.0
+        };
         match key {
             KeyCode::KeyW | KeyCode::ArrowUp => {
                 self.amount_forward = amount;
                 #[cfg(feature = "logging")]
-                if state == winit::event::ElementState::Pressed {debug!("Up pressed");}
+                if state == winit::event::ElementState::Pressed {
+                    debug!("Up pressed");
+                }
             }
             KeyCode::KeyS | KeyCode::ArrowDown => {
                 self.amount_backward = amount;
                 #[cfg(feature = "logging")]
-                if state == winit::event::ElementState::Pressed { debug!("Down pressed"); }
+                if state == winit::event::ElementState::Pressed {
+                    debug!("Down pressed");
+                }
             }
             KeyCode::KeyA | KeyCode::ArrowLeft => {
                 self.amount_left = amount;
                 #[cfg(feature = "logging")]
-                if state == winit::event::ElementState::Pressed { debug!("Left pressed"); }
+                if state == winit::event::ElementState::Pressed {
+                    debug!("Left pressed");
+                }
             }
             KeyCode::KeyD | KeyCode::ArrowRight => {
                 self.amount_right = amount;
                 #[cfg(feature = "logging")]
-                if state == winit::event::ElementState::Pressed { debug!("Right pressed"); }
+                if state == winit::event::ElementState::Pressed {
+                    debug!("Right pressed");
+                }
             }
             KeyCode::Space => {
                 self.amount_up = amount;
                 #[cfg(feature = "logging")]
-                if state == winit::event::ElementState::Pressed { debug!("Space pressed"); }
+                if state == winit::event::ElementState::Pressed {
+                    debug!("Space pressed");
+                }
             }
             KeyCode::ShiftLeft => {
                 self.amount_down = amount;
                 #[cfg(feature = "logging")]
-                if state == winit::event::ElementState::Pressed { debug!("Shift pressed"); }
+                if state == winit::event::ElementState::Pressed {
+                    debug!("Shift pressed");
+                }
             }
             _ => (),
         }
@@ -195,8 +200,8 @@ impl CameraController {
     pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
         // if inverted is set to -1 camera rotation is inverted (if 1 there is no inversion)
         let inversion = -1.;
-        self.rotate_horizontal = (inversion*mouse_dx) as f32;
-        self.rotate_vertical = (inversion*mouse_dy) as f32;
+        self.rotate_horizontal = (inversion * mouse_dx) as f32;
+        self.rotate_vertical = (inversion * mouse_dy) as f32;
     }
 
     pub fn process_scroll(&mut self, delta: &winit::event::MouseScrollDelta) {
@@ -205,10 +210,9 @@ impl CameraController {
         self.scroll = match delta {
             // I'm assuming a line is about 100 pixels
             winit::event::MouseScrollDelta::LineDelta(_, scroll) => -scroll * 100.0,
-            winit::event::MouseScrollDelta::PixelDelta(PhysicalPosition {
-                y: scroll,
-                ..
-            }) => (-100.0 * (*scroll)) as f32,
+            winit::event::MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => {
+                (-100.0 * (*scroll)) as f32
+            }
         };
     }
 
@@ -300,16 +304,29 @@ impl CameraBundle {
         zfar: f32,
     ) -> Self {
         let camera = Camera::new(position.clone(), yaw.clone(), pitch.clone());
-        let projection = Projection::new(gpu_context.config.width, gpu_context.config.height, fovy.clone(), znear, zfar);
+        let projection = Projection::new(
+            gpu_context.config.width,
+            gpu_context.config.height,
+            fovy.clone(),
+            znear,
+            zfar,
+        );
         let camera_controller = CameraController::new(speed, sensitivity, scroll_speed);
 
         let mut camera_uniform = CameraUniform::default(); // edit?
         camera_uniform.update_view_proj(&camera, &projection);
 
-        let camera_buffer = Self::create_uniform_buffer(gpu_context, camera_uniform, "Camera Buffer");
+        let camera_buffer =
+            Self::create_uniform_buffer(gpu_context, camera_uniform, "Camera Buffer");
 
-        let camera_bind_group_layout = Self::create_bind_group_layout(gpu_context, "camera_bind_group_layout");
-        let camera_bind_group = Self::create_bind_group(gpu_context, &camera_bind_group_layout, &camera_buffer, "camera_bind_group");
+        let camera_bind_group_layout =
+            Self::create_bind_group_layout(gpu_context, "camera_bind_group_layout");
+        let camera_bind_group = Self::create_bind_group(
+            gpu_context,
+            &camera_bind_group_layout,
+            &camera_buffer,
+            "camera_bind_group",
+        );
 
         Self {
             camera,
@@ -329,7 +346,7 @@ impl CameraBundle {
                 fovy: fovy.into(),
                 znear,
                 zfar,
-            }
+            },
         }
     }
 
@@ -338,8 +355,9 @@ impl CameraBundle {
         uniform: T,
         label: &str,
     ) -> wgpu::Buffer {
-        gpu_context.device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
+        gpu_context
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
                 contents: bytemuck::cast_slice(&[uniform]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -350,19 +368,21 @@ impl CameraBundle {
         gpu_context: &super::gpu_context::GpuContext,
         label: &str,
     ) -> wgpu::BindGroupLayout {
-        gpu_context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some(label),
-        })
+        gpu_context
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some(label),
+            })
     }
 
     fn create_bind_group(
@@ -370,18 +390,17 @@ impl CameraBundle {
         bind_group_layout: &wgpu::BindGroupLayout,
         buffer: &wgpu::Buffer,
         label: &str,
-    )
-    -> wgpu::BindGroup {
-        gpu_context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
+    ) -> wgpu::BindGroup {
+        gpu_context
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: buffer.as_entire_binding(),
-                }
-            ],
-            label: Some(label),
-        })
+                }],
+                label: Some(label),
+            })
     }
 
     pub fn process_window_event(&mut self, event: &winit::event::WindowEvent) {
@@ -396,7 +415,7 @@ impl CameraBundle {
                 ..
             } => {
                 self.controller.process_keyboard(*key, *state);
-            },
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.controller.process_scroll(delta);
             }
@@ -404,10 +423,14 @@ impl CameraBundle {
         }
     }
 
-    pub fn process_device_event(&mut self, event: &winit::event::DeviceEvent, mouse_right_button_pressed: bool,) {
+    pub fn process_device_event(
+        &mut self,
+        event: &winit::event::DeviceEvent,
+        mouse_right_button_pressed: bool,
+    ) {
         #[allow(clippy::single_match)]
         match event {
-            DeviceEvent::MouseMotion{ delta, } => {
+            DeviceEvent::MouseMotion { delta } => {
                 if mouse_right_button_pressed {
                     self.controller.process_mouse(delta.0, delta.1);
                 }
@@ -421,26 +444,43 @@ impl CameraBundle {
         gpu_context: &super::gpu_context::GpuContext,
         time_to_last_update: std::time::Duration,
     ) {
-        self.controller.update_camera(&mut self.camera, time_to_last_update);
-        self.uniform.update_view_proj(&self.camera, &self.projection);
-        gpu_context.queue.write_buffer(
-            &self.buffer,
-            0,
-            bytemuck::cast_slice(&[self.uniform]),
-        );
+        self.controller
+            .update_camera(&mut self.camera, time_to_last_update);
+        self.uniform
+            .update_view_proj(&self.camera, &self.projection);
+        gpu_context
+            .queue
+            .write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[self.uniform]));
     }
 
-    pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext,) {
+    pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext) {
         self.camera = Camera::new(self.params.position, self.params.yaw, self.params.pitch);
-        self.projection = Projection::new(gpu_context.config.width, gpu_context.config.height, self.params.fovy, self.params.znear, self.params.zfar);
-        self.controller = CameraController::new(self.params.speed, self.params.sensitivity, self.params.scroll_speed);
+        self.projection = Projection::new(
+            gpu_context.config.width,
+            gpu_context.config.height,
+            self.params.fovy,
+            self.params.znear,
+            self.params.zfar,
+        );
+        self.controller = CameraController::new(
+            self.params.speed,
+            self.params.sensitivity,
+            self.params.scroll_speed,
+        );
 
         self.uniform = CameraUniform::default(); // edit?
-        self.uniform.update_view_proj(&self.camera, &self.projection);
+        self.uniform
+            .update_view_proj(&self.camera, &self.projection);
 
         self.buffer = Self::create_uniform_buffer(gpu_context, self.uniform, "Camera Buffer");
 
-        self.bind_group_layout = Self::create_bind_group_layout(gpu_context, "camera_bind_group_layout");
-        self.bind_group = Self::create_bind_group(gpu_context, &self.bind_group_layout, &self.buffer, "camera_bind_group");
+        self.bind_group_layout =
+            Self::create_bind_group_layout(gpu_context, "camera_bind_group_layout");
+        self.bind_group = Self::create_bind_group(
+            gpu_context,
+            &self.bind_group_layout,
+            &self.buffer,
+            "camera_bind_group",
+        );
     }
 }

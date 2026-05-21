@@ -7,14 +7,16 @@ use serde::Deserialize;
 
 use super::SimulationParameters;
 
-use super::sph::particle::{Particle3D, SerParticle3D, BoundaryParticle3D};
+use super::sph::particle::{BoundaryParticle3D, Particle3D, SerParticle3D};
 #[cfg(feature = "springs")]
 use super::sph::spring::Spring;
-use super::sph::{SystemParameters, CurrentSystemProperties, PropagationMethod, cubic_b_spline_3d, cubic_b_spline_3d_gradient};
+use super::sph::{
+    CurrentSystemProperties, PropagationMethod, SystemParameters, cubic_b_spline_3d,
+    cubic_b_spline_3d_gradient,
+};
 // use super::measure;
 
 use crate::ParticleColor;
-
 
 #[derive(Debug, Deserialize)]
 pub struct Setup {
@@ -100,7 +102,6 @@ trait Scene {
     fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64;
 }
 
-
 pub struct System3DConfig {
     pub particles: Vec<Particle3D>,
     pub boundary_particles: Vec<BoundaryParticle3D>,
@@ -146,7 +147,9 @@ impl System3DConfigConstructor {
             self.config.parameters.disable_particles_below,
             self.config.parameters.fluid_viscosity,
             self.config.parameters.boundary_viscosity,
-            self.config.parameters.boundary_pressure_acceleration_weighting,
+            self.config
+                .parameters
+                .boundary_pressure_acceleration_weighting,
             self.config.parameters.boundary_rest_volume_weighting,
             #[cfg(feature = "local_pressure")]
             self.config.parameters.stiffness,
@@ -158,13 +161,17 @@ impl System3DConfigConstructor {
             #[cfg(feature = "global_pressure")]
             self.config.parameters.min_diagonal_element,
             cubic_b_spline_3d,
-            cubic_b_spline_3d_gradient
+            cubic_b_spline_3d_gradient,
         )
     }
 
     fn get_system_properties(&self) -> CurrentSystemProperties {
         let mut properties = CurrentSystemProperties::default();
-        properties.set_fluid_depth(self.config.scene.calc_fluid_depth(self.config.parameters.rest_density_grid_spacing));
+        properties.set_fluid_depth(
+            self.config
+                .scene
+                .calc_fluid_depth(self.config.parameters.rest_density_grid_spacing),
+        );
         properties
     }
 
@@ -172,8 +179,7 @@ impl System3DConfigConstructor {
         &mut self,
         particles: Vec<Particle3D>,
         boundary_particles: Vec<BoundaryParticle3D>,
-        #[cfg(feature = "springs")]
-        springs: Vec<Spring>,
+        #[cfg(feature = "springs")] springs: Vec<Spring>,
         system_properties: SystemParameters,
         properties: CurrentSystemProperties,
     ) {
@@ -200,11 +206,17 @@ impl System3DConfigConstructor {
         let particles = if let Some(particle_state_file_path) = particle_state_file_path {
             Self::load_particles(particle_state_file_path)?
         } else {
-            constructor.config.scene.get_fluid(constructor.config.parameters.rest_density, constructor.config.parameters.rest_density_grid_spacing)
+            constructor.config.scene.get_fluid(
+                constructor.config.parameters.rest_density,
+                constructor.config.parameters.rest_density_grid_spacing,
+            )
         };
 
         // load boundary
-        let boundary_particles = constructor.config.scene.get_boundary(constructor.config.parameters.rest_density_grid_spacing);
+        let boundary_particles = constructor
+            .config
+            .scene
+            .get_boundary(constructor.config.parameters.rest_density_grid_spacing);
         // load springs
         #[cfg(feature = "springs")]
         let springs = constructor.config.scene.get_springs();
@@ -241,4 +253,3 @@ impl System3DConfigConstructor {
         self.build.unwrap()
     }
 }
-

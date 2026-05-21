@@ -2,7 +2,6 @@
 //!
 //!
 
-
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub wait_for_timesteps: bool,

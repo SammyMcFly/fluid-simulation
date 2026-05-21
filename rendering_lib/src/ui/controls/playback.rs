@@ -1,7 +1,6 @@
-use iced_widget::{row, button, Toggler};
+use iced_widget::{Toggler, button, row};
 
 use crate::ui::UserInput;
-
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum PlaybackState {
@@ -45,13 +44,16 @@ pub struct PlaybackControls {
 }
 
 impl PlaybackControls {
-    pub fn new(start_resumed: bool,) -> Self {
+    pub fn new(start_resumed: bool) -> Self {
         let state = if start_resumed {
             PlaybackState::Resumed
         } else {
             PlaybackState::Paused
         };
-        Self { state, direction: PlaybackDirection::default() }
+        Self {
+            state,
+            direction: PlaybackDirection::default(),
+        }
     }
 
     pub fn play(&mut self) {
@@ -85,55 +87,44 @@ impl PlaybackControls {
     pub fn view(&self, discard_past: bool) -> row::Row<'_, UserInput> {
         let play_forward = row![
             button("Play forward")
-            .on_press(UserInput::PlayForward).height(28),
+                .on_press(UserInput::PlayForward)
+                .height(28),
         ];
 
         let play_backward = row![
             button("Play backward")
-            .on_press(UserInput::PlayBackward).height(28),
+                .on_press(UserInput::PlayBackward)
+                .height(28),
         ];
 
-        let pause = row![
-            button("Pause")
-            .on_press(UserInput::Pause).height(28),
-        ];
+        let pause = row![button("Pause").on_press(UserInput::Pause).height(28),];
 
         let step_forward = row![
             button("Step forward")
-            .on_press(UserInput::StepForward).height(28),
+                .on_press(UserInput::StepForward)
+                .height(28),
         ];
 
         let step_backward = row![
             button("Step backward")
-            .on_press(UserInput::StepBackward).height(28),
+                .on_press(UserInput::StepBackward)
+                .height(28),
         ];
 
         if self.is_playing() && self.is_playing_forward() && discard_past {
-            row![
-                pause,
-            ].spacing(10)
-        } else if self.is_playing() && self.is_playing_forward() { // not discard_past
-            row![
-                pause,
-                play_backward,
-            ].spacing(10)
-        } else if self.is_playing() { // not self.plays_forward()
-            row![
-                pause,
-                play_forward,
-            ].spacing(10)
-        } else if discard_past { // not self.is_playing()
-            row![
-                play_forward,
-                step_forward,
-            ].spacing(10)
-        } else {// not self.is_playing() && not discard_past
-            row![
-                step_backward,
-                play_forward,
-                play_backward,
-                step_forward,
-            ].spacing(10)
+            row![pause,].spacing(10)
+        } else if self.is_playing() && self.is_playing_forward() {
+            // not discard_past
+            row![pause, play_backward,].spacing(10)
+        } else if self.is_playing() {
+            // not self.plays_forward()
+            row![pause, play_forward,].spacing(10)
+        } else if discard_past {
+            // not self.is_playing()
+            row![play_forward, step_forward,].spacing(10)
+        } else {
+            // not self.is_playing() && not discard_past
+            row![step_backward, play_forward, play_backward, step_forward,].spacing(10)
         }
     }
 }
@@ -146,7 +137,10 @@ pub struct BufferControl {
 
 impl BufferControl {
     pub fn new(discard_past: bool) -> Self {
-        Self { discard_past, play_looped: false }
+        Self {
+            discard_past,
+            play_looped: false,
+        }
     }
 
     pub fn toggle_looped(&mut self) {
@@ -177,10 +171,14 @@ impl BufferControl {
         ];
         if !self.discard_past {
             let buffer_control = buffer_control.push(
-                button("Dicard now").on_press(UserInput::DiscardPast).height(28),
+                button("Dicard now")
+                    .on_press(UserInput::DiscardPast)
+                    .height(28),
             );
-            buffer_control.push(Toggler::new(
-                self.play_looped).label("Loop").on_toggle(|_| UserInput::ToggleLooping),
+            buffer_control.push(
+                Toggler::new(self.play_looped)
+                    .label("Loop")
+                    .on_toggle(|_| UserInput::ToggleLooping),
             )
         } else {
             buffer_control

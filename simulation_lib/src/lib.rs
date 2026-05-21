@@ -1,37 +1,34 @@
+use bincode::{Decode, Encode};
 /// # Physics based simulation backend
 ///
 /// Contains all necessary components to initialize a scene, simulate the trajectories
 /// of its containing samples by propagating the system time and taking measurements
 /// at the simulation.
 ///
-use serde::{Serialize, Deserialize};
-use bincode::{Encode, Decode};
-
+use serde::{Deserialize, Serialize};
 
 // #[cfg(feature = "logging")]
 // use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
-use sph::particle::{SerParticle3D, SerBoundaryParticle3D};
+use sph::particle::{SerBoundaryParticle3D, SerParticle3D};
 
 pub mod measurement;
 pub mod setup;
 pub mod sph;
 
-
 #[cfg(all(feature = "local_pressure", feature = "global_pressure"))]
-compile_error!("Only one of the features `local_pressure` and `global_pressure` can be activated at the same time.");
+compile_error!(
+    "Only one of the features `local_pressure` and `global_pressure` can be activated at the same time."
+);
 #[cfg(all(not(feature = "local_pressure"), not(feature = "global_pressure")))]
 compile_error!("One of the features `local_pressure` and `global_pressure` must be activated.");
-
-
 
 #[derive(Debug, Copy, Clone, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum ParticleColor {
     #[default]
     VelocityGraded,
-    FixedColor([f32;3]),
+    FixedColor([f32; 3]),
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct SimulationParameters {
@@ -80,7 +77,7 @@ pub struct TimeStepInfo {
     pub average_density: f32,
     // particles
     pub fluid: Vec<SerParticle3D>,
-    pub boundary: Vec<SerBoundaryParticle3D>
+    pub boundary: Vec<SerBoundaryParticle3D>,
 }
 
 impl From<&[u8]> for TimeStepInfo {
@@ -97,8 +94,6 @@ impl From<TimeStepInfo> for Vec<u8> {
         bincode::encode_to_vec(time_step_info, cfg).unwrap()
     }
 }
-
-
 
 // #[cfg(test)]
 // mod tests {

@@ -1,11 +1,10 @@
-use iced_widget::{column, Column, row, button, text, Toggler};
+use iced_widget::{Column, Toggler, button, column, row, text};
 
-use simulation_lib::sph::particle::Positional;
 use crate::ui::UserInput;
-
+use simulation_lib::sph::particle::Positional;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct  Cut {
+pub struct Cut {
     pub x: bool,
     pub x_bound: f32,
     pub x_inverse: bool,
@@ -36,12 +35,12 @@ impl Default for Cut {
 impl Cut {
     pub fn cut(&self, particle: &impl Positional) -> bool {
         if self.x && self.y {
-            self.x_inv*(particle.pos_now()[0] as f32 - self.x_bound) >= 0.
-            && self.y_inv*(particle.pos_now()[1] as f32 - self.y_bound) >= 0.
+            self.x_inv * (particle.pos_now()[0] as f32 - self.x_bound) >= 0.
+                && self.y_inv * (particle.pos_now()[1] as f32 - self.y_bound) >= 0.
         } else if self.x {
-            self.x_inv*(particle.pos_now()[0] as f32 - self.x_bound) >= 0.
+            self.x_inv * (particle.pos_now()[0] as f32 - self.x_bound) >= 0.
         } else if self.y {
-            self.y_inv*(particle.pos_now()[1] as f32 - self.y_bound) >= 0.
+            self.y_inv * (particle.pos_now()[1] as f32 - self.y_bound) >= 0.
         } else {
             true
         }
@@ -67,9 +66,18 @@ impl Cut {
             text(format!(" x {x_condition} ")),
             text(self.x_bound),
             text(" "),
-            button("I").on_press(UserInput::FlipCutX).width(28).height(28),
-            button("+").on_press(UserInput::CutXBoundChanged(1.)).width(28).height(28),
-            button("-").on_press(UserInput::CutXBoundChanged(-1.)).width(28).height(28),
+            button("I")
+                .on_press(UserInput::FlipCutX)
+                .width(28)
+                .height(28),
+            button("+")
+                .on_press(UserInput::CutXBoundChanged(1.))
+                .width(28)
+                .height(28),
+            button("-")
+                .on_press(UserInput::CutXBoundChanged(-1.))
+                .width(28)
+                .height(28),
         ]
         .width(500);
 
@@ -85,15 +93,21 @@ impl Cut {
             text(format!(" y {y_condition} ")),
             text(self.y_bound),
             text(" "),
-            button("I").on_press(UserInput::FlipCutY).width(28).height(28),
-            button("+").on_press(UserInput::CutYBoundChanged(1.)).width(28).height(28),
-            button("-").on_press(UserInput::CutYBoundChanged(-1.)).width(28).height(28),
+            button("I")
+                .on_press(UserInput::FlipCutY)
+                .width(28)
+                .height(28),
+            button("+")
+                .on_press(UserInput::CutYBoundChanged(1.))
+                .width(28)
+                .height(28),
+            button("-")
+                .on_press(UserInput::CutYBoundChanged(-1.))
+                .width(28)
+                .height(28),
         ]
         .width(500);
 
-        column![
-            cut_x,
-            cut_y,
-        ]
+        column![cut_x, cut_y,]
     }
 }

@@ -1,7 +1,5 @@
 use nalgebra::Matrix3;
 
-
-
 /// Entity representing a Spring
 #[derive(Debug, Clone)]
 pub struct Spring {
@@ -17,7 +15,7 @@ pub struct Spring {
 
 impl Spring {
     /// Construct an instance of [[Spring]]
-    pub fn new(indices: (usize, usize), k: f64, l: f64,) -> Self {
+    pub fn new(indices: (usize, usize), k: f64, l: f64) -> Self {
         Self {
             indices,
             k,

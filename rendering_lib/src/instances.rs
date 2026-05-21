@@ -11,12 +11,8 @@ use iced_wgpu::wgpu::util::DeviceExt;
 use crate::frame_control::Action;
 use crate::model::ToRaw;
 use crate::ui::controls::cut::Cut;
-use simulation_lib::{TimeStepInfo, ParticleColor};
 use simulation_lib::sph::particle::Positional;
-
-
-
-
+use simulation_lib::{ParticleColor, TimeStepInfo};
 
 #[derive(Debug, Clone, Default)]
 pub struct Instance {
@@ -41,7 +37,12 @@ impl StagingSettings {
         particle_color: ParticleColor,
         boundary_particle_color: ParticleColor,
     ) -> Self {
-        Self { cut, is_boundary_hidden, particle_color, boundary_particle_color, }
+        Self {
+            cut,
+            is_boundary_hidden,
+            particle_color,
+            boundary_particle_color,
+        }
     }
 }
 
@@ -69,7 +70,8 @@ pub struct InstanceStore {
 impl InstanceStore {
     pub fn new(gpu_context: &super::gpu_context::GpuContext) -> Self {
         let rendered_instances: Option<Vec<Instance>> = None;
-        let instance_buffer = Self::create_instance_buffer(gpu_context, rendered_instances.as_deref());
+        let instance_buffer =
+            Self::create_instance_buffer(gpu_context, rendered_instances.as_deref());
 
         Self {
             staging_settings: None,
@@ -85,28 +87,30 @@ impl InstanceStore {
         gpu_context: &super::gpu_context::GpuContext,
         instances: Option<&[Instance]>,
     ) -> wgpu::Buffer {
-        let instance_data = if let Some(inst) = instances && !inst.is_empty() {
+        let instance_data = if let Some(inst) = instances
+            && !inst.is_empty()
+        {
             inst.iter().map(Instance::to_raw).collect::<Vec<_>>()
         } else {
             // println!("is none or empty!");
             vec![super::model::InstanceRaw::new(
                 [
-                    [1.0,0.0,0.0,0.0],
-                    [0.0,1.0,0.0,0.0],
-                    [0.0,0.0,1.0,0.0],
-                    [0.0, 0.0, 0.0, 1.0]
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
                 ],
-                [0., 1., 0.,],
+                [0., 1., 0.],
             )]
         };
 
-        gpu_context.device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
+        gpu_context
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Instance Buffer"),
                 contents: bytemuck::cast_slice(&instance_data),
                 usage: wgpu::BufferUsages::VERTEX,
-            }
-        )
+            })
     }
 
     pub fn is_active(&self) -> bool {
@@ -142,61 +146,82 @@ impl InstanceStore {
     }
 
     /// Filter particles and pass selected to rendered instances
-    fn info_to_instances(&mut self,) {
+    fn info_to_instances(&mut self) {
         let settings = self.staging_settings.as_ref().unwrap().clone();
-        self.rendered_instances = Some(self.info_buffer[self.current_index].fluid.iter().filter(|&particle| {
-            settings.cut.cut(particle)
-        }).filter(|&particle| {
-            particle.is_enabled()
-        }).map(|particle| {
-            let color = match settings.particle_color {
-                    ParticleColor::VelocityGraded => {
-                    let whiteness = f64::min(
-                        (particle.vel_now()[0].powi(2)+particle.vel_now()[1].powi(2)+particle.vel_now()[2].powi(2)).powf(0.5)/10.,
-                        1.,
-                    );
-                    [ whiteness as f32, whiteness as f32, 1. ]
-                },
-                ParticleColor::FixedColor(color) => color,
-            };
-            Instance {
-                position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
-                color,
-            }
-        }).collect());
+        self.rendered_instances = Some(
+            self.info_buffer[self.current_index]
+                .fluid
+                .iter()
+                .filter(|&particle| settings.cut.cut(particle))
+                .filter(|&particle| particle.is_enabled())
+                .map(|particle| {
+                    let color = match settings.particle_color {
+                        ParticleColor::VelocityGraded => {
+                            let whiteness = f64::min(
+                                (particle.vel_now()[0].powi(2)
+                                    + particle.vel_now()[1].powi(2)
+                                    + particle.vel_now()[2].powi(2))
+                                .powf(0.5)
+                                    / 10.,
+                                1.,
+                            );
+                            [whiteness as f32, whiteness as f32, 1.]
+                        }
+                        ParticleColor::FixedColor(color) => color,
+                    };
+                    Instance {
+                        position: nalgebra::Vector3::new(
+                            particle.pos_now()[0] as f32,
+                            particle.pos_now()[1] as f32,
+                            particle.pos_now()[2] as f32,
+                        ),
+                        color,
+                    }
+                })
+                .collect(),
+        );
         if !settings.is_boundary_hidden {
-            self.rendered_instances.as_mut().unwrap().extend(self.info_buffer[self.current_index].boundary.iter().filter(|&particle| {
-                settings.cut.cut(particle)
-            }).map(|particle| {
-                let color = match settings.boundary_particle_color {
-                    ParticleColor::VelocityGraded => {
-                        let vel = particle.vel_now();
-                        let whiteness = f64::min(
-                            (vel[0].powi(2)+vel[1].powi(2)+vel[2].powi(2)).powf(0.5)/10.,
-                            1.,
-                        );
-                        [ whiteness as f32, whiteness as f32, 1. ]
-                    },
-                    ParticleColor::FixedColor(color) => color,
-                };
-                Instance {
-                    position: nalgebra::Vector3::new(particle.pos_now()[0] as f32, particle.pos_now()[1] as f32, particle.pos_now()[2] as f32),
-                    color,
-                }
-            }).collect::<Vec<Instance>>());
+            self.rendered_instances.as_mut().unwrap().extend(
+                self.info_buffer[self.current_index]
+                    .boundary
+                    .iter()
+                    .filter(|&particle| settings.cut.cut(particle))
+                    .map(|particle| {
+                        let color = match settings.boundary_particle_color {
+                            ParticleColor::VelocityGraded => {
+                                let vel = particle.vel_now();
+                                let whiteness = f64::min(
+                                    (vel[0].powi(2) + vel[1].powi(2) + vel[2].powi(2)).powf(0.5)
+                                        / 10.,
+                                    1.,
+                                );
+                                [whiteness as f32, whiteness as f32, 1.]
+                            }
+                            ParticleColor::FixedColor(color) => color,
+                        };
+                        Instance {
+                            position: nalgebra::Vector3::new(
+                                particle.pos_now()[0] as f32,
+                                particle.pos_now()[1] as f32,
+                                particle.pos_now()[2] as f32,
+                            ),
+                            color,
+                        }
+                    })
+                    .collect::<Vec<Instance>>(),
+            );
         }
     }
 
     pub fn finished_loop(&self, forward: bool) -> bool {
         if forward {
-            self.current_index == self.info_buffer.len()-1
+            self.current_index == self.info_buffer.len() - 1
         } else {
             self.current_index == 0
         }
-
     }
 
-    pub fn allow_looping_once(&mut self, looped_playback: bool,) {
+    pub fn allow_looping_once(&mut self, looped_playback: bool) {
         if !looped_playback {
             self.allow_looping_once = true;
         }
@@ -209,15 +234,18 @@ impl InstanceStore {
     /// Advances index to next index depending on the direction and looping behavior
     ///
     /// Returns true if it tried unallowed loop
-    fn next_index(&mut self, forward: bool, looped: bool,) -> bool {
+    fn next_index(&mut self, forward: bool, looped: bool) -> bool {
         if forward {
-            if self.current_index+1 < self.info_buffer.len() {
+            if self.current_index + 1 < self.info_buffer.len() {
                 self.current_index += 1;
                 false
-            } else if self.current_index+1 >= self.info_buffer.len() && looped {
+            } else if self.current_index + 1 >= self.info_buffer.len() && looped {
                 self.current_index = 0;
                 false
-            } else if self.current_index+1 >= self.info_buffer.len() && !looped && self.allow_looping_once {
+            } else if self.current_index + 1 >= self.info_buffer.len()
+                && !looped
+                && self.allow_looping_once
+            {
                 self.current_index = 0;
                 self.allow_looping_once = false;
                 false
@@ -228,10 +256,10 @@ impl InstanceStore {
             self.current_index -= 1;
             false
         } else if self.current_index == 0 && looped {
-            self.current_index = self.info_buffer.len()-1;
+            self.current_index = self.info_buffer.len() - 1;
             false
         } else if self.current_index == 0 && !looped && self.allow_looping_once {
-            self.current_index = self.info_buffer.len()-1;
+            self.current_index = self.info_buffer.len() - 1;
             self.allow_looping_once = false;
             false
         } else {
@@ -251,11 +279,7 @@ impl InstanceStore {
         staging_settings: &StagingSettings,
         discard_past: bool,
     ) -> usize {
-        let discarded = if discard_past {
-            self.discard_past()
-        } else {
-            0
-        };
+        let discarded = if discard_past { self.discard_past() } else { 0 };
         self.staging_settings = Some(staging_settings.clone());
         self.info_to_instances();
         self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
@@ -271,10 +295,10 @@ impl InstanceStore {
         looped_playback: bool,
         discard_past: bool,
     ) -> StagingResult {
-
         if self.info_buffer.is_empty() && !self.is_active() {
             StagingResult::Uninitialized
-        } else if self.info_buffer.is_empty() { // && self.staged_info.is_some()
+        } else if self.info_buffer.is_empty() {
+            // && self.staged_info.is_some()
             StagingResult::NothingToStage
         } else if !self.is_active() {
             assert!(self.current_index == 0);
@@ -284,11 +308,13 @@ impl InstanceStore {
             match action {
                 Action::PlayTimeInterval(interval) => {
                     let mut taken = 0;
-                    let mut interval = interval-self.info_buffer[self.current_index].time_increment;
+                    let mut interval =
+                        interval - self.info_buffer[self.current_index].time_increment;
                     while interval >= 0. {
                         if self.next_index(forward, looped_playback) {
                             if taken > 0 {
-                                let discarded = self.stage(gpu_context, staging_settings, discard_past);
+                                let discarded =
+                                    self.stage(gpu_context, staging_settings, discard_past);
                                 return StagingResult::StoppedAtLoopEndWithSomeTaken(discarded);
                             }
                             return StagingResult::StoppedAtLoopEndWithNoneTaken;
@@ -302,12 +328,12 @@ impl InstanceStore {
                     } else {
                         StagingResult::NoneTaken
                     }
-                },
+                }
                 Action::StepInTime => {
                     self.next_index(forward, true);
                     self.stage(gpu_context, staging_settings, discard_past);
                     StagingResult::SteppedInTime
-                },
+                }
                 Action::Wait => StagingResult::NoneTaken,
             }
         }
@@ -318,11 +344,14 @@ impl InstanceStore {
         gpu_context: &super::gpu_context::GpuContext,
         staging_settings: &StagingSettings,
     ) {
-        if let Some(sta_set) = &self.staging_settings && *staging_settings != *sta_set {
+        if let Some(sta_set) = &self.staging_settings
+            && *staging_settings != *sta_set
+        {
             // println!("not eq \n{:?}, \n{:?}", *staging_settings, *sta_set);
             self.staging_settings = Some(staging_settings.clone());
             self.info_to_instances();
-            self.buffer = Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
+            self.buffer =
+                Self::create_instance_buffer(gpu_context, self.rendered_instances.as_deref());
         }
     }
 
@@ -338,6 +367,6 @@ impl InstanceStore {
     }
 
     pub fn remaining_buffer_len(&self) -> usize {
-        self.info_buffer.len()-(self.current_index+1)
+        self.info_buffer.len() - (self.current_index + 1)
     }
 }

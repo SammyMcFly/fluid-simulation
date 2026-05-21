@@ -1,19 +1,17 @@
 //! UI
 //!
 //!
-use std::sync::Arc;
-use iced_winit::winit;
-use iced_winit::winit::event::WindowEvent;
 use iced_wgpu::wgpu;
 use iced_winit::runtime::user_interface::UserInterface;
+use iced_winit::winit;
+use iced_winit::winit::event::WindowEvent;
+use std::sync::Arc;
 
-use simulation_lib::{SimulationParameters, TimeStepInfo, ParticleColor};
+use simulation_lib::{ParticleColor, SimulationParameters, TimeStepInfo};
 
 use crate::readback::ReadbackRequest;
 
 pub mod controls;
-
-
 
 #[derive(Debug, Clone)]
 pub enum UserInput {
@@ -78,21 +76,29 @@ impl UIState {
                 &gpu_context.adapter,
                 (*gpu_context.device).clone(),
                 gpu_context.queue.clone(),
-                gpu_context.surface.get_capabilities(&gpu_context.adapter).formats
-                .iter()
-                .copied()
-                .find(wgpu::TextureFormat::is_srgb)
-                .or_else(|| {
-                    gpu_context.surface.get_capabilities(&gpu_context.adapter).formats.first().copied()
-                })
-                .expect("Get preferred format"),
+                gpu_context
+                    .surface
+                    .get_capabilities(&gpu_context.adapter)
+                    .formats
+                    .iter()
+                    .copied()
+                    .find(wgpu::TextureFormat::is_srgb)
+                    .or_else(|| {
+                        gpu_context
+                            .surface
+                            .get_capabilities(&gpu_context.adapter)
+                            .formats
+                            .first()
+                            .copied()
+                    })
+                    .expect("Get preferred format"),
                 None,
             );
 
             iced_wgpu::Renderer::new(
                 engine,
                 iced_winit::core::Font::default(),
-                iced_winit::core::Pixels::from(16)
+                iced_winit::core::Pixels::from(16),
             )
         };
 
@@ -111,11 +117,7 @@ impl UIState {
     }
 
     /// Process window events
-    pub fn process_window_event(
-        &mut self,
-        scale_factor: f64,
-        event: &winit::event::WindowEvent,
-    ) {
+    pub fn process_window_event(&mut self, scale_factor: f64, event: &winit::event::WindowEvent) {
         match event {
             WindowEvent::MouseInput {
                 button: winit::event::MouseButton::Right,
@@ -125,11 +127,9 @@ impl UIState {
                 self.mouse_right_button_pressed = *state == winit::event::ElementState::Pressed;
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor =
-                    iced_winit::core::mouse::Cursor::Available(iced_winit::conversion::cursor_position(
-                        *position,
-                        scale_factor,
-                    ));
+                self.cursor = iced_winit::core::mouse::Cursor::Available(
+                    iced_winit::conversion::cursor_position(*position, scale_factor),
+                );
             }
             WindowEvent::ModifiersChanged(new_modifiers) => {
                 self.modifiers = new_modifiers.state();
@@ -138,7 +138,11 @@ impl UIState {
         }
     }
 
-    pub fn process_keyboard(&mut self, key: &winit::keyboard::KeyCode, state: &winit::event::ElementState) {
+    pub fn process_keyboard(
+        &mut self,
+        key: &winit::keyboard::KeyCode,
+        state: &winit::event::ElementState,
+    ) {
         #![allow(clippy::single_match)]
         match key {
             winit::keyboard::KeyCode::KeyK => {
@@ -153,7 +157,7 @@ impl UIState {
     }
 
     /// update UI
-    pub fn update(&mut self, message: UserInput ) {
+    pub fn update(&mut self, message: UserInput) {
         self.controls.update(&message);
     }
 
@@ -189,9 +193,7 @@ impl UIState {
 
         let (state, _) = interface.update(
             &[iced_winit::core::Event::Window(
-                iced_winit::core::window::Event::RedrawRequested(
-                    std::time::Instant::now(),
-                ),
+                iced_winit::core::window::Event::RedrawRequested(std::time::Instant::now()),
             )],
             self.cursor,
             &mut self.renderer,
@@ -201,15 +203,10 @@ impl UIState {
 
         // Update the mouse cursor
         if let iced_winit::runtime::user_interface::State::Updated {
-            mouse_interaction,
-            ..
+            mouse_interaction, ..
         } = state
         {
-            window.set_cursor(
-                iced_winit::conversion::mouse_interaction(
-                    mouse_interaction,
-                ),
-            );
+            window.set_cursor(iced_winit::conversion::mouse_interaction(mouse_interaction));
         }
 
         // Draw the interface
@@ -245,11 +242,7 @@ impl UIState {
         //     &self.viewport,
         //     &["Hi".to_string()],
         // );
-        self.renderer.present(
-            None,
-            frame.texture.format(),
-            view,
-            viewport,
-        );
+        self.renderer
+            .present(None, frame.texture.format(), view, viewport);
     }
 }

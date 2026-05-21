@@ -1,17 +1,16 @@
+use bincode::{Decode, Encode};
 use nalgebra::Vector3;
-use serde::{Serialize, Deserialize};
-use bincode::{Encode, Decode};
+use serde::{Deserialize, Serialize};
 
 // #[cfg(feature = "logging")]
 // use tracing::{debug, error, info, span, trace, warn};
-
 
 /// Struct that represents the natural Numbers modulo 3
 #[derive(Debug, Clone, Copy)]
 struct Cycle3(usize); // Cycle<static u8>
 
 impl Cycle3 {
-    fn new(val:usize) -> Self {
+    fn new(val: usize) -> Self {
         Cycle3(val)
     }
 }
@@ -22,11 +21,7 @@ impl std::ops::Add<u8> for Cycle3 {
     /// Add one to Cycle3. Right hand side must be 1.
     fn add(self, _: u8) -> Self::Output {
         // assert!(rhs==1);
-        if self.0 == 2 {
-            0
-        } else {
-            self.0 + 1
-        }
+        if self.0 == 2 { 0 } else { self.0 + 1 }
     }
 }
 
@@ -48,11 +43,7 @@ impl std::ops::Sub<u8> for Cycle3 {
     /// Subtract one to Cycle3. Right hand side must be 1.
     fn sub(self, _: u8) -> Self::Output {
         // assert!(rhs==1);
-        if self.0 == 0 {
-            2
-        } else {
-            self.0 - 1
-        }
+        if self.0 == 0 { 2 } else { self.0 - 1 }
     }
 }
 
@@ -72,7 +63,7 @@ impl std::ops::SubAssign<u8> for Cycle3 {
 #[derive(Debug, Clone, Copy)]
 pub struct Q3<T>
 where
-    T: Default + Copy
+    T: Default + Copy,
 {
     data: [T; 3],
     now: Cycle3,
@@ -80,7 +71,7 @@ where
 
 impl<T> Q3<T>
 where
-    T: Default + Copy
+    T: Default + Copy,
 {
     pub fn new(val_now: T, val_prev: T) -> Self {
         Self {
@@ -91,18 +82,18 @@ where
     pub fn now(&self) -> T {
         self.data[self.now.0]
     }
-    pub fn prev(&self) -> T  {
-        self.data[self.now-1]
+    pub fn prev(&self) -> T {
+        self.data[self.now - 1]
     }
-    pub fn pred(&self) -> T  {
-        self.data[self.now+1]
+    pub fn pred(&self) -> T {
+        self.data[self.now + 1]
     }
     pub fn update_now(&mut self, val: T) {
         self.now += 1;
         self.data[self.now.0] = val;
     }
     pub fn set_pred(&mut self, val: T) {
-        self.data[self.now+1] = val;
+        self.data[self.now + 1] = val;
     }
     pub fn accept_pred(&mut self) {
         self.now += 1;
@@ -147,17 +138,12 @@ pub trait ParticleQ3 {
 }
 
 pub trait Initializable {
-    fn new(
-        position: [Vector3<f64>; 2],
-        velocity: Vector3<f64>,
-        mass: f64,
-    ) -> Self;
+    fn new(position: [Vector3<f64>; 2], velocity: Vector3<f64>, mass: f64) -> Self;
 }
 
 pub trait Disableable {
     fn is_enabled(&self) -> bool;
 }
-
 
 // # 3D Implementation
 
@@ -271,11 +257,7 @@ impl ParticleQ3 for Particle3D {
 }
 
 impl Initializable for Particle3D {
-    fn new(
-            position: [Vector3<f64>; 2],
-            velocity: Vector3<f64>,
-            mass: f64,
-        ) -> Self {
+    fn new(position: [Vector3<f64>; 2], velocity: Vector3<f64>, mass: f64) -> Self {
         Self {
             position: Q3::new(position[0], position[1]),
             velocity: Q3::new(velocity, Vector3::default()),
@@ -301,7 +283,7 @@ impl Initializable for Particle3D {
             #[cfg(feature = "implicit_euler")]
             alpha_l: f64::default(),
             #[cfg(feature = "implicit_euler")]
-            a_times_d_l: Vector3::default()
+            a_times_d_l: Vector3::default(),
         }
     }
 }
@@ -359,7 +341,7 @@ impl From<SerParticle3D> for Particle3D {
             #[cfg(feature = "implicit_euler")]
             alpha_l: f64::default(),
             #[cfg(feature = "implicit_euler")]
-            a_times_d_l: Vector3::default()
+            a_times_d_l: Vector3::default(),
         }
     }
 }
@@ -379,11 +361,7 @@ impl Positional for BoundaryParticle3D {
 }
 
 impl Initializable for BoundaryParticle3D {
-    fn new(
-            position: [Vector3<f64>; 2],
-            _: Vector3<f64>,
-            volume: f64,
-        ) -> Self {
+    fn new(position: [Vector3<f64>; 2], _: Vector3<f64>, volume: f64) -> Self {
         Self {
             position: position[0],
             velocity: Vector3::zeros(),
@@ -410,12 +388,19 @@ impl BoundaryParticle3D {
     }
 }
 
-
 impl From<SerBoundaryParticle3D> for BoundaryParticle3D {
     fn from(particle: SerBoundaryParticle3D) -> Self {
         Self {
-            position: Vector3::new(particle.position[0], particle.position[1], particle.position[2],),
-            velocity: Vector3::new(particle.velocity[0], particle.velocity[1], particle.velocity[2],),
+            position: Vector3::new(
+                particle.position[0],
+                particle.position[1],
+                particle.position[2],
+            ),
+            velocity: Vector3::new(
+                particle.velocity[0],
+                particle.velocity[1],
+                particle.velocity[2],
+            ),
             volume: 0.,
         }
     }
@@ -433,8 +418,16 @@ pub struct SerParticle3D {
 impl From<Particle3D> for SerParticle3D {
     fn from(particle: Particle3D) -> Self {
         Self {
-            position: [particle.position.now().into(), particle.position.pred().into(), particle.position.prev().into()],
-            velocity: [particle.velocity.now().into(), particle.velocity.pred().into(), particle.velocity.prev().into()],
+            position: [
+                particle.position.now().into(),
+                particle.position.pred().into(),
+                particle.position.prev().into(),
+            ],
+            velocity: [
+                particle.velocity.now().into(),
+                particle.velocity.pred().into(),
+                particle.velocity.prev().into(),
+            ],
             mass: particle.mass,
             disabled: particle.disabled,
         }
@@ -443,7 +436,11 @@ impl From<Particle3D> for SerParticle3D {
 
 impl Positional for SerParticle3D {
     fn pos_now(&self) -> Vector3<f64> {
-        Vector3::new(self.position[0][0], self.position[0][1], self.position[0][2])
+        Vector3::new(
+            self.position[0][0],
+            self.position[0][1],
+            self.position[0][2],
+        )
     }
 }
 

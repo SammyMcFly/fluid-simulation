@@ -1,40 +1,36 @@
 //! AppState
 //!
 //!
-use std::sync::Arc;
-use iced_winit::winit;
-use iced_winit::winit::event::{WindowEvent, DeviceEvent};
-use iced_winit::runtime::user_interface::UserInterface;
-use iced_wgpu::wgpu;
 use iced_wgpu::graphics::Viewport;
+use iced_wgpu::wgpu;
+use iced_winit::runtime::user_interface::UserInterface;
+use iced_winit::winit;
+use iced_winit::winit::event::{DeviceEvent, WindowEvent};
+use std::sync::Arc;
 
 #[cfg(feature = "logging")]
-use tracing::{
-    debug,
-}; // error, trace, warn, debug, info,
+use tracing::debug; // error, trace, warn, debug, info,
 
-use simulation_lib::{ParticleColor};
+use simulation_lib::ParticleColor;
 
-pub mod gpu_context;
-pub mod pipelines;
 pub mod camera;
+pub mod frame_control;
+pub mod gpu_context;
+pub mod instances;
 pub mod lighting;
 pub mod model;
-pub mod instances;
-pub mod ui;
-pub mod frame_control;
+pub mod pipelines;
 pub mod readback;
 pub mod settings;
+pub mod ui;
 
-use model::VertexBufferLayout;
 use model::DrawLight;
 use model::DrawModel;
+use model::VertexBufferLayout;
 
 use ui::UserInput;
 
 use crate::readback::{ReadbackAction, ReadbackController};
-
-
 
 const CAMERA_POSITION: (f32, f32, f32) = (10.0, -30.0, 40.0);
 const YAW: cgmath::Deg<f32> = cgmath::Deg(-90.0);
@@ -52,7 +48,6 @@ const LIGHT_MOVEMENT_SPEED: f32 = 5.;
 
 const PARTICLE_COLOR: ParticleColor = ParticleColor::VelocityGraded;
 const BOUNDARY_PARTICLE_COLOR: ParticleColor = ParticleColor::FixedColor([0.; 3]);
-
 
 pub struct AppState {
     pub window: Arc<winit::window::Window>,
@@ -90,9 +85,21 @@ impl AppState {
 
         let gpu = gpu_context::GpuContext::new(window_arc.clone(), size);
 
-        let camera = camera::CameraBundle::new(&gpu, CAMERA_POSITION, YAW, PITCH, SPEED, SENSITIVITY, SCROLL_SPEED, FOVY, ZNEAR, ZFAR);
+        let camera = camera::CameraBundle::new(
+            &gpu,
+            CAMERA_POSITION,
+            YAW,
+            PITCH,
+            SPEED,
+            SENSITIVITY,
+            SCROLL_SPEED,
+            FOVY,
+            ZNEAR,
+            ZFAR,
+        );
 
-        let light = lighting::LightBundle::new(&gpu, LIGHT_POSITION, LIGHT_COLOR, LIGHT_MOVEMENT_SPEED);
+        let light =
+            lighting::LightBundle::new(&gpu, LIGHT_POSITION, LIGHT_COLOR, LIGHT_MOVEMENT_SPEED);
 
         let pipelines = pipelines::Pipelines::new(
             &gpu,
@@ -120,7 +127,8 @@ impl AppState {
 
         let frame = frame_control::FrameControl::default();
 
-        let screenshot = ReadbackController::new(&gpu, size, rendering_dir, start_time, finish_time);
+        let screenshot =
+            ReadbackController::new(&gpu, size, rendering_dir, start_time, finish_time);
 
         let settings = settings::Settings::new(wait_for_timesteps);
 
@@ -156,11 +164,16 @@ impl AppState {
             self.gpu.depth_texture = gpu_context::Texture::create_depth_texture(
                 &self.gpu.device,
                 &self.gpu.config,
-                "depth_texture"
+                "depth_texture",
             );
-            self.gpu.offscreen_texture = gpu_context::GpuContext::create_offscreen_texture(&self.gpu.device, new_size);
-            self.gpu.surface.configure(&self.gpu.device, &self.gpu.config,);
-            self.camera.projection.resize(new_size.width, new_size.height);
+            self.gpu.offscreen_texture =
+                gpu_context::GpuContext::create_offscreen_texture(&self.gpu.device, new_size);
+            self.gpu
+                .surface
+                .configure(&self.gpu.device, &self.gpu.config);
+            self.camera
+                .projection
+                .resize(new_size.width, new_size.height);
             self.screenshot.resize(&self.gpu, new_size);
 
             #[cfg(feature = "logging")]
@@ -168,13 +181,18 @@ impl AppState {
         }
     }
 
-    pub fn process_window_event(&mut self, event: &WindowEvent,) {
+    pub fn process_window_event(&mut self, event: &WindowEvent) {
         // map window event to iced events, which then trigger [[UserInput]]s
-        self.get_iced_events(self.viewport.logical_size(), self.window.scale_factor(), event.clone());
+        self.get_iced_events(
+            self.viewport.logical_size(),
+            self.window.scale_factor(),
+            event.clone(),
+        );
         // process keyboard
         self.process_keyboard(event);
         // get UserInput messages from events
-        self.ui.process_window_event(self.window.scale_factor(), event);
+        self.ui
+            .process_window_event(self.window.scale_factor(), event);
         //
         self.camera.process_window_event(event);
     }
@@ -185,11 +203,9 @@ impl AppState {
         scale_factor: f64,
         event: winit::event::WindowEvent,
     ) {
-        if let Some(event) = iced_winit::conversion::window_event(
-            event,
-            scale_factor,
-            self.ui.modifiers,
-        ) {
+        if let Some(event) =
+            iced_winit::conversion::window_event(event, scale_factor, self.ui.modifiers)
+        {
             self.ui.events.push(event);
         }
 
@@ -213,7 +229,7 @@ impl AppState {
     }
 
     #[allow(clippy::single_match)]
-    fn process_keyboard(&mut self, event: &winit::event::WindowEvent,) {
+    fn process_keyboard(&mut self, event: &winit::event::WindowEvent) {
         match event {
             WindowEvent::KeyboardInput {
                 event:
@@ -235,13 +251,14 @@ impl AppState {
                     }
                     _ => (),
                 }
-            },
+            }
             _ => (),
         }
     }
 
     pub fn process_device_event(&mut self, event: &DeviceEvent) {
-        self.camera.process_device_event(event, self.ui.mouse_right_button_pressed);
+        self.camera
+            .process_device_event(event, self.ui.mouse_right_button_pressed);
     }
 
     /// This function renders the one frame. This includes:
@@ -274,52 +291,51 @@ impl AppState {
                 self.frame.rendering_new_sim_state_now();
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
-            },
+            }
             instances::StagingResult::SteppedInTime => {
                 self.frame.rendering_new_sim_state_now();
                 self.frame.stepped_in_time();
-                self.frame.count_discarded_timesteps(1, self.ui.controls.is_past_discarded());
+                self.frame
+                    .count_discarded_timesteps(1, self.ui.controls.is_past_discarded());
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
-            },
+            }
             instances::StagingResult::SomeTaken(discarded) => {
                 self.frame.rendering_new_sim_state_now();
-                self.frame.count_discarded_timesteps(discarded, self.ui.controls.is_past_discarded());
+                self.frame
+                    .count_discarded_timesteps(discarded, self.ui.controls.is_past_discarded());
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
-            },
+            }
             instances::StagingResult::StoppedAtLoopEndWithSomeTaken(discarded) => {
                 self.frame.rendering_new_sim_state_now();
-                self.frame.count_discarded_timesteps(discarded, self.ui.controls.is_past_discarded());
+                self.frame
+                    .count_discarded_timesteps(discarded, self.ui.controls.is_past_discarded());
                 if !self.ui.controls.is_past_discarded() || !self.settings.wait_for_timesteps {
                     self.ui.controls.playback_controls.pause();
                 }
                 self.frame.set_time_increment(self.instances.get_time_inc());
                 frame_new = true;
-            },
+            }
             instances::StagingResult::StoppedAtLoopEndWithNoneTaken => {
-                self.instances.update_staged(
-                    &self.gpu,
-                    &staging_settings,
-                );
+                self.instances.update_staged(&self.gpu, &staging_settings);
                 if !self.ui.controls.is_past_discarded() || !self.settings.wait_for_timesteps {
                     self.ui.controls.playback_controls.pause();
                 }
                 self.frame.rendering_new_sim_state_now();
-            },
+            }
             instances::StagingResult::NoneTaken | instances::StagingResult::NothingToStage => {
-                self.instances.update_staged(
-                    &self.gpu,
-                    &staging_settings,
-                );
+                self.instances.update_staged(&self.gpu, &staging_settings);
                 if !self.ui.controls.is_playing() {
                     self.frame.rendering_new_sim_state_now();
                 }
-            },
+            }
             instances::StagingResult::Uninitialized => (),
-
         }
-        self.ui.update_time_step_info(self.instances.get_info(), self.instances.remaining_buffer_len());
+        self.ui.update_time_step_info(
+            self.instances.get_info(),
+            self.instances.remaining_buffer_len(),
+        );
 
         self.screenshot.update_rendering_status(
             self.ui.controls.info.time,
@@ -330,18 +346,23 @@ impl AppState {
             self.ui.controls.info.rendering_status.recording_status,
         ) {
             // render to offscreen texture
-            let view = self.gpu.offscreen_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let view = self
+                .gpu
+                .offscreen_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
             self.render_scene(&view);
             self.send_readback_request_for_current_frame(path);
         }
 
         // render to screen
         let frame = self.gpu.surface.get_current_texture()?;
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         self.render_scene(&view);
 
         // draw iced on top
-        self.ui.draw( &self.window, &self.viewport, &frame, &view);
+        self.ui.draw(&self.window, &self.viewport, &frame, &view);
 
         // present the frame
         frame.present();
@@ -349,29 +370,29 @@ impl AppState {
         Ok(())
     }
 
-    fn render_scene(&self, view: &wgpu::TextureView,) {
-        let mut encoder = self.gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+    fn render_scene(&self, view: &wgpu::TextureView) {
+        let mut encoder = self
+            .gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
-                color_attachments: &[
-                    Some(wgpu::RenderPassColorAttachment {
-                        view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(
-                                wgpu::Color {
-                                    r: self.ui.controls.background_color().r as f64,
-                                    g: self.ui.controls.background_color().g as f64,
-                                    b: self.ui.controls.background_color().b as f64,
-                                    a: self.ui.controls.background_color().a as f64,
-                                }
-                            ),
-                            store: wgpu::StoreOp::Store,
-                        },
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: self.ui.controls.background_color().r as f64,
+                            g: self.ui.controls.background_color().g as f64,
+                            b: self.ui.controls.background_color().b as f64,
+                            a: self.ui.controls.background_color().a as f64,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.gpu.depth_texture.view,
@@ -412,15 +433,17 @@ impl AppState {
         self.gpu.queue.submit(std::iter::once(encoder.finish()));
     }
 
-    fn send_readback_request_for_current_frame(&mut self, output_dir:std::path::PathBuf) {
-        let (buffer, next_frame_index, padded_bytes_per_row) = self.screenshot.buffers.get_next_buffer_and_info();
+    fn send_readback_request_for_current_frame(&mut self, output_dir: std::path::PathBuf) {
+        let (buffer, next_frame_index, padded_bytes_per_row) =
+            self.screenshot.buffers.get_next_buffer_and_info();
         let size = self.window.inner_size();
 
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
+        let mut encoder = self
+            .gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("screenshot encoder"),
-            },
-        );
+            });
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -459,7 +482,6 @@ impl AppState {
         self.messages.push(UserInput::RequestReadback(req));
     }
 }
-
 
 // #[cfg(test)]
 // mod tests {

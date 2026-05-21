@@ -2,14 +2,12 @@
 //!
 //!
 
-
 #[derive(Debug, Clone)]
 pub enum Action {
     PlayTimeInterval(f32),
     StepInTime,
     Wait,
 }
-
 
 pub struct FrameControl {
     /// Time of last rendering
