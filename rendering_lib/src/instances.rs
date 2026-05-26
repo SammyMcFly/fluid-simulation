@@ -11,7 +11,6 @@ use iced_wgpu::wgpu::util::DeviceExt;
 use crate::frame_control::Action;
 use crate::model::ToRaw;
 use crate::ui::controls::cut::Cut;
-use simulation_lib::sph::sample::Positional;
 use simulation_lib::{ParticleColor, TimeStepInfo};
 
 #[derive(Debug, Clone, Default)]
@@ -154,10 +153,8 @@ impl InstanceStore {
                 .position
                 .iter()
                 .zip(&self.info_buffer[self.current_index].fluid.velocity)
-                .zip(&self.info_buffer[self.current_index].fluid.enabled)
-                .filter(|((id_position, _id_velocity), _id_enabled)| settings.cut.cut(id_position))
-                .filter(|((_id_position, _id_velocity), id_enabled)| **id_enabled)
-                .map(|((_id_position, id_velocity), _id_enabled)| {
+                .filter(|(id_position, _id_velocity)| settings.cut.cut(id_position))
+                .map(|(_id_position, id_velocity)| {
                     let color = match settings.particle_color {
                         ParticleColor::VelocityGraded => {
                             let whiteness = f64::min(
