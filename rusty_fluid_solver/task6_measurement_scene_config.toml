@@ -2,7 +2,6 @@
 
 [parameters]
 buffer_length_limit = 1000
-integration_scheme = "EulerCromer" # Options: ExplicitEuler, ImplicitEuler, EulerCromer, Verlet,
 rest_density = 900.0 # rest density of fluid
 rest_density_grid_spacing = 0.8 # (not hot swappable)
 smoothing_length = 0.8 # (not hot swappable)

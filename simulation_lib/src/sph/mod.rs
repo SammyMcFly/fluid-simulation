@@ -3,18 +3,17 @@
 /// Contains the simulated system, the information of the individual samples
 /// and provides the methods for propagating the system in time.
 ///
-use bincode::Decode;
-use bincode::Encode;
 use nalgebra::{Matrix3, Vector3};
 use num_traits::Zero;
 #[cfg(feature = "parallelized_sph")]
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
 #[cfg(feature = "logging")]
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 
 pub mod kernel;
 use kernel::KernelFn;
+pub mod integration_schemes;
+use integration_schemes::IntegrationScheme;
 pub mod sample;
 use sample::*;
 #[cfg(feature = "springs")]
@@ -36,17 +35,6 @@ fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
 /// Direction from particle1 towards particle2
 fn direction(from: &Vector3<f64>, towards: &Vector3<f64>) -> Vector3<f64> {
     towards - from
-}
-
-/// Method for propagating time in a simulated physical system
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub enum PropagationMethod {
-    ExplicitEuler,
-    #[cfg(feature = "implicit_euler")]
-    ImplicitEuler,
-    EulerCromer,
-    Verlet,
-    AcceptPredicted,
 }
 
 #[allow(dead_code)]
@@ -168,7 +156,7 @@ impl SystemParameters {
 
 ///  3D implementation of a physical system to be simulated
 #[derive(Debug, Clone)]
-pub struct System3D<K: KernelFn> {
+pub struct System3D<K: KernelFn, I: IntegrationScheme> {
     /// Collection of all fluid samples
     fluid: Fluid3D,
     /// Uniform grid for fluid samples
@@ -192,10 +180,11 @@ pub struct System3D<K: KernelFn> {
     /// Properties of the system
     parameters: SystemParameters,
     properties: CurrentSystemProperties,
-    kernel_fn: std::marker::PhantomData<K>,
+    _kernel_fn: std::marker::PhantomData<K>,
+    _integration_scheme: std::marker::PhantomData<I>,
 }
 
-impl<K: KernelFn> System3D<K> {
+impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
     pub fn new(systemconfig: setup::System3DConfig) -> Self {
         let particle_grid =
             neighbor_search::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
@@ -212,7 +201,8 @@ impl<K: KernelFn> System3D<K> {
             time_steps_propagated: 0,
             parameters: systemconfig.system_parameters,
             properties: systemconfig.properties,
-            kernel_fn: std::marker::PhantomData,
+            _kernel_fn: std::marker::PhantomData,
+            _integration_scheme: std::marker::PhantomData,
         };
         // set boundary mass such that the density is equal to the fluids rest density
         system.init_boundary_volume();
@@ -1489,186 +1479,14 @@ impl<K: KernelFn> System3D<K> {
     /// Step forward in time one time increment.
     ///
     /// This includes calculating all parameters of the system at the next point in time.
-    pub fn step_forward_in_time(&mut self, method: &PropagationMethod) {
+    pub fn step_forward_in_time(&mut self) {
         // measure wall clock time for time step
         let start = std::time::Instant::now();
 
-        let method = if cfg!(feature = "optimized_source_term") {
-            &PropagationMethod::AcceptPredicted
-        } else {
-            method
-        };
+        I::integrate(&mut self.fluid, self.parameters.time_increment);
 
-        match method {
-            PropagationMethod::ExplicitEuler => {
-                // Rotate buffers first
-                std::mem::swap(&mut self.fluid.position_prev, &mut self.fluid.position);
-                std::mem::swap(&mut self.fluid.velocity_prev, &mut self.fluid.velocity);
-                // position = old prev (will be overwritten), position_prev = old current
-                for_each!(
-                    mut [self.fluid.position, self.fluid.velocity],
-                    ref [
-                        pos_prev = self.fluid.position_prev,   // = old "current"
-                        vel_prev = self.fluid.velocity_prev,   // = old "current"
-                        acceleration = self.fluid.acceleration,
-                    ],
-                    |id, id_pos_now, id_vel_now| {
-                        // update positions
-                        *id_pos_now = pos_prev[id] + self.parameters.time_increment * vel_prev[id];
-                        // update velocities
-                        *id_vel_now = vel_prev[id] + self.parameters.time_increment * acceleration[id];
-                    }
-                );
-            }
-            #[cfg(feature = "implicit_euler")]
-            PropagationMethod::ImplicitEuler => {
-                // Conjugate Gradient implementation
-                // init fractions of the Jacobi matrix that belong to the springs
-                for Spring {
-                    indices: (i1, i2),
-                    k,
-                    l,
-                    matrix_s,
-                } in &mut self.springs
-                {
-                    // calculate spacial derivative of spring force of spring
-                    // between vert[i1] and vert[i2] applied to vert[i1] with respect to vert[i1].pos
-                    let x_i2_outer_x_i1 = (self.particles[*i2].pos().now()
-                        - self.particles[*i1].pos().now())
-                    .outer(&(self.particles[*i2].pos().now() - self.particles[*i1].pos().now()));
-
-                    *matrix_s = *k / *l
-                        * (-Matrix3::identity()
-                            + *l / (self.particles[*i2].pos().now()
-                                - self.particles[*i1].pos().now())
-                            .norm()
-                                * (Matrix3::identity()
-                                    - 1.0
-                                        / (self.particles[*i2].pos().now()
-                                            - self.particles[*i1].pos().now())
-                                        .norm()
-                                        .powi(2)
-                                        * x_i2_outer_x_i1));
-                }
-                // init variables for iterative numeric solver
-                for v in &mut self.particles {
-                    let vel = v.vel().now();
-                    v.set_pred_vel(vel);
-                    v.d_l =
-                        v.vel().now() + self.properties.time_increment * v.acc() - v.vel().pred();
-                }
-                for Spring {
-                    indices: (i1, i2),
-                    matrix_s,
-                    ..
-                } in &self.springs
-                {
-                    let v_pred = self.particles[*i1].vel().pred();
-                    let m = self.particles[*i1].mass();
-                    self.particles[*i1].d_l +=
-                        self.properties.time_increment.powi(2) / m * (*matrix_s) * v_pred;
-
-                    let v_pred = self.particles[*i2].vel().pred();
-                    let m = self.particles[*i2].mass();
-                    self.particles[*i2].d_l -=
-                        self.properties.time_increment.powi(2) / m * (*matrix_s) * v_pred;
-                }
-                for v in &mut self.particles {
-                    v.r_l = v.d_l;
-                }
-                // solve numerically iteratively
-                for _ in 0..5 {
-                    // refresh a_times_d_i
-                    for v in &mut self.particles {
-                        v.a_times_d_l = v.d_l;
-                    }
-                    for Spring {
-                        indices: (i1, i2),
-                        matrix_s,
-                        ..
-                    } in &self.springs
-                    {
-                        let d_l = self.particles[*i1].d_l;
-                        let m = self.particles[*i1].mass();
-                        self.particles[*i1].d_l -=
-                            self.properties.time_increment.powi(2) / m * (*matrix_s) * d_l;
-
-                        let d_l = self.particles[*i2].d_l;
-                        let m = self.particles[*i2].mass();
-                        self.particles[*i2].d_l +=
-                            self.properties.time_increment.powi(2) / m * (*matrix_s) * d_l;
-                    }
-                    // do numeric solver iteration
-                    for v in &mut self.particles {
-                        v.alpha_l = v.r_l.dot(&v.r_l) / (v.d_l.dot(&v.a_times_d_l));
-                        let vel = v.vel().pred() + v.alpha_l * v.d_l;
-                        v.set_pred_vel(vel);
-                        let r_l_old = v.r_l;
-                        v.r_l -= v.alpha_l * v.a_times_d_l;
-                        v.d_l = v.r_l + v.r_l.dot(&v.r_l) / (r_l_old.dot(&r_l_old)) * v.d_l;
-                    }
-                }
-
-                for v in &mut self.particles {
-                    // function produces NaN values for a 0 acceleration
-                    // this check prevents spreading of NaN values
-                    if v.acc() != Vector3::zeros() {
-                        // set velocity from numeric solver as new velocity
-                        v.accept_pred_vel();
-                    }
-                    // update positions with new velocities: v_i(t+h)
-                    v.set_new_pos(v.pos().now() + self.properties.time_increment * v.vel().now());
-                }
-            }
-            PropagationMethod::EulerCromer => {
-                // Rotate buffers first
-                std::mem::swap(&mut self.fluid.position_prev, &mut self.fluid.position);
-                std::mem::swap(&mut self.fluid.velocity_prev, &mut self.fluid.velocity);
-                // position = old prev (will be overwritten), position_prev = old current
-                for_each!(
-                    mut [self.fluid.position, self.fluid.velocity],
-                    ref [
-                        pos_prev = self.fluid.position_prev,   // = old "current"
-                        vel_prev = self.fluid.velocity_prev,   // = old "current"
-                        acceleration = self.fluid.acceleration,
-                    ],
-                    |id, id_pos_now, id_vel_now| {
-                        // update velocities
-                        *id_vel_now = vel_prev[id] + self.parameters.time_increment * acceleration[id];
-                        // update positions
-                        *id_pos_now = pos_prev[id] + self.parameters.time_increment * *id_vel_now;
-                    }
-                );
-            }
-            PropagationMethod::Verlet => {
-                // Rotate buffers first
-                std::mem::swap(&mut self.fluid.position_prev, &mut self.fluid.position);
-                std::mem::swap(&mut self.fluid.velocity_prev, &mut self.fluid.velocity);
-                // position = old prev (will be overwritten), position_prev = old current
-                for_each!(
-                    mut [self.fluid.position, self.fluid.velocity],
-                    ref [
-                        pos_prev = self.fluid.position_prev,   // = old "current"
-                        acceleration = self.fluid.acceleration,
-                    ],
-                    |id, id_pos_now, id_vel_now| {
-                        // update positions
-                        *id_pos_now =  2.0 * pos_prev[id]
-                            - *id_pos_now // because of swap is position_2prev
-                            + self.parameters.time_increment.powi(2) * acceleration[id];
-                        // update velocities
-                        *id_vel_now = (*id_pos_now - pos_prev[id])
-                            / self.parameters.time_increment;
-                    }
-                );
-            }
-            PropagationMethod::AcceptPredicted => {
-                self.fluid.accept_pred_pos();
-                self.fluid.accept_pred_vel();
-            }
-        }
         self.time_steps_propagated += 1;
-        // Update uniform grid
+        // Update
         self.update();
         // measure wall clock time for time step
         self.properties.time_step_wall_clock_time = start.elapsed().as_secs_f64();

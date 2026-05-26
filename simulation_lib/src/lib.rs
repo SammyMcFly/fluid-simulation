@@ -45,8 +45,6 @@ pub struct SimulationParameters {
     pub particle_color: ParticleColor,
     /// Boundary particle color
     pub boundary_particle_color: ParticleColor,
-    /// Integration Scheme
-    pub integration_scheme: sph::PropagationMethod,
     /// maximum buffer length
     pub buffer_length_limit: usize,
     /// Flag that is true if a measurement is taken in simulation, else false

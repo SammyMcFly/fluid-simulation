@@ -159,12 +159,13 @@ impl Fluid3D {
         self.position.len()
     }
 
-    // pub fn rotate_position(&mut self, pos: &mut Vec<Vector3<f64>>) {
-    //     std::mem::swap(&mut self.position, pos);
-    // }
-    // pub fn rotate_velocity(&mut self, vel: &mut Vec<Vector3<f64>>) {
-    //     std::mem::swap(&mut self.velocity, vel);
-    // }
+    pub fn rotate_position(&mut self, pos: &mut Vec<Vector3<f64>>) {
+        std::mem::swap(&mut self.position, pos);
+    }
+
+    pub fn rotate_velocity(&mut self, vel: &mut Vec<Vector3<f64>>) {
+        std::mem::swap(&mut self.velocity, vel);
+    }
 
     pub fn accept_pred_pos(&mut self) {
         std::mem::swap(&mut self.position_prev, &mut self.position);

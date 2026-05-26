@@ -1,4 +1,4 @@
-//! Backend module
+/// Backend module
 use crossbeam::channel::Receiver;
 use iced_wgpu::wgpu;
 use iced_winit::winit::event_loop::EventLoopProxy;
@@ -6,6 +6,10 @@ use std::time::Duration;
 use tracing::{error, info, warn}; // debug, error, info, span, trace, warn,
 
 use simulation_lib::measurement::RecordingStatus;
+#[cfg(not(feature = "optimized_source_term"))]
+use simulation_lib::sph::integration_schemes::EulerCromer;
+#[cfg(feature = "optimized_source_term")]
+use simulation_lib::sph::integration_schemes::TakePredicted;
 use simulation_lib::sph::kernel::cubic_spline::CubicBSpline;
 use simulation_lib::*;
 
@@ -16,7 +20,10 @@ pub mod recording;
 
 use commands::WorkerCommand;
 
-type SimSystem = sph::System3D<CubicBSpline>;
+#[cfg(feature = "optimized_source_term")]
+type SimSystem = sph::System3D<CubicBSpline, AcceptPredicted>;
+#[cfg(not(feature = "optimized_source_term"))]
+type SimSystem = sph::System3D<CubicBSpline, EulerCromer>;
 
 /// Struct that does:
 /// - holds initial state of a system
@@ -98,8 +105,7 @@ impl Simulation {
         }
     }
     fn get_next_time_step(&mut self) -> TimeStepInfo {
-        self.system
-            .step_forward_in_time(&self.parameters.integration_scheme);
+        self.system.step_forward_in_time();
         let time_step_info = self.system.get_time_step_info();
         self.record(&time_step_info);
         time_step_info

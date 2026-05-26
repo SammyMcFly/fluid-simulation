@@ -10,7 +10,7 @@ use super::SimulationParameters;
 use super::sph::sample::{Boundary3D, Fluid3D, SerFluid3D};
 #[cfg(feature = "springs")]
 use super::sph::spring::Spring;
-use super::sph::{CurrentSystemProperties, PropagationMethod, SystemParameters};
+use super::sph::{CurrentSystemProperties, SystemParameters};
 // use super::measure;
 
 use crate::ParticleColor;
@@ -31,7 +31,6 @@ pub struct Parameters {
     pub max_time_increment: f64,
     #[cfg(feature = "cfl_time_step")]
     pub cfl_number: f64,
-    pub integration_scheme: PropagationMethod,
     pub rest_density: f64,
     pub rest_density_grid_spacing: f64,
     pub smoothing_length: f64,
@@ -222,7 +221,6 @@ impl System3DConfigConstructor {
             light_position: constructor.config.light.position,
             particle_color: ParticleColor::default(),
             boundary_particle_color: ParticleColor::FixedColor([0.; 3]),
-            integration_scheme: constructor.config.parameters.integration_scheme.clone(),
             buffer_length_limit: constructor.config.parameters.buffer_length_limit,
             is_measured,
             is_recorded,
