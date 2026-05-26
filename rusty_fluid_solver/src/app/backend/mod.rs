@@ -1,13 +1,12 @@
 //! Backend module
-use std::time::Duration;
-
 use crossbeam::channel::Receiver;
 use iced_wgpu::wgpu;
 use iced_winit::winit::event_loop::EventLoopProxy;
-
+use std::time::Duration;
 use tracing::{error, info, warn}; // debug, error, info, span, trace, warn,
 
 use simulation_lib::measurement::RecordingStatus;
+use simulation_lib::sph::kernel::cubic_spline::CubicBSpline;
 use simulation_lib::*;
 
 use crate::app::messages::WorkerMessage;
@@ -17,6 +16,8 @@ pub mod recording;
 
 use commands::WorkerCommand;
 
+type SimSystem = sph::System3D<CubicBSpline>;
+
 /// Struct that does:
 /// - holds initial state of a system
 /// - develops the system in time
@@ -24,7 +25,7 @@ use commands::WorkerCommand;
 /// - optionally: memorizes all taken measurements, stores them at the end
 struct Simulation {
     // initial_system: sph::System3D,
-    system: sph::System3D,
+    system: SimSystem,
     parameters: SimulationParameters,
     measurement_series: Option<measurement::MeasurementSeries>,
     state_appender: Option<recording::StateAppender>,

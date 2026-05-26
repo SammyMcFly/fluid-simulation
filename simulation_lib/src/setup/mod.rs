@@ -10,10 +10,7 @@ use super::SimulationParameters;
 use super::sph::sample::{Boundary3D, Fluid3D, SerFluid3D};
 #[cfg(feature = "springs")]
 use super::sph::spring::Spring;
-use super::sph::{
-    CurrentSystemProperties, PropagationMethod, SystemParameters, cubic_b_spline_3d,
-    cubic_b_spline_3d_gradient,
-};
+use super::sph::{CurrentSystemProperties, PropagationMethod, SystemParameters};
 // use super::measure;
 
 use crate::ParticleColor;
@@ -160,8 +157,6 @@ impl System3DConfigConstructor {
             self.config.parameters.relaxation_factor,
             #[cfg(feature = "global_pressure")]
             self.config.parameters.min_diagonal_element,
-            cubic_b_spline_3d,
-            cubic_b_spline_3d_gradient,
         )
     }
 

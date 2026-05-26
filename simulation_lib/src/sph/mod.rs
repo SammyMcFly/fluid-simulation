@@ -10,10 +10,11 @@ use num_traits::Zero;
 #[cfg(feature = "parallelized_sph")]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-
 #[cfg(feature = "logging")]
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 
+pub mod kernel;
+use kernel::KernelFn;
 pub mod sample;
 use sample::*;
 #[cfg(feature = "springs")]
@@ -28,61 +29,13 @@ use crate::measurement;
 use crate::setup;
 
 /// Calculate the distance between two 3D points
-pub fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
+fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
     (to - from).norm()
 }
 
 /// Direction from particle1 towards particle2
-pub fn direction(from: &Vector3<f64>, towards: &Vector3<f64>) -> Vector3<f64> {
+fn direction(from: &Vector3<f64>, towards: &Vector3<f64>) -> Vector3<f64> {
     towards - from
-}
-
-/// Cubic B-spline kernel function
-pub fn cubic_b_spline_3d(
-    position_1: &Vector3<f64>,
-    position_2: &Vector3<f64>,
-    smoothing_length: f64,
-) -> f64 {
-    let distance = distance(position_1, position_2);
-    // normalize
-    let normalized_distance = distance / smoothing_length;
-    if normalized_distance < 1. {
-        let prefactor = 1. / 4. / std::f64::consts::PI / smoothing_length.powi(3);
-        prefactor * ((2. - normalized_distance).powi(3) - 4. * (1. - normalized_distance).powi(3))
-    } else if normalized_distance < 2. {
-        let prefactor = 1. / 4. / std::f64::consts::PI / smoothing_length.powi(3);
-        prefactor * (2. - normalized_distance).powi(3)
-    } else {
-        0.
-    }
-}
-
-/// Gradient of cubic B-spline kernel function
-pub fn cubic_b_spline_3d_gradient(
-    position_1: &Vector3<f64>,
-    position_2: &Vector3<f64>,
-    smoothing_length: f64,
-) -> Vector3<f64> {
-    // calculate distance between positions
-    let distance = distance(position_1, position_2);
-    // calculate direction direction from position 2 to 1
-    let inv_direction = direction(position_2, position_1);
-    // normalize
-    let normalized_distance = distance / smoothing_length;
-    if normalized_distance == 0. {
-        // if distance is 0 direction is invalid -> return Vector3::zeros()
-        Vector3::zeros()
-    } else if normalized_distance < 1. {
-        let prefactor = 1. / 4. / std::f64::consts::PI / smoothing_length.powi(4);
-        inv_direction / distance
-            * prefactor
-            * (-3. * (2. - normalized_distance).powi(2) + 12. * (1. - normalized_distance).powi(2))
-    } else if normalized_distance < 2. {
-        let prefactor = 1. / 4. / std::f64::consts::PI / smoothing_length.powi(4);
-        inv_direction / distance * prefactor * (-3. * (2. - normalized_distance).powi(2))
-    } else {
-        Vector3::zeros()
-    }
 }
 
 /// Method for propagating time in a simulated physical system
@@ -152,13 +105,6 @@ pub struct SystemParameters {
     relaxation_factor: f64,
     #[cfg(feature = "global_pressure")]
     min_diagonal_element: f64,
-    kernel_fn:
-        fn(position_1: &Vector3<f64>, position_2: &Vector3<f64>, smoothing_length: f64) -> f64,
-    kernel_gradient_fn: fn(
-        position_1: &Vector3<f64>,
-        position_2: &Vector3<f64>,
-        smoothing_length: f64,
-    ) -> Vector3<f64>,
 }
 
 impl SystemParameters {
@@ -181,16 +127,6 @@ impl SystemParameters {
         target_density_error: f64,
         #[cfg(feature = "global_pressure")] relaxation_factor: f64,
         #[cfg(feature = "global_pressure")] min_diagonal_element: f64,
-        kernel_fn: fn(
-            position_1: &Vector3<f64>,
-            position_2: &Vector3<f64>,
-            smoothing_length: f64,
-        ) -> f64,
-        kernel_gradient_fn: fn(
-            position_1: &Vector3<f64>,
-            position_2: &Vector3<f64>,
-            smoothing_length: f64,
-        ) -> Vector3<f64>,
     ) -> Self {
         Self {
             #[cfg(not(feature = "cfl_time_step"))]
@@ -219,8 +155,6 @@ impl SystemParameters {
             relaxation_factor,
             #[cfg(feature = "global_pressure")]
             min_diagonal_element,
-            kernel_fn,
-            kernel_gradient_fn,
         }
     }
 
@@ -233,7 +167,7 @@ impl SystemParameters {
 
 ///  3D implementation of a physical system to be simulated
 #[derive(Debug, Clone)]
-pub struct System3D {
+pub struct System3D<K: KernelFn> {
     /// Collection of all fluid samples
     fluid: Fluid3D,
     /// Uniform grid for fluid samples
@@ -257,9 +191,10 @@ pub struct System3D {
     /// Properties of the system
     parameters: SystemParameters,
     properties: CurrentSystemProperties,
+    kernel_fn: std::marker::PhantomData<K>,
 }
 
-impl System3D {
+impl<K: KernelFn> System3D<K> {
     pub fn new(systemconfig: setup::System3DConfig) -> Self {
         let particle_grid =
             neighbor_search::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
@@ -276,6 +211,7 @@ impl System3D {
             time_steps_propagated: 0,
             parameters: systemconfig.system_parameters,
             properties: systemconfig.properties,
+            kernel_fn: std::marker::PhantomData,
         };
         // set boundary mass such that the density is equal to the fluids rest density
         system.init_boundary_volume();
@@ -305,11 +241,11 @@ impl System3D {
                 self.boundary.pos_now(boundary_particle_index),
                 &self.boundary.position,
             ) {
-                inverse_volume += (self.parameters.kernel_fn)(
+                let dist = distance(
                     self.boundary.pos_now(boundary_particle_index),
                     self.boundary.pos_now(boundary_neighbor),
-                    self.parameters.smoothing_length,
                 );
+                inverse_volume += K::value(dist, self.parameters.smoothing_length);
             }
             // calculate mass with rest density of fluid
             let pseudo_volume = self.parameters.boundary_rest_volume_weighting / inverse_volume;
@@ -333,9 +269,7 @@ impl System3D {
             self.fluid
                 .velocity
                 .iter()
-                .zip(self.fluid.is_enabled(..))
-                .filter(|(_vel, enabled)| **enabled)
-                .map(|(vel, _enabled)| vel.norm())
+                .map(|vel| vel.norm())
                 .fold(0.0_f64, f64::max)
         }
         #[cfg(feature = "parallelized_sph")]
@@ -355,10 +289,8 @@ impl System3D {
             self.fluid
                 .velocity
                 .iter()
-                .zip(self.fluid.enabled.iter())
                 .zip(self.fluid.mass.iter())
-                .filter(|((_, enabled), _)| **enabled)
-                .map(|((vel, _), mass)| 0.5 * mass * vel.norm_squared())
+                .map(|(vel, mass)| 0.5 * mass * vel.norm_squared())
                 .fold((0.0_f64, 0_u64), |(sum, cnt), energy| {
                     (sum + energy, cnt + 1)
                 })
@@ -461,12 +393,10 @@ impl System3D {
         #[cfg(not(feature = "parallelized_sph"))]
         let (total_mass_density, count) = {
             self.fluid
-                .enabled
+                .volume
                 .iter()
-                .zip(self.fluid.volume.iter())
                 .zip(self.fluid.mass.iter())
-                .filter(|((enabled, _), _)| **enabled)
-                .map(|((_, volume), mass)| {
+                .map(|(volume, mass)| {
                     if *volume < self.parameters.rest_volume {
                         mass / volume
                     } else {
@@ -536,20 +466,25 @@ impl System3D {
                 let mut accu = 0.;
                 // add volume for every neighbor
                 for &neighbor in &neighbors[id] {
+                    let dist = distance(
+                        &pos_now[id],
+                        &pos_now[neighbor],
+                    );
                     accu += self.parameters.rest_volume
-                        * (self.parameters.kernel_fn)(
-                            &pos_now[id],
-                            &pos_now[neighbor],
+                        * K::value(
+                            dist,
                             self.parameters.smoothing_length,
                         );
                 }
                 // add volume for every boundary neighbor (mirror mass of moving particle onto boundary particle)
                 for &boundary_neighbor in &boundary_neighbors[id] {
-                    // add volume for every neighbor
+                    let dist = distance(
+                        &pos_now[id],
+                        self.boundary.pos_now(boundary_neighbor),
+                    );
                     accu += *self.boundary.volume(boundary_neighbor)
-                        * (self.parameters.kernel_fn)(
-                            &pos_now[id],
-                            self.boundary.pos_now(boundary_neighbor),
+                        * K::value(
+                            dist,
                             self.parameters.smoothing_length,
                         );
                 }
@@ -576,36 +511,41 @@ impl System3D {
                 let mut accu = 0.;
                 // add density for every neighbor
                 for &neighbor in &neighbors[id] {
+                    let r_vec = direction(
+                        &pos_now[id],
+                        &pos_now[neighbor],
+                    );
+                    let dist = r_vec.norm();
                     accu += mass[neighbor]
-                        * (self.parameters.kernel_fn)(
-                            &pos_now[id],
-                            &pos_now[neighbor],
+                        * K::value(
+                            dist,
                             self.parameters.smoothing_length,
                         )
                         + self.parameters.time_increment
-                            * (vel_pred[id] - vel_pred[neighbor]).dot(&(self
-                                .parameters
-                                .kernel_gradient_fn)(
-                                &pos_now[id],
-                                &pos_now[neighbor],
+                            * (vel_pred[id] - vel_pred[neighbor]).dot(&K::gradient(
+                                &r_vec,
+                                dist,
                                 self.parameters.smoothing_length,
                             ));
                 }
                 // add density for every boundary neighbor (mirror mass of moving sample onto boundary sample)
                 for &boundary_neighbor in &boundary_neighbors[id] {
-                    // add density for every neighbor
+                    let dir = direction(
+                        &pos_now[id],
+                        &self.boundary.pos_now(boundary_neighbor),
+                    );
+                    let dist = r_vec.norm();
                     accu += self.boundary.volume(boundary_neighbor)
                         * self.parameters.rest_density
-                        * (self.parameters.kernel_fn)(
-                            &pos_now[id],
-                            &self.boundary.pos_now(boundary_neighbor),
+                        * K::value(
+                            dist,
                             self.parameters.smoothing_length,
                         )
                         + self.parameters.time_increment
                             * vel_pred[id]
-                                .dot(&(self.parameters.kernel_gradient_fn)(
-                                    &pos_now[id],
-                                    &self.boundary.pos_now(boundary_neighbor),
+                                .dot(&K::gradient(
+                                    &r_vec,
+                                    dist,
                                     self.parameters.smoothing_length,
                                 ));
                 }
@@ -689,6 +629,11 @@ impl System3D {
                 let mut accu = Vector3::zeros();
                 // add viscostiy acceleration from other moving particles
                 for &neighbor in &neighbors[id] {
+                    let r_vec = direction(
+                        &pos_now[id],
+                        &pos_now[neighbor],
+                    );
+                    let dist = r_vec.norm();
                     accu += self.parameters.fluid_viscosity
                         * 2.
                         * (3. + 2.)
@@ -698,14 +643,19 @@ impl System3D {
                         / ((pos_now[id] - pos_now[neighbor])
                             .norm_squared()
                             + 0.01 * self.parameters.smoothing_length.powi(2))
-                        * (self.parameters.kernel_gradient_fn)(
-                            &pos_now[id],
-                            &pos_now[neighbor],
+                        * K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         );
                 }
                 // add viscostiy acceleration from boundary particles
                 for &boundary_neighbor in &boundary_neighbors[id] {
+                    let r_vec = direction(
+                        &pos_now[id],
+                        self.boundary.pos_now(boundary_neighbor),
+                    );
+                    let dist = r_vec.norm();
                     accu += self.parameters.boundary_viscosity
                         * 2.
                         * (3. + 2.)
@@ -719,9 +669,9 @@ impl System3D {
                             - *self.boundary.pos_now(boundary_neighbor))
                         .norm_squared()
                             + 0.01 * self.parameters.smoothing_length.powi(2))
-                        * (self.parameters.kernel_gradient_fn)(
-                            &pos_now[id],
-                            self.boundary.pos_now(boundary_neighbor),
+                        * K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         );
                 }
@@ -807,12 +757,17 @@ impl System3D {
                         pos_now[neighbor]
                     };
                     // calc acceleration
+                    let r_vec = direction(
+                        &particle_pos,
+                        &fluid_neighbor_pos,
+                    );
+                    let dist = r_vec.norm();
                     accu -= volume[id] / mass[id]
                         * volume[neighbor]
                         * (pressure[id] + pressure[neighbor])
-                        * (self.parameters.kernel_gradient_fn)(
-                            &particle_pos,
-                            &fluid_neighbor_pos,
+                        * K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         );
                 }
@@ -828,12 +783,17 @@ impl System3D {
                     };
                     // calc acceleration
                     // mirror only pressure into boundary particle, set density to rest density
+                    let r_vec = direction(
+                        &particle_pos,
+                        self.boundary.pos_now(boundary_neighbor),
+                    );
+                    let dist = r_vec.norm();
                     accu -= 2. * weighting * volume[id] / mass[id]
                         * *self.boundary.volume(boundary_neighbor)
                         * pressure[id]
-                        * (self.parameters.kernel_gradient_fn)(
-                            &particle_pos,
-                            self.boundary.pos_now(boundary_neighbor),
+                        * K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         );
                 }
@@ -883,24 +843,34 @@ impl System3D {
             |id, id_s_f| {
                 let mut accu = 0.;
                 for &neighbor in &neighbors[id] {
+                    let r_vec = direction(
+                        &pos_now[id],
+                        &pos_now[neighbor],
+                    );
+                    let dist = r_vec.norm();
                     accu -= self.parameters.time_increment
                         * volume[neighbor]
                         * (vel_pred[id] - vel_pred[neighbor]).dot(
-                            &(self.parameters.kernel_gradient_fn)(
-                                &pos_now[id],
-                                &pos_now[neighbor],
+                            &K::gradient(
+                                &r_vec,
+                                dist,
                                 self.parameters.smoothing_length,
                             ),
                         );
                 }
                 for &boundary_neighbor in &boundary_neighbors[id] {
+                    let r_vec = direction(
+                        &pos_now[id],
+                        self.boundary.pos_now(boundary_neighbor),
+                    );
+                    let dist = r_vec.norm();
                     accu -= self.parameters.time_increment
                         * *self.boundary.volume(boundary_neighbor)
                         * (vel_pred[id]
                             - *self.boundary.vel_now(boundary_neighbor))
-                        .dot(&(self.parameters.kernel_gradient_fn)(
-                            &pos_now[id],
-                            self.boundary.pos_now(boundary_neighbor),
+                        .dot(&K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         ));
                 }
@@ -941,12 +911,17 @@ impl System3D {
                         pos_now[neighbor]
                     };
 
+                    let r_vec = direction(
+                        &particle_pos,
+                        &fluid_neighbor_pos,
+                    );
+                    let dist = r_vec.norm();
                     accu -= self.parameters.time_increment
                         * volume[neighbor]
                         * (vel_pred[id] - vel_pred[neighbor]).dot(
-                            &(self.parameters.kernel_gradient_fn)(
-                                &particle_pos,
-                                &fluid_neighbor_pos,
+                            &K::gradient(
+                                &r_vec,
+                                dist,
                                 self.parameters.smoothing_length,
                             ),
                         );
@@ -959,13 +934,18 @@ impl System3D {
                         pos_now[id]
                     };
 
+                    let r_vec = direction(
+                        &particle_pos,
+                        self.boundary.pos_now(boundary_neighbor),
+                    );
+                    let dist = r_vec.norm();
                     accu -= self.parameters.time_increment
                         * *self.boundary.volume(boundary_neighbor)
                         * (vel_pred[id]
                             - *self.boundary.vel_now(boundary_neighbor))
-                        .dot(&(self.parameters.kernel_gradient_fn)(
-                            &particle_pos,
-                            self.boundary.pos_now(boundary_neighbor),
+                        .dot(&K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         ));
                 }
@@ -1034,10 +1014,15 @@ impl System3D {
                         pos_now[neighbor]
                     };
 
+                    let r_vec = direction(
+                        &particle_pos,
+                        &fluid_neighbor_pos,
+                    );
+                    let dist = r_vec.norm();
                     sum_fluid += volume[neighbor]
-                        * (self.parameters.kernel_gradient_fn)(
-                            &particle_pos,
-                            &fluid_neighbor_pos,
+                        * K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         );
 
@@ -1045,9 +1030,9 @@ impl System3D {
                         * volume[id]
                         * volume[neighbor].powi(2)
                         / mass[neighbor]
-                        * (self.parameters.kernel_gradient_fn)(
-                            &particle_pos,
-                            &fluid_neighbor_pos,
+                        * K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         )
                         .norm_squared();
@@ -1061,10 +1046,15 @@ impl System3D {
                         pos_now[id]
                     };
 
+                    let r_vec = direction(
+                        &particle_pos,
+                        self.boundary.pos_now(boundary_neighbor),
+                    );
+                    let dist = r_vec.norm();
                     sum_boundary += *self.boundary.volume(boundary_neighbor)
-                        * (self.parameters.kernel_gradient_fn)(
-                            &particle_pos,
-                            self.boundary.pos_now(boundary_neighbor),
+                        * K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         );
                 }
@@ -1136,12 +1126,17 @@ impl System3D {
                             pos_now[neighbor]
                         };
 
+                        let r_vec = direction(
+                            &particle_pos,
+                            &fluid_neighbor_pos,
+                        );
+                        let dist = r_vec.norm();
                         accu -= volume[id] / mass[id]
                             * volume[neighbor]
                             * (pressure[id] + pressure[neighbor])
-                            * (self.parameters.kernel_gradient_fn)(
-                                &particle_pos,
-                                &fluid_neighbor_pos,
+                            * K::gradient(
+                                &r_vec,
+                                dist,
                                 self.parameters.smoothing_length,
                             );
                     }
@@ -1156,12 +1151,17 @@ impl System3D {
                             pos_now[id]
                         };
 
+                        let r_vec = direction(
+                            &particle_pos,
+                            self.boundary.pos_now(boundary_neighbor),
+                        );
+                        let dist = r_vec.norm();
                         accu -= 2.*weighting*volume[id]/mass[id]
                         * *self.boundary.volume(boundary_neighbor)
                         *pressure[id] // mirror pressure
-                        *(self.parameters.kernel_gradient_fn)(
-                            &particle_pos,
-                            self.boundary.pos_now(boundary_neighbor),
+                        *K::gradient(
+                            &r_vec,
+                            dist,
                             self.parameters.smoothing_length,
                         );
                     }
@@ -1198,12 +1198,17 @@ impl System3D {
                             pos_now[neighbor]
                         };
 
+                        let r_vec = direction(
+                            &particle_pos,
+                            &fluid_neighbor_pos,
+                        );
+                        let dist = r_vec.norm();
                         a_dot_p_f += self.parameters.time_increment.powi(2)
                             * volume[neighbor]
                             * (pressure_acc_f[id] - pressure_acc_f[neighbor])
-                                .dot(&(self.parameters.kernel_gradient_fn)(
-                                    &particle_pos,
-                                    &fluid_neighbor_pos,
+                                .dot(&K::gradient(
+                                    &r_vec,
+                                    dist,
                                     self.parameters.smoothing_length,
                                 ));
                     }
@@ -1215,12 +1220,17 @@ impl System3D {
                             pos_now[id]
                         };
 
+                        let r_vec = direction(
+                            &particle_pos,
+                            self.boundary.pos_now(boundary_neighbor),
+                        );
+                        let dist = r_vec.norm();
                         a_dot_p_f += self.parameters.time_increment.powi(2)
                             * *self.boundary.volume(boundary_neighbor)
                             * pressure_acc_f[id]
-                                .dot(&(self.parameters.kernel_gradient_fn)(
-                                    &particle_pos,
-                                    self.boundary.pos_now(boundary_neighbor),
+                                .dot(&K::gradient(
+                                    &r_vec,
+                                    dist,
                                     self.parameters.smoothing_length,
                                 ));
                     }
@@ -1430,7 +1440,7 @@ impl System3D {
                     for &neighbor in &neighbors[id] {
                         jac_vel -= volume[neighbor]
                             * (vel_pred[id] - vel_pred[neighbor]).outer(
-                                &(self.parameters.kernel_gradient_fn)(
+                                &K::gradient(
                                     &pos_now[id],
                                     &pos_now[neighbor],
                                     self.parameters.smoothing_length,
@@ -1441,7 +1451,7 @@ impl System3D {
                         jac_vel -= self.boundary.volume[boundary_neighbor]
                             * (vel_pred[id]
                                 - *self.boundary.vel_now(boundary_neighbor))
-                            .outer(&(self.parameters.kernel_gradient_fn)(
+                            .outer(&K::gradient(
                                 &pos_now[id],
                                 self.boundary.pos_now(boundary_neighbor),
                                 self.parameters.smoothing_length,
