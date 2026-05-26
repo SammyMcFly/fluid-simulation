@@ -2,11 +2,10 @@
 //!
 use simulation_lib::measurement::RecordingStatus;
 
-use std::sync::{Arc, Mutex};
-use std::path::PathBuf;
 use iced_wgpu::wgpu;
 use iced_winit::winit;
-
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct ReadbackBuffer {
@@ -25,7 +24,10 @@ pub struct BufferCycle {
 }
 
 impl BufferCycle {
-    pub fn new(gpu_context: &super::gpu_context::GpuContext, size: winit::dpi::PhysicalSize<u32>,) -> Self {
+    pub fn new(
+        gpu_context: &super::gpu_context::GpuContext,
+        size: winit::dpi::PhysicalSize<u32>,
+    ) -> Self {
         let number_of_buffers = 3;
 
         let bytes_per_pixel = 4u32;
@@ -33,7 +35,8 @@ impl BufferCycle {
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256
         let padded_bytes_per_row = ((unpadded_bytes_per_row + align - 1) / align) * align;
 
-        let buffer_size = padded_bytes_per_row as wgpu::BufferAddress * size.height as wgpu::BufferAddress;
+        let buffer_size =
+            padded_bytes_per_row as wgpu::BufferAddress * size.height as wgpu::BufferAddress;
 
         let mut staging_buffers = Vec::new();
         for _ in 0..number_of_buffers {
@@ -49,7 +52,12 @@ impl BufferCycle {
             })));
         }
 
-        Self { number_of_buffers, staging_buffers, padded_bytes_per_row, next_frame_index: 0, }
+        Self {
+            number_of_buffers,
+            staging_buffers,
+            padded_bytes_per_row,
+            next_frame_index: 0,
+        }
     }
 
     pub fn get_next_buffer_and_info(&mut self) -> (&Arc<Mutex<ReadbackBuffer>>, usize, u32) {
@@ -117,7 +125,7 @@ impl ReadbackController {
         self.buffers = BufferCycle::new(gpu_context, size);
     }
 
-    pub fn queue_screenshot(&mut self, screenshot_directory: String,) {
+    pub fn queue_screenshot(&mut self, screenshot_directory: String) {
         self.take_single_screenshot = true;
         self.screenshot_directory = Some(screenshot_directory);
     }
@@ -125,11 +133,17 @@ impl ReadbackController {
     /// update rendering status
     pub fn update_rendering_status(&mut self, time: f32, rendering_status: &mut RecordingStatus) {
         if self.render_directory.is_some() {
-            if let Some(start) = self.start_time && time as f64 >= start && !self.started {
+            if let Some(start) = self.start_time
+                && time as f64 >= start
+                && !self.started
+            {
                 rendering_status.advance_to_next_state();
                 self.started = true;
             }
-            if let Some(finish) = self.finish_time && time as f64 >= finish && !self.finished {
+            if let Some(finish) = self.finish_time
+                && time as f64 >= finish
+                && !self.finished
+            {
                 rendering_status.advance_to_next_state();
                 self.finished = true;
             }
@@ -137,8 +151,15 @@ impl ReadbackController {
     }
 
     /// Take screenshot now?
-    pub fn screenshot_this(&mut self, frame_new: bool, rendering_status: RecordingStatus) -> ReadbackAction {
-        if self.render_directory.is_some() && frame_new && matches!(rendering_status, RecordingStatus::InProgress) {
+    pub fn screenshot_this(
+        &mut self,
+        frame_new: bool,
+        rendering_status: RecordingStatus,
+    ) -> ReadbackAction {
+        if self.render_directory.is_some()
+            && frame_new
+            && matches!(rendering_status, RecordingStatus::InProgress)
+        {
             ReadbackAction::Read(PathBuf::from(self.render_directory.as_ref().unwrap()))
         } else if self.take_single_screenshot {
             self.take_single_screenshot = false;
@@ -148,5 +169,3 @@ impl ReadbackController {
         }
     }
 }
-
-

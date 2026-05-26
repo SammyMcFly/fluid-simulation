@@ -14,9 +14,6 @@ mod app;
 
 use app::messages::WorkerMessage;
 
-
-
-
 /// Program for playing back a recording of an SPH fluid simulation.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -25,18 +22,18 @@ struct Args {
     // #[arg(default_value_t=String::from("scene_config.toml"))]
     recording: Option<String>,
     /// Resume playback at start
-    #[arg(short, long,)]
+    #[arg(short, long)]
     resume: bool,
     /// File path to store rendered images to (.png files)
-    #[arg(long,)]
+    #[arg(long)]
     rendering_dir: Option<String>,
     /// Time, which the first measurement/recording is taken at
-    #[arg(short, long,)]
+    #[arg(short, long)]
     start_time: Option<f64>,
     /// Time, which the final measurement/recording is taken at
     ///
     /// At the same time the simulation is paused. Currently there is no possibility to resume the simulation.
-    #[arg(short, long,)]
+    #[arg(short, long)]
     finish_time: Option<f64>,
     /// Log severity level (Options: TRACE, DEBUG, INFO, WARN, ERROR, OFF)
     #[arg(short, long, default_value_t=String::from("INFO"))]
@@ -60,7 +57,7 @@ fn init_logging(args: &Args) {
         // .with_ansi(false)
         // .pretty()
         .finish();
-        // .with(debug_log);
+    // .with(debug_log);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
 }
 

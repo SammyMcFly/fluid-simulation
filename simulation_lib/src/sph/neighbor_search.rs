@@ -1,15 +1,16 @@
-//! Module provides the necessary entities for a uniform grid implementation
-//!
+/// Module provides the necessary entities for an efficient
+/// neighbor search implementation
+///
 use nalgebra::Vector3;
 use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
-use super::particle::{Positional, ParticleQ3, Disableable};
 use super::distance;
-
+use super::sample::{Len, Positional};
 
 type UniformGridCell = Vector3<i32>;
 
-
+/// Container that stores indices of samples in a hash map depending
+/// on their spatial position on the uniform grid.
 #[derive(Debug, Clone)]
 pub struct UniformGrid {
     // hash_map: HashMap<u64, Vec<usize>>,
@@ -18,6 +19,7 @@ pub struct UniformGrid {
 }
 
 impl UniformGrid {
+    /// Initialize
     pub fn new(cell_size: f64) -> Self {
         // let hash_map: HashMap<u64, Vec<usize>> = HashMap::new();
         let hash_map: FxHashMap<u64, Vec<usize>> = FxHashMap::default();
@@ -25,27 +27,27 @@ impl UniformGrid {
             hash_map,
             cell_size,
         }
-
     }
 
-    pub fn populate(&mut self, particles: &[super::particle::Particle3D]) {
-        for (i, particle) in particles.iter().enumerate() {
-            if particle.is_enabled() {
-                let cell = self.get_cell(&particle.pos().now());
-                let cell_hash = Self::hash(cell.x, cell.y, cell.z);
-                self.hash_map.entry(cell_hash).or_default().push(i);
-            }
-        }
-    }
-
-    pub fn populate_boundary_particles(&mut self, particles: &[super::particle::BoundaryParticle3D]) {
-        for (i, particle) in particles.iter().enumerate() {
-            let cell = self.get_cell(&particle.pos());
+    /// Insert fluid samples from array into hash map
+    pub fn populate(&mut self, fluid: &(impl Len + Positional)) {
+        (0..fluid.len()).for_each(|id| {
+            let cell = self.get_cell(fluid.pos_now(id));
             let cell_hash = Self::hash(cell.x, cell.y, cell.z);
-            self.hash_map.entry(cell_hash).or_default().push(i);
-        }
+            self.hash_map.entry(cell_hash).or_default().push(id);
+        });
     }
 
+    /// Insert boundary samples from array into hash map
+    pub fn populate_boundary_particles(&mut self, boundary: &(impl Len + Positional)) {
+        (0..boundary.len()).for_each(|id| {
+            let cell = self.get_cell(boundary.pos_now(id));
+            let cell_hash = Self::hash(cell.x, cell.y, cell.z);
+            self.hash_map.entry(cell_hash).or_default().push(id);
+        });
+    }
+
+    /// Given a sample's position, calculate its grid cell
     fn get_cell(&self, position: &Vector3<f64>) -> UniformGridCell {
         UniformGridCell::new(
             (position.x / self.cell_size).floor() as i32,
@@ -54,7 +56,7 @@ impl UniformGrid {
         )
     }
 
-    // Reversibly map signed integers to unsigned integers
+    /// Reversibly map signed integers to unsigned integers
     fn map_int_to_uint(k: i32) -> u64 {
         if k >= 0 {
             (k as u64) * 2
@@ -79,10 +81,12 @@ impl UniformGrid {
         (unsigned_k * P1) ^ (unsigned_l * P2) ^ (unsigned_m * P3)
     }
 
+    /// Get the indices of samples, which are within the twice the cell size of a
+    /// specific position.
     pub fn get_particles_in_kernel_range(
         &self,
         position: &Vector3<f64>,
-        particles: &[impl Positional],
+        other_positions: &[Vector3<f64>],
     ) -> Vec<usize> {
         let mut particles_in_kernel_range = Vec::new();
         let cell = self.get_cell(position);
@@ -92,11 +96,12 @@ impl UniformGrid {
                 for dz in -2..=2 {
                     let neighbor_cell = (cell.x + dx, cell.y + dy, cell.z + dz);
                     let hash = Self::hash(neighbor_cell.0, neighbor_cell.1, neighbor_cell.2);
-                    if let Some(indices) = self.hash_map.get(&hash) {
-                        for &j in indices {
+                    if let Some(neighbors) = self.hash_map.get(&hash) {
+                        for &neighbor in neighbors {
                             // Distance check
-                            if distance(&particles[j].pos_now(), position) < 2.*self.cell_size {
-                                particles_in_kernel_range.push(j);
+                            if distance(&other_positions[neighbor], position) < 2. * self.cell_size
+                            {
+                                particles_in_kernel_range.push(neighbor);
                             }
                         }
                     }
@@ -106,9 +111,8 @@ impl UniformGrid {
         particles_in_kernel_range
     }
 
+    /// Clear hash map
     pub fn clear(&mut self) {
         self.hash_map.clear();
     }
 }
-
-

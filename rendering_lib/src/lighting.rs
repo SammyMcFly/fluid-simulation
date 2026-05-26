@@ -1,10 +1,8 @@
 //! Lighting module
 //!
+use cgmath::Rotation3;
 use iced_wgpu::wgpu;
 use iced_wgpu::wgpu::util::DeviceExt;
-use cgmath::Rotation3;
-
-
 
 /// Light in standard kartesian coordinates
 #[derive(Debug, Copy, Clone)]
@@ -32,7 +30,9 @@ impl Light {
         let old_position: cgmath::Vector3<_> = self.position.into();
         self.position = (cgmath::Quaternion::from_axis_angle(
             (0.0, 0.0, 1.0).into(),
-            cgmath::Deg(std::f32::consts::PI * time_to_last_update.as_secs_f32()*self.movement_speed),
+            cgmath::Deg(
+                std::f32::consts::PI * time_to_last_update.as_secs_f32() * self.movement_speed,
+            ),
         ) * old_position)
             .into();
     }
@@ -74,7 +74,6 @@ pub struct LightBundle {
     pub buffer: wgpu::Buffer,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub bind_group: wgpu::BindGroup,
-
     // pub rotation_speed: f32,
     // pub radius: f32,
 }
@@ -90,8 +89,14 @@ impl LightBundle {
         let mut light_uniform = LightUniform::default();
         light_uniform.update(&light);
         let light_buffer = Self::create_uniform_buffer(gpu_context, light_uniform, "Light Buffer");
-        let light_bind_group_layout = Self::create_bind_group_layout(gpu_context, "light_bind_group_layout");
-        let light_bind_group = Self::create_bind_group(gpu_context, &light_bind_group_layout, &light_buffer, "light_bind_group");
+        let light_bind_group_layout =
+            Self::create_bind_group_layout(gpu_context, "light_bind_group_layout");
+        let light_bind_group = Self::create_bind_group(
+            gpu_context,
+            &light_bind_group_layout,
+            &light_buffer,
+            "light_bind_group",
+        );
 
         Self {
             light,
@@ -107,8 +112,9 @@ impl LightBundle {
         uniform: T,
         label: &str,
     ) -> wgpu::Buffer {
-        gpu_context.device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
+        gpu_context
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
                 contents: bytemuck::cast_slice(&[uniform]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -119,19 +125,21 @@ impl LightBundle {
         gpu_context: &super::gpu_context::GpuContext,
         label: &str,
     ) -> wgpu::BindGroupLayout {
-        gpu_context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some(label),
-        })
+        gpu_context
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some(label),
+            })
     }
 
     fn create_bind_group(
@@ -139,18 +147,17 @@ impl LightBundle {
         bind_group_layout: &wgpu::BindGroupLayout,
         buffer: &wgpu::Buffer,
         label: &str,
-    )
-    -> wgpu::BindGroup {
-        gpu_context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
+    ) -> wgpu::BindGroup {
+        gpu_context
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: buffer.as_entire_binding(),
-                }
-            ],
-            label: Some(label),
-        })
+                }],
+                label: Some(label),
+            })
     }
 
     pub fn set_light(
@@ -158,13 +165,15 @@ impl LightBundle {
         gpu_context: &super::gpu_context::GpuContext,
         light_position: [f32; 3],
     ) {
-        self.light = Light::new(light_position, Some(self.light.color), self.light.movement_speed);
-        self.uniform.update(&self.light);
-        gpu_context.queue.write_buffer(
-            &self.buffer,
-            0,
-            bytemuck::cast_slice(&[self.uniform]),
+        self.light = Light::new(
+            light_position,
+            Some(self.light.color),
+            self.light.movement_speed,
         );
+        self.uniform.update(&self.light);
+        gpu_context
+            .queue
+            .write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[self.uniform]));
     }
 
     pub fn update(
@@ -174,11 +183,9 @@ impl LightBundle {
     ) {
         self.light.update_position(time_to_last_update);
         self.uniform.update(&self.light);
-        gpu_context.queue.write_buffer(
-            &self.buffer,
-            0,
-            bytemuck::cast_slice(&[self.uniform]),
-        );
+        gpu_context
+            .queue
+            .write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[self.uniform]));
     }
 
     // pub fn reset(&mut self, gpu_context: &super::gpu_context::GpuContext,) {}

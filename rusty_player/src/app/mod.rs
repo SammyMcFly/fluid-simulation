@@ -4,29 +4,23 @@
 //! Is based on wgpu and winit.
 use crossbeam::{channel, channel::Sender};
 use iced_winit::winit;
+use iced_winit::winit::event::{DeviceEvent, WindowEvent};
 use iced_winit::winit::event_loop::EventLoop;
-use iced_winit::winit::event::{WindowEvent, DeviceEvent};
 
-use tracing::{
-    info,
-    error,
-}; // error, trace, warn, debug, info,
+use tracing::{error, info}; // error, trace, warn, debug, info,
 
 use rendering_lib::AppState;
 
 mod backend;
-pub mod rendering;
 pub mod messages;
+pub mod rendering;
 
-use backend::{worker_loop, commands::WorkerCommand};
+use backend::{commands::WorkerCommand, worker_loop};
 use messages::WorkerMessage;
 use rendering::Player;
 
-
-
 const DISCARD_PAST: bool = false;
 const WAIT_FOR_TIMESTEPS: bool = false;
-
 
 /// Application does:
 /// - handles the event loop
@@ -61,11 +55,18 @@ impl StateApplication {
 
 impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let window = event_loop.create_window(winit::window::Window::default_attributes()
-            .with_visible(true).with_title("Rusty Fluid Solver")).unwrap();
+        let window = event_loop
+            .create_window(
+                winit::window::Window::default_attributes()
+                    .with_visible(true)
+                    .with_title("Rusty Fluid Solver"),
+            )
+            .unwrap();
 
         if let Some(fp) = &self.args.recording {
-            self.to_worker.send(WorkerCommand::ReadRecording(fp.clone())).unwrap();
+            self.to_worker
+                .send(WorkerCommand::ReadRecording(fp.clone()))
+                .unwrap();
         }
 
         match AppState::new(
@@ -84,8 +85,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
 
     fn window_event(
         &mut self,
-        event_loop:
-        &winit::event_loop::ActiveEventLoop,
+        event_loop: &winit::event_loop::ActiveEventLoop,
         id: winit::window::WindowId,
         event: WindowEvent,
     ) {
@@ -96,7 +96,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                 WindowEvent::CloseRequested => {
                     info!("The close button was pressed; stopping...");
                     event_loop.exit();
-                },
+                }
                 WindowEvent::Resized(physical_size) => {
                     self.state.as_mut().unwrap().resize(physical_size);
                 }
@@ -109,35 +109,38 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
                 _ => {
                     self.state.as_mut().unwrap().process_window_event(&event);
                     self.state.as_mut().unwrap().update(&self.to_worker);
-                },
+                }
             }
         }
         // self.state.as_mut().unwrap().window.request_redraw();
     }
 
     fn device_event(
-            &mut self,
-            _event_loop: &winit::event_loop::ActiveEventLoop,
-            _device_id: winit::event::DeviceId,
-            event: DeviceEvent,
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: DeviceEvent,
     ) {
         self.state.as_mut().unwrap().process_device_event(&event);
     }
 
-    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: WorkerMessage) {
+    fn user_event(
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        event: WorkerMessage,
+    ) {
         match event {
             WorkerMessage::FinishedReading(sim_info, time_steps) => {
-                self.state.as_mut().unwrap().received_content(sim_info, time_steps);
-            },
-            WorkerMessage::SavedScreenshot => {
-
-            },
-            WorkerMessage::SavedState => {
-
-            },
+                self.state
+                    .as_mut()
+                    .unwrap()
+                    .received_content(sim_info, time_steps);
+            }
+            WorkerMessage::SavedScreenshot => {}
+            WorkerMessage::SavedState => {}
             WorkerMessage::Error(e) => {
                 error!("Backend error: {e}");
-            }, // todo: handle/print error in ui
+            } // todo: handle/print error in ui
         }
     }
 
@@ -151,14 +154,11 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
 
     fn exiting(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         self.to_worker.send(WorkerCommand::Stop).unwrap();
-        self.worker_handle.take().unwrap().join().expect("Couldn't join simulation thread");
+        self.worker_handle
+            .take()
+            .unwrap()
+            .join()
+            .expect("Couldn't join simulation thread");
         info!("Terminating frontend!");
     }
 }
-
-
-
-
-
-
-

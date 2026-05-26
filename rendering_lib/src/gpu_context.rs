@@ -1,10 +1,9 @@
 //! GPU related code
 //!
-use std::sync::Arc;
-use iced_winit::winit;
 use iced_wgpu::wgpu;
+use iced_winit::winit;
 use pollster::FutureExt;
-
+use std::sync::Arc;
 
 pub struct GpuContext {
     // pub instance: wgpu::Instance,
@@ -18,7 +17,7 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    pub fn new(window: Arc<winit::window::Window>, size: winit::dpi::PhysicalSize<u32>,) -> Self {
+    pub fn new(window: Arc<winit::window::Window>, size: winit::dpi::PhysicalSize<u32>) -> Self {
         let instance = Self::create_gpu_instance();
         let surface = instance.create_surface(window.clone()).unwrap();
         let adapter: wgpu::Adapter = Self::create_adapter(instance, &surface);
@@ -50,33 +49,42 @@ impl GpuContext {
     }
 
     fn create_adapter(instance: wgpu::Instance, surface: &wgpu::Surface) -> wgpu::Adapter {
-        instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
+        instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(surface),
                 force_fallback_adapter: false,
-            }
-        ).block_on().expect("Failed to find an appropriate adapter")
+            })
+            .block_on()
+            .expect("Failed to find an appropriate adapter")
     }
 
     fn create_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
-        adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::Performance,
-                label: Some("Device"),
-                // trace: wgpu::Trace::Off,
-            },
-            None,
-        ).block_on().expect("Failed to create device")
+        adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                    memory_hints: wgpu::MemoryHints::Performance,
+                    label: Some("Device"),
+                    // trace: wgpu::Trace::Off,
+                },
+                None,
+            )
+            .block_on()
+            .expect("Failed to create device")
     }
 
-    fn create_surface_config(size: winit::dpi::PhysicalSize<u32>, capabilities: wgpu::SurfaceCapabilities) -> wgpu::SurfaceConfiguration {
+    fn create_surface_config(
+        size: winit::dpi::PhysicalSize<u32>,
+        capabilities: wgpu::SurfaceCapabilities,
+    ) -> wgpu::SurfaceConfiguration {
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
         // one will result in all the colors coming out darker. If you want to support non
         // sRGB surfaces, you'll need to account for that when drawing to the frame.
-        let surface_format = capabilities.formats.iter()
+        let surface_format = capabilities
+            .formats
+            .iter()
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(capabilities.formats[0]);
@@ -93,7 +101,10 @@ impl GpuContext {
         }
     }
 
-    pub fn create_offscreen_texture(device: &wgpu::Device, size: winit::dpi::PhysicalSize<u32>,) -> wgpu::Texture {
+    pub fn create_offscreen_texture(
+        device: &wgpu::Device,
+        size: winit::dpi::PhysicalSize<u32>,
+    ) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("offscreen render target"),
             size: wgpu::Extent3d {
@@ -120,7 +131,11 @@ pub struct Texture {
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-    pub fn create_depth_texture(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, label: &str) -> Self {
+    pub fn create_depth_texture(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        label: &str,
+    ) -> Self {
         let size = wgpu::Extent3d {
             width: config.width.max(1),
             height: config.height.max(1),
@@ -133,14 +148,13 @@ impl Texture {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: Self::DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         };
         let texture = device.create_texture(&desc);
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        Self { texture, view, }
+        Self { texture, view }
     }
 }

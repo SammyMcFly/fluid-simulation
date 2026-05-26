@@ -1,7 +1,6 @@
 //! Worker commands
-use crate::app::backend::sph::particle::SerParticle3D;
+use crate::app::backend::sph::sample::SerFluid3D;
 use rendering_lib::readback::ReadbackRequest;
-
 
 pub enum WorkerCommand {
     Simulate {
@@ -14,7 +13,10 @@ pub enum WorkerCommand {
     },
     AddTimeStepsToCompute(usize),
     SaveScreenshot(ReadbackRequest),
-    SaveState { particles: Vec<SerParticle3D>, filepath: String, },
+    SaveState {
+        fluid: SerFluid3D,
+        filepath: String,
+    },
     // Resume,
     // Pause,
     Reset,

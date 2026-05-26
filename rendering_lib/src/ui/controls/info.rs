@@ -5,7 +5,6 @@ use iced_winit::core::{Color, Theme};
 
 use simulation_lib::{SimulationParameters, TimeStepInfo, measurement::RecordingStatus};
 
-
 #[derive(Debug, Clone, Copy)]
 enum MRR {
     Measurement,
@@ -32,13 +31,17 @@ pub struct MRRStatus {
 }
 
 impl MRRStatus {
-    fn new(description: MRR, is_rec: bool,) -> Self {
+    fn new(description: MRR, is_rec: bool) -> Self {
         let recording_status = if is_rec {
             RecordingStatus::NotStarted
         } else {
             RecordingStatus::None
         };
-        Self { description, is_rec, recording_status, }
+        Self {
+            description,
+            is_rec,
+            recording_status,
+        }
     }
     fn advance_to_next_state(&mut self) {
         self.recording_status.advance_to_next_state();
@@ -98,7 +101,8 @@ impl UIInfo {
         if let Some(info) = info {
             self.time = info.time;
             self.time_increment = info.time_increment;
-            self.density_error = 100.*(info.average_density/self.simulation_info.as_ref().unwrap().rest_density - 1.);
+            self.density_error = 100.
+                * (info.average_density / self.simulation_info.as_ref().unwrap().rest_density - 1.);
         } else {
             self.density_error = f32::default();
         }
@@ -116,9 +120,7 @@ impl UIInfo {
         }
     }
 
-    pub fn view(
-        &self,
-    ) -> iced_widget::Column<'_, super::UserInput, Theme, iced_wgpu::Renderer> {
+    pub fn view(&self) -> iced_widget::Column<'_, super::UserInput, Theme, iced_wgpu::Renderer> {
         let view = column![
             row![
                 text("Remaining buffer length: ").color(Color::BLACK),
@@ -142,23 +144,19 @@ impl UIInfo {
         let view = if self.measurement_status.is_rec {
             view.push(row![
                 text!("{}", self.measurement_status).color(Color::BLACK),
-            ],)
+            ])
         } else {
             view
         };
 
         let view = if self.recording_status.is_rec {
-            view.push(row![
-                text!("{}", self.recording_status).color(Color::BLACK),
-            ],)
+            view.push(row![text!("{}", self.recording_status).color(Color::BLACK),])
         } else {
             view
         };
 
         if self.rendering_status.is_rec {
-            view.push(row![
-                text!("{}", self.rendering_status).color(Color::BLACK),
-            ],)
+            view.push(row![text!("{}", self.rendering_status).color(Color::BLACK),])
         } else {
             view
         }

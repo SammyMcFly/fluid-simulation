@@ -1,21 +1,18 @@
 //! Render Controls, Settings and Utilities
 //!
 //!
-use iced_widget::{container, column, row, button, Toggler, Space}; //text_input, slider
-use iced_winit::core::{Element, Theme, Length, Color};
+use iced_widget::{Space, Toggler, button, column, container, row}; //text_input, slider
+use iced_winit::core::{Color, Element, Length, Theme};
 
-use simulation_lib::{SimulationParameters, TimeStepInfo, ParticleColor};
+use simulation_lib::{ParticleColor, SimulationParameters, TimeStepInfo};
 
 use crate::ui::UserInput;
-use playback::*;
 use cut::*;
+use playback::*;
 
-pub mod playback;
 pub mod cut;
 pub mod info;
-
-
-
+pub mod playback;
 
 #[derive(Debug, Clone)]
 pub struct RenderControls {
@@ -46,7 +43,6 @@ impl RenderControls {
             particle_color,
             boundary_particle_color,
             background_color: Color::WHITE,
-
 
             info: info::UIInfo::new(is_rendered),
         }
@@ -85,14 +81,14 @@ impl RenderControls {
             UserInput::PlayForward => {
                 self.playback_controls.forward();
                 self.playback_controls.play();
-            },
+            }
             UserInput::PlayBackward => {
                 self.playback_controls.backward();
                 self.playback_controls.play();
-            },
+            }
             UserInput::Pause => {
                 self.playback_controls.pause();
-            },
+            }
             UserInput::StepForward => {
                 self.playback_controls.forward();
             }
@@ -101,16 +97,12 @@ impl RenderControls {
             }
             UserInput::ToggleLooping => {
                 self.buffer_control.toggle_looped();
-            },
-            UserInput::ToggleHideBoundary => {
-                self.hide_boundary = !self.hide_boundary
             }
+            UserInput::ToggleHideBoundary => self.hide_boundary = !self.hide_boundary,
             UserInput::ToggleCutX => {
                 self.cut.x = !self.cut.x;
             }
-            UserInput::CutXBoundChanged(bound) => {
-                self.cut.x_bound += bound
-            }
+            UserInput::CutXBoundChanged(bound) => self.cut.x_bound += bound,
             UserInput::FlipCutX => {
                 self.cut.x_flip();
             }
@@ -125,7 +117,7 @@ impl RenderControls {
             }
             UserInput::DiscardPastToggle => {
                 self.buffer_control.toggle_discard_past();
-            },
+            }
             _ => (),
         }
     }
@@ -156,22 +148,22 @@ impl RenderControls {
 
         let reset_cam = row![
             button("Reset Camera")
-            .on_press(UserInput::RequestCameraReset).height(28),
+                .on_press(UserInput::RequestCameraReset)
+                .height(28),
         ];
 
-        let reset = row![
-            button("Reset")
-            .on_press(UserInput::RequestReset).height(28),
-        ];
+        let reset = row![button("Reset").on_press(UserInput::RequestReset).height(28),];
 
         let save_state = row![
             button("Save current state")
-            .on_press(UserInput::RequestSaving).height(28),
+                .on_press(UserInput::RequestSaving)
+                .height(28),
         ];
 
         let screenshot = row![
             button("Take screenshot")
-            .on_press(UserInput::RequestScreenshot).height(28),
+                .on_press(UserInput::RequestScreenshot)
+                .height(28),
         ];
 
         // build ui controls

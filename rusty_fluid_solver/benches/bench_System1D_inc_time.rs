@@ -1,6 +1,5 @@
 //! only works in libraries: rename main.rs to lib.rs
 
-
 // use rusty_fluid_solver::physics::{System1D, Vertex1D, PropagationMethod};
 // use criterion::{criterion_group, criterion_main, Criterion};
 

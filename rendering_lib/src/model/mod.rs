@@ -1,12 +1,9 @@
-use std::ops::Range;
-use iced_wgpu::wgpu::util::DeviceExt;
 use iced_wgpu::wgpu;
-
+use iced_wgpu::wgpu::util::DeviceExt;
+use std::ops::Range;
 
 // Include the .obj file inside the binary so there is no dependency at runtime
 const SPHERE_DATA: &str = include_str!("sphere.obj");
-
-
 
 pub struct ModelAssets {
     pub sphere_mesh: Model,
@@ -39,10 +36,10 @@ impl ToRaw for crate::instances::Instance {
     fn to_raw(&self) -> Self::Raw {
         InstanceRaw {
             model: [
-                [1.0,0.0,0.0,0.0],
-                [0.0,1.0,0.0,0.0],
-                [0.0,0.0,1.0,0.0],
-                [self.position.x, self.position.z, -self.position.y, 1.0]
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [self.position.x, self.position.z, -self.position.y, 1.0],
             ],
             color: self.color,
         }
@@ -58,11 +55,8 @@ pub struct InstanceRaw {
 }
 
 impl InstanceRaw {
-    pub fn new(
-        model: [[f32; 4]; 4],
-        color: [f32; 3],
-    ) -> Self {
-        Self { model, color, }
+    pub fn new(model: [[f32; 4]; 4], color: [f32; 3]) -> Self {
+        Self { model, color }
     }
 }
 
@@ -167,32 +161,36 @@ impl Model {
                 single_index: true,
                 ..Default::default()
             },
-            |_mtl_path: &std::path::Path| -> Result<(Vec<tobj::Material>, std::collections::HashMap<String, usize>), tobj::LoadError> {
-                Ok((Vec::new(), std::collections::HashMap::new()))
-            },
+            |_mtl_path: &std::path::Path| -> Result<
+                (
+                    Vec<tobj::Material>,
+                    std::collections::HashMap<String, usize>,
+                ),
+                tobj::LoadError,
+            > { Ok((Vec::new(), std::collections::HashMap::new())) },
         )?;
 
         let meshes = models
             .into_iter()
             .map(|m| {
-                    let vertices = (0..m.mesh.positions.len() / 3)
+                let vertices = (0..m.mesh.positions.len() / 3)
                     .map(|i| {
-                        if m.mesh.normals.is_empty(){
+                        if m.mesh.normals.is_empty() {
                             ModelVertex {
                                 position: [
-                                    m.mesh.positions[i * 3]/1.78*scaling,
-                                    (m.mesh.positions[i * 3 + 1]-0.89)/1.78*scaling,
-                                    m.mesh.positions[i * 3 + 2]/1.78*scaling,
+                                    m.mesh.positions[i * 3] / 1.78 * scaling,
+                                    (m.mesh.positions[i * 3 + 1] - 0.89) / 1.78 * scaling,
+                                    m.mesh.positions[i * 3 + 2] / 1.78 * scaling,
                                 ],
                                 // tex_coords: [m.mesh.texcoords[i * 2], 1.0 - m.mesh.texcoords[i * 2 + 1]],
                                 normal: [0.0, 0.0, 0.0],
                             }
-                        }else{
+                        } else {
                             ModelVertex {
                                 position: [
-                                    m.mesh.positions[i * 3]/1.78*scaling,
-                                    (m.mesh.positions[i * 3 + 1]-0.89)/1.78*scaling,
-                                    m.mesh.positions[i * 3 + 2]/1.78*scaling,
+                                    m.mesh.positions[i * 3] / 1.78 * scaling,
+                                    (m.mesh.positions[i * 3 + 1] - 0.89) / 1.78 * scaling,
+                                    m.mesh.positions[i * 3 + 2] / 1.78 * scaling,
                                 ],
                                 // tex_coords: [m.mesh.texcoords[i * 2], 1.0 - m.mesh.texcoords[i * 2 + 1]],
                                 normal: [
@@ -205,16 +203,22 @@ impl Model {
                     })
                     .collect::<Vec<_>>();
 
-                let vertex_buffer = gpu_context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Sphere Index Buffer"),
-                    contents: bytemuck::cast_slice(&vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                let index_buffer = gpu_context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Sphere Index Buffer"),
-                    contents: bytemuck::cast_slice(&m.mesh.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
+                let vertex_buffer =
+                    gpu_context
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Sphere Index Buffer"),
+                            contents: bytemuck::cast_slice(&vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                let index_buffer =
+                    gpu_context
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Sphere Index Buffer"),
+                            contents: bytemuck::cast_slice(&m.mesh.indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
 
                 Mesh {
                     name: "sphere".to_string(),
@@ -226,7 +230,7 @@ impl Model {
             })
             .collect::<Vec<_>>();
 
-        Ok(Model { meshes, }) //  materials })
+        Ok(Model { meshes }) //  materials })
     }
 }
 
@@ -297,7 +301,7 @@ where
         instances: Range<u32>,
         camera_bind_group: &'b wgpu::BindGroup,
         light_bind_group: &'b wgpu::BindGroup,
-    ){
+    ) {
         self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
         self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         self.set_bind_group(0, camera_bind_group, &[]);
@@ -401,7 +405,12 @@ where
         light_bind_group: &'b wgpu::BindGroup,
     ) {
         for mesh in &model.meshes {
-            self.draw_light_mesh_instanced(mesh, instances.clone(), camera_bind_group, light_bind_group);
+            self.draw_light_mesh_instanced(
+                mesh,
+                instances.clone(),
+                camera_bind_group,
+                light_bind_group,
+            );
         }
     }
 }

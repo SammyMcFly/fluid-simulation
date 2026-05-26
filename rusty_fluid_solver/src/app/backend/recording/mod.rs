@@ -1,39 +1,43 @@
 //! Record states or measurements of the simulation system
 //!
 //!
-use std::path::{Path, PathBuf};
-use std::fs::File;
-use std::io::{Write, BufWriter};
 use image::{ImageBuffer, Rgba};
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 
 use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
-use rendering_lib::readback::{ReadbackRequest, ReadbackBuffer};
+use rendering_lib::readback::{ReadbackBuffer, ReadbackRequest};
 
 use crate::app::backend::SimulationParameters;
 
-use super::sph::particle::SerParticle3D;
-
-
+use super::sph::sample::SerFluid3D;
 
 /// Store the current state of all fluid particles to a file
-pub fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std::io::Result<()> {
+pub fn save_system_state(fluid: SerFluid3D, file_path: &str) -> std::io::Result<()> {
     let file_path = Path::new(file_path);
     // convert to global path
     let file_path_parent = std::fs::canonicalize(
-        file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
+        file_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new(".")),
     )?;
-    let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+    let global_file_path =
+        file_path_parent.join(file_path.file_name().expect("No final component found."));
 
-    if !file_path_parent.exists() { // Create the parent directory if it does not exist
+    if !file_path_parent.exists() {
+        // Create the parent directory if it does not exist
         std::fs::create_dir_all(file_path_parent.clone())?;
         info!("Created directory: {}", file_path_parent.display());
-    } else if global_file_path.exists() { // Throw an error if file already exist
+    } else if global_file_path.exists() {
+        // Throw an error if file already exist
         error!("File already exists: {}", global_file_path.display());
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
     }
 
-    let ron_string = ron::to_string(&particles).unwrap();
+    let ron_string = ron::to_string(&fluid).unwrap();
     let mut file = std::fs::File::create(global_file_path)?;
     file.write_all(ron_string.as_bytes())?;
     Ok(())
@@ -61,8 +65,8 @@ pub fn buffer_to_rgba(
         let src_index = y * padded_bytes_per_row;
         let dst_index = y * row_bytes;
         for x in 0..width as usize {
-            let i = src_index + x*4;
-            let o = dst_index + x*4;
+            let i = src_index + x * 4;
+            let o = dst_index + x * 4;
 
             rgba[o + 0] = raw_data[i + 2]; // R = original B
             rgba[o + 1] = raw_data[i + 1]; // G stays G
@@ -82,16 +86,17 @@ pub fn save_to_png(
     frame_index: usize,
     output_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
-    let img: ImageBuffer<Rgba<u8>, _> =
-        ImageBuffer::from_raw(width, height, rgba_data)
-            .expect("image::ImageBuffer::from_raw failed");
+    let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba_data)
+        .expect("image::ImageBuffer::from_raw failed");
 
     let filename = format!("frame_{:06}.png", frame_index);
     let file_path = output_dir.join(filename);
-    if !output_dir.exists() { // Create the parent directory if it does not exist
+    if !output_dir.exists() {
+        // Create the parent directory if it does not exist
         std::fs::create_dir_all(output_dir)?;
         info!("Created directory: {}", output_dir.display());
-    } else if file_path.exists() { // Throw an error if file already exist
+    } else if file_path.exists() {
+        // Throw an error if file already exist
         error!("File already exists: {}", file_path.display());
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());
     }
@@ -116,17 +121,10 @@ pub fn save_screenshot(
         buffer.padded_bytes_per_row as usize,
     )?;
 
-    save_to_png(
-        &rgba_data,
-        rbr.width,
-        rbr.height,
-        rbr.frame_index,
-        path,
-    )?;
+    save_to_png(&rgba_data, rbr.width, rbr.height, rbr.frame_index, path)?;
 
     Ok(())
 }
-
 
 /// Struct that allows to save a [[TimeStepInfo]] into a binary file
 #[derive(Debug)]
@@ -140,14 +138,20 @@ impl StateAppender {
         let file_path = Path::new(file_path);
         // convert to global path
         let file_path_parent = std::fs::canonicalize(
-            file_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
+            file_path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new(".")),
         )?;
-        let global_file_path = file_path_parent.join(file_path.file_name().expect("No final component found."));
+        let global_file_path =
+            file_path_parent.join(file_path.file_name().expect("No final component found."));
 
-        if !file_path_parent.exists() { // Create the parent directory if it does not exist
+        if !file_path_parent.exists() {
+            // Create the parent directory if it does not exist
             std::fs::create_dir_all(file_path_parent.clone())?;
             info!("Created directory: {}", file_path_parent.display());
-        } else if global_file_path.exists() { // Throw an error if file already exist
+        } else if global_file_path.exists() {
+            // Throw an error if file already exist
             error!("File already exists: {}", file_path_parent.display());
             return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
         }
@@ -163,7 +167,10 @@ impl StateAppender {
         Ok(appender)
     }
 
-    pub fn append_time_step_info_to_file(&self, info: impl std::convert::Into<std::vec::Vec<u8>>) -> std::io::Result<()> {
+    pub fn append_time_step_info_to_file(
+        &self,
+        info: impl std::convert::Into<std::vec::Vec<u8>>,
+    ) -> std::io::Result<()> {
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
