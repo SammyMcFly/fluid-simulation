@@ -96,6 +96,7 @@ impl Expandable for Fluid3D {
 
     fn extend(&mut self, other: Self) {
         assert!(self.num_active == self.total_len());
+        self.num_active += other.num_active;
         self.position.extend(other.position);
         self.position_prev.extend(other.position_prev);
         self.position_pred.extend(other.position_pred);

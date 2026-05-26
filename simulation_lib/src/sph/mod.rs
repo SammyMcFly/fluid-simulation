@@ -503,8 +503,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                 // add density for every neighbor
                 for &neighbor in &neighbors[id] {
                     let r_vec = direction(
-                        &pos_now[id],
                         &pos_now[neighbor],
+                        &pos_now[id],
                     );
                     let dist = r_vec.norm();
                     accu += mass[neighbor]
@@ -621,8 +621,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                 // add viscostiy acceleration from other moving particles
                 for &neighbor in &neighbors[id] {
                     let r_vec = direction(
-                        &pos_now[id],
                         &pos_now[neighbor],
+                        &pos_now[id],
                     );
                     let dist = r_vec.norm();
                     accu += self.parameters.fluid_viscosity
@@ -643,8 +643,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                 // add viscostiy acceleration from boundary particles
                 for &boundary_neighbor in &boundary_neighbors[id] {
                     let r_vec = direction(
-                        &pos_now[id],
                         self.boundary.pos_now(boundary_neighbor),
+                        &pos_now[id],
                     );
                     let dist = r_vec.norm();
                     accu += self.parameters.boundary_viscosity
@@ -749,8 +749,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                     };
                     // calc acceleration
                     let r_vec = direction(
-                        &particle_pos,
                         &fluid_neighbor_pos,
+                        &particle_pos,
                     );
                     let dist = r_vec.norm();
                     accu -= volume[id] / mass[id]
@@ -775,8 +775,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                     // calc acceleration
                     // mirror only pressure into boundary particle, set density to rest density
                     let r_vec = direction(
-                        &particle_pos,
                         self.boundary.pos_now(boundary_neighbor),
+                        &particle_pos,
                     );
                     let dist = r_vec.norm();
                     accu -= 2. * weighting * volume[id] / mass[id]
@@ -836,8 +836,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                 let mut accu = 0.;
                 for &neighbor in &neighbors[id] {
                     let r_vec = direction(
-                        &pos_now[id],
                         &pos_now[neighbor],
+                        &pos_now[id],
                     );
                     let dist = r_vec.norm();
                     accu -= self.parameters.time_increment
@@ -852,8 +852,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                 }
                 for &boundary_neighbor in &boundary_neighbors[id] {
                     let r_vec = direction(
-                        &pos_now[id],
                         self.boundary.pos_now(boundary_neighbor),
+                        &pos_now[id],
                     );
                     let dist = r_vec.norm();
                     accu -= self.parameters.time_increment
@@ -904,8 +904,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                     };
 
                     let r_vec = direction(
-                        &particle_pos,
                         &fluid_neighbor_pos,
+                        &particle_pos,
                     );
                     let dist = r_vec.norm();
                     accu -= self.parameters.time_increment
@@ -927,8 +927,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                     };
 
                     let r_vec = direction(
-                        &particle_pos,
                         self.boundary.pos_now(boundary_neighbor),
+                        &particle_pos,
                     );
                     let dist = r_vec.norm();
                     accu -= self.parameters.time_increment
@@ -1007,8 +1007,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                     };
 
                     let r_vec = direction(
-                        &particle_pos,
                         &fluid_neighbor_pos,
+                        &particle_pos,
                     );
                     let dist = r_vec.norm();
                     sum_fluid += volume[neighbor]
@@ -1039,8 +1039,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                     };
 
                     let r_vec = direction(
-                        &particle_pos,
                         self.boundary.pos_now(boundary_neighbor),
+                        &particle_pos,
                     );
                     let dist = r_vec.norm();
                     sum_boundary += *self.boundary.volume(boundary_neighbor)
@@ -1119,8 +1119,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                         };
 
                         let r_vec = direction(
-                            &particle_pos,
                             &fluid_neighbor_pos,
+                            &particle_pos,
                         );
                         let dist = r_vec.norm();
                         accu -= volume[id] / mass[id]
@@ -1144,8 +1144,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                         };
 
                         let r_vec = direction(
-                            &particle_pos,
                             self.boundary.pos_now(boundary_neighbor),
+                            &particle_pos,
                         );
                         let dist = r_vec.norm();
                         accu -= 2.*weighting*volume[id]/mass[id]
@@ -1191,8 +1191,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                         };
 
                         let r_vec = direction(
-                            &particle_pos,
                             &fluid_neighbor_pos,
+                            &particle_pos,
                         );
                         let dist = r_vec.norm();
                         a_dot_p_f += self.parameters.time_increment.powi(2)
@@ -1213,8 +1213,8 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
                         };
 
                         let r_vec = direction(
-                            &particle_pos,
                             self.boundary.pos_now(boundary_neighbor),
+                            &particle_pos,
                         );
                         let dist = r_vec.norm();
                         a_dot_p_f += self.parameters.time_increment.powi(2)

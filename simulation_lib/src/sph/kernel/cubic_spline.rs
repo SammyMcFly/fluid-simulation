@@ -4,8 +4,8 @@ use super::KernelFn;
 pub struct CubicBSpline;
 
 impl KernelFn for CubicBSpline {
-    fn value(distance: f64, h: f64) -> f64 {
-        let q = distance / h;
+    fn value(r: f64, h: f64) -> f64 {
+        let q = r / h;
         let prefactor = 1. / (4. * std::f64::consts::PI * h.powi(3));
 
         if q < 1.0 {
@@ -17,8 +17,8 @@ impl KernelFn for CubicBSpline {
         }
     }
 
-    fn derivative(distance: f64, h: f64) -> f64 {
-        let q = distance / h;
+    fn derivative(r: f64, h: f64) -> f64 {
+        let q = r / h;
         let prefactor = 1. / (4. * std::f64::consts::PI * h.powi(4));
 
         if q < 1. {
