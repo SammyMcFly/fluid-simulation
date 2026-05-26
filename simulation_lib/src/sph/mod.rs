@@ -49,6 +49,7 @@ pub enum PropagationMethod {
     AcceptPredicted,
 }
 
+#[allow(dead_code)]
 enum TerminationCondition {
     AfterIteration(u32),
     TargetDensityError(f64),
@@ -829,6 +830,7 @@ impl<K: KernelFn> System3D<K> {
 
     /// Calculate source term for velocity divergence eliminating linear equation system for pressure
     #[cfg(feature = "global_pressure")]
+    #[allow(dead_code)]
     fn set_source_term_vde(&mut self) {
         // compute source term s_f of pressure linear equation system
         for_each!(
