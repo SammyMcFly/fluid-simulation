@@ -25,6 +25,11 @@ type SimSystem = sph::System3D<CubicBSpline, EulerCromer>;
 #[cfg(feature = "optimized_source_term")]
 type SimSystem = sph::System3D<CubicBSpline, TakePredicted>;
 
+#[cfg(not(feature = "optimized_source_term"))]
+const INTEGRATOR: EulerCromer = EulerCromer;
+#[cfg(feature = "optimized_source_term")]
+const INTEGRATOR: TakePredicted = TakePredicted;
+
 /// Struct that does:
 /// - holds initial state of a system
 /// - develops the system in time
@@ -53,7 +58,7 @@ impl Simulation {
             simulation_load_info.recording_file_path.is_some(),
         ) {
             Ok((sys_conf, sim_info)) => {
-                let initial_system = sph::System3D::new(sys_conf.finish());
+                let initial_system = sph::System3D::new(sys_conf.finish(), INTEGRATOR);
                 let measurement_series = match simulation_load_info
                     .measurement_file_path
                     .as_deref()

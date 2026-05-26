@@ -52,16 +52,7 @@ pub struct Fluid3D {
     #[cfg(feature = "global_pressure")]
     pub a_ff: Vec<f64>,
     #[cfg(feature = "global_pressure")]
-    pub pressure_acc_f: Vec<Vector3<f64>>,
-    // implicit euler variables
-    #[cfg(feature = "implicit_euler")]
-    pub d_l: Vec<Vector3<f64>>,
-    #[cfg(feature = "implicit_euler")]
-    pub r_l: Vec<Vector3<f64>>,
-    #[cfg(feature = "implicit_euler")]
-    pub alpha_l: Vec<f64>,
-    #[cfg(feature = "implicit_euler")]
-    pub a_times_d_l: Vec<Vector3<f64>>,
+    pub pressure_acc_f: Vec<Vector3<f64>>
 }
 
 impl Len for Fluid3D {
@@ -92,14 +83,6 @@ impl Expandable for Fluid3D {
         self.a_ff.push(0.);
         #[cfg(feature = "global_pressure")]
         self.pressure_acc_f.push(Vector3::zeros());
-        #[cfg(feature = "implicit_euler")]
-        self.d_l.push(Vector3::zeros());
-        #[cfg(feature = "implicit_euler")]
-        self.r_l.push(Vector3::zeros());
-        #[cfg(feature = "implicit_euler")]
-        self.alpha_l.push(0.);
-        #[cfg(feature = "implicit_euler")]
-        self.a_times_d_l.push(Vector3::zeros());
 
         let insert_at = self.num_active;
         let last = self.position.len() - 1;
@@ -133,14 +116,6 @@ impl Expandable for Fluid3D {
         self.a_ff.extend(other.a_ff);
         #[cfg(feature = "global_pressure")]
         self.pressure_acc_f.extend(other.pressure_acc_f);
-        #[cfg(feature = "implicit_euler")]
-        self.d_l.extend(other.d_l);
-        #[cfg(feature = "implicit_euler")]
-        self.r_l.extend(other.r_l);
-        #[cfg(feature = "implicit_euler")]
-        self.alpha_l.extend(other.alpha_l);
-        #[cfg(feature = "implicit_euler")]
-        self.a_times_d_l.extend(other.a_times_d_l);
     }
 }
 
@@ -159,20 +134,12 @@ impl Fluid3D {
         self.position.len()
     }
 
-    pub fn rotate_position(&mut self, pos: &mut Vec<Vector3<f64>>) {
-        std::mem::swap(&mut self.position, pos);
-    }
-
-    pub fn rotate_velocity(&mut self, vel: &mut Vec<Vector3<f64>>) {
-        std::mem::swap(&mut self.velocity, vel);
-    }
-
-    pub fn accept_pred_pos(&mut self) {
+    pub fn rotate_position(&mut self) {
         std::mem::swap(&mut self.position_prev, &mut self.position);
         std::mem::swap(&mut self.position, &mut self.position_pred);
     }
 
-    pub fn accept_pred_vel(&mut self) {
+    pub fn rotate_velocity(&mut self) {
         std::mem::swap(&mut self.velocity_prev, &mut self.velocity);
         std::mem::swap(&mut self.velocity, &mut self.velocity_pred);
     }
@@ -207,14 +174,6 @@ impl Fluid3D {
         self.a_ff.swap(a, b);
         #[cfg(feature = "global_pressure")]
         self.pressure_acc_f.swap(a, b);
-        #[cfg(feature = "implicit_euler")]
-        self.d_l.swap(a, b);
-        #[cfg(feature = "implicit_euler")]
-        self.r_l.swap(a, b);
-        #[cfg(feature = "implicit_euler")]
-        self.alpha_l.swap(a, b);
-        #[cfg(feature = "implicit_euler")]
-        self.a_times_d_l.swap(a, b);
     }
 
     pub fn drop_inactive(&mut self) {
@@ -238,14 +197,6 @@ impl Fluid3D {
         self.a_ff.truncate(self.num_active);
         #[cfg(feature = "global_pressure")]
         self.pressure_acc_f.truncate(self.num_active);
-        #[cfg(feature = "implicit_euler")]
-        self.d_l.truncate(self.num_active);
-        #[cfg(feature = "implicit_euler")]
-        self.r_l.truncate(self.num_active);
-        #[cfg(feature = "implicit_euler")]
-        self.alpha_l.truncate(self.num_active);
-        #[cfg(feature = "implicit_euler")]
-        self.a_times_d_l.truncate(self.num_active);
     }
 }
 
@@ -274,14 +225,6 @@ impl From<SerFluid3D> for Fluid3D {
             a_ff: vec![0.; len],
             #[cfg(feature = "global_pressure")]
             pressure_acc_f: vec![Vector3::zeros(); len],
-            #[cfg(feature = "implicit_euler")]
-            d_l: vec![Vector3::zeros(); len],
-            #[cfg(feature = "implicit_euler")]
-            r_l: vec![Vector3::zeros(); len],
-            #[cfg(feature = "implicit_euler")]
-            alpha_l: vec![0.; len],
-            #[cfg(feature = "implicit_euler")]
-            a_times_d_l: vec![Vector3::zeros(); len],
         }
     }
 }

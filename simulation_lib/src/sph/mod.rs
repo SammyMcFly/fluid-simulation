@@ -181,11 +181,11 @@ pub struct System3D<K: KernelFn, I: IntegrationScheme> {
     parameters: SystemParameters,
     properties: CurrentSystemProperties,
     _kernel_fn: std::marker::PhantomData<K>,
-    _integration_scheme: std::marker::PhantomData<I>,
+    integrator: I,
 }
 
 impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
-    pub fn new(systemconfig: setup::System3DConfig) -> Self {
+    pub fn new(systemconfig: setup::System3DConfig, integrator: I) -> Self {
         let particle_grid =
             neighbor_search::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
         let mut boundary_particle_grid =
@@ -202,7 +202,7 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
             parameters: systemconfig.system_parameters,
             properties: systemconfig.properties,
             _kernel_fn: std::marker::PhantomData,
-            _integration_scheme: std::marker::PhantomData,
+            integrator,
         };
         // set boundary mass such that the density is equal to the fluids rest density
         system.init_boundary_volume();
@@ -1483,7 +1483,7 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
         // measure wall clock time for time step
         let start = std::time::Instant::now();
 
-        I::integrate(&mut self.fluid, self.parameters.time_increment);
+        self.integrator.integrate(&mut self.fluid, self.parameters.time_increment);
 
         self.time_steps_propagated += 1;
         // Update
