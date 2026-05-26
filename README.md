@@ -76,6 +76,7 @@ The `.csv` measurement files are produced by the `--measurement-file` flag.
 
 - **Spatial Hashing Uniform Grid** for O(1) amortized neighbor search
 - **Parallelization** with Rayon (feature: `parallelized_sph`)
+- **Structure-of-Arrays (SoA)** particle layout for cache-efficient iteration
 - `rustc_hash::FxHashMap` for fast grid lookups
 
 - Dedicated worker thread keeps UI responsive
