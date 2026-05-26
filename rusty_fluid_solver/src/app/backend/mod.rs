@@ -20,10 +20,10 @@ pub mod recording;
 
 use commands::WorkerCommand;
 
-#[cfg(feature = "optimized_source_term")]
-type SimSystem = sph::System3D<CubicBSpline, AcceptPredicted>;
 #[cfg(not(feature = "optimized_source_term"))]
 type SimSystem = sph::System3D<CubicBSpline, EulerCromer>;
+#[cfg(feature = "optimized_source_term")]
+type SimSystem = sph::System3D<CubicBSpline, TakePredicted>;
 
 /// Struct that does:
 /// - holds initial state of a system
