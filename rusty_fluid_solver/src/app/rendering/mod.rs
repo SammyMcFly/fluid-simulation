@@ -59,7 +59,7 @@ impl Simulator for AppState {
                     if self.instances.is_active() {
                         to_worker
                             .send(WorkerCommand::SaveState {
-                                particles: self.instances.get_info().unwrap().fluid.clone(),
+                                fluid: self.instances.get_info().unwrap().fluid.clone(),
                                 filepath: "./state.ron".to_string(),
                             })
                             .unwrap()

@@ -11,7 +11,7 @@ use iced_wgpu::wgpu::util::DeviceExt;
 use crate::frame_control::Action;
 use crate::model::ToRaw;
 use crate::ui::controls::cut::Cut;
-use simulation_lib::sph::particle::Positional;
+use simulation_lib::sph::sample::Positional;
 use simulation_lib::{ParticleColor, TimeStepInfo};
 
 #[derive(Debug, Clone, Default)]
@@ -151,16 +151,19 @@ impl InstanceStore {
         self.rendered_instances = Some(
             self.info_buffer[self.current_index]
                 .fluid
+                .position
                 .iter()
-                .filter(|&particle| settings.cut.cut(particle))
-                .filter(|&particle| particle.is_enabled())
-                .map(|particle| {
+                .zip(&self.info_buffer[self.current_index].fluid.velocity)
+                .zip(&self.info_buffer[self.current_index].fluid.enabled)
+                .filter(|((id_position, _id_velocity), _id_enabled)| settings.cut.cut(id_position))
+                .filter(|((_id_position, _id_velocity), id_enabled)| **id_enabled)
+                .map(|((_id_position, id_velocity), _id_enabled)| {
                     let color = match settings.particle_color {
                         ParticleColor::VelocityGraded => {
                             let whiteness = f64::min(
-                                (particle.vel_now()[0].powi(2)
-                                    + particle.vel_now()[1].powi(2)
-                                    + particle.vel_now()[2].powi(2))
+                                (id_velocity[0].powi(2)
+                                    + id_velocity[1].powi(2)
+                                    + id_velocity[2].powi(2))
                                 .powf(0.5)
                                     / 10.,
                                 1.,
@@ -171,9 +174,9 @@ impl InstanceStore {
                     };
                     Instance {
                         position: nalgebra::Vector3::new(
-                            particle.pos_now()[0] as f32,
-                            particle.pos_now()[1] as f32,
-                            particle.pos_now()[2] as f32,
+                            _id_position[0] as f32,
+                            _id_position[1] as f32,
+                            _id_position[2] as f32,
                         ),
                         color,
                     }
@@ -184,12 +187,14 @@ impl InstanceStore {
             self.rendered_instances.as_mut().unwrap().extend(
                 self.info_buffer[self.current_index]
                     .boundary
+                    .position
                     .iter()
-                    .filter(|&particle| settings.cut.cut(particle))
-                    .map(|particle| {
+                    .zip(&self.info_buffer[self.current_index].boundary.velocity)
+                    .filter(|(id_position, _id_velocity)| settings.cut.cut(id_position))
+                    .map(|(id_position, id_velocity)| {
                         let color = match settings.boundary_particle_color {
                             ParticleColor::VelocityGraded => {
-                                let vel = particle.vel_now();
+                                let vel = id_velocity;
                                 let whiteness = f64::min(
                                     (vel[0].powi(2) + vel[1].powi(2) + vel[2].powi(2)).powf(0.5)
                                         / 10.,
@@ -201,9 +206,9 @@ impl InstanceStore {
                         };
                         Instance {
                             position: nalgebra::Vector3::new(
-                                particle.pos_now()[0] as f32,
-                                particle.pos_now()[1] as f32,
-                                particle.pos_now()[2] as f32,
+                                id_position[0] as f32,
+                                id_position[1] as f32,
+                                id_position[2] as f32,
                             ),
                             color,
                         }

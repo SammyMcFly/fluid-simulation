@@ -12,10 +12,10 @@ use rendering_lib::readback::{ReadbackBuffer, ReadbackRequest};
 
 use crate::app::backend::SimulationParameters;
 
-use super::sph::particle::SerParticle3D;
+use super::sph::sample::SerFluid3D;
 
 /// Store the current state of all fluid particles to a file
-pub fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std::io::Result<()> {
+pub fn save_system_state(fluid: SerFluid3D, file_path: &str) -> std::io::Result<()> {
     let file_path = Path::new(file_path);
     // convert to global path
     let file_path_parent = std::fs::canonicalize(
@@ -37,7 +37,7 @@ pub fn save_system_state(particles: Vec<SerParticle3D>, file_path: &str) -> std:
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
     }
 
-    let ron_string = ron::to_string(&particles).unwrap();
+    let ron_string = ron::to_string(&fluid).unwrap();
     let mut file = std::fs::File::create(global_file_path)?;
     file.write_all(ron_string.as_bytes())?;
     Ok(())

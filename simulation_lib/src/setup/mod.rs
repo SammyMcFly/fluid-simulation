@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use super::SimulationParameters;
 
-use super::sph::particle::{BoundaryParticle3D, Particle3D, SerParticle3D};
+use super::sph::sample::{Boundary3D, Fluid3D, SerFluid3D};
 #[cfg(feature = "springs")]
 use super::sph::spring::Spring;
 use super::sph::{
@@ -67,13 +67,13 @@ pub enum SceneVariant {
 }
 
 impl Scene for SceneVariant {
-    fn get_boundary(&self, rest_density_grid_spacing: f64) -> Vec<BoundaryParticle3D> {
+    fn get_boundary(&self, rest_density_grid_spacing: f64) -> Boundary3D {
         match self {
             Self::NoLidCube(variant) => variant.get_boundary(rest_density_grid_spacing),
             Self::Spiral(variant) => variant.get_boundary(rest_density_grid_spacing),
         }
     }
-    fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Vec<Particle3D> {
+    fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Fluid3D {
         match self {
             Self::NoLidCube(variant) => variant.get_fluid(rest_density, rest_density_grid_spacing),
             Self::Spiral(variant) => variant.get_fluid(rest_density, rest_density_grid_spacing),
@@ -95,16 +95,16 @@ impl Scene for SceneVariant {
 }
 
 trait Scene {
-    fn get_boundary(&self, rest_density_grid_spacing: f64) -> Vec<BoundaryParticle3D>;
-    fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Vec<Particle3D>;
+    fn get_boundary(&self, rest_density_grid_spacing: f64) -> Boundary3D;
+    fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Fluid3D;
     #[cfg(feature = "springs")]
     fn get_springs(&self) -> Vec<Spring>;
     fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64;
 }
 
 pub struct System3DConfig {
-    pub particles: Vec<Particle3D>,
-    pub boundary_particles: Vec<BoundaryParticle3D>,
+    pub fluid: Fluid3D,
+    pub boundary: Boundary3D,
     #[cfg(feature = "springs")]
     pub springs: Vec<Spring>,
     pub system_parameters: SystemParameters,
@@ -127,10 +127,10 @@ impl System3DConfigConstructor {
         })
     }
 
-    fn load_particles(file_path: &str) -> Result<Vec<Particle3D>, Box<dyn std::error::Error>> {
+    fn load_particles(file_path: &str) -> Result<Fluid3D, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(file_path)?;
-        let particles: Vec<SerParticle3D> = ron::from_str(&content).unwrap();
-        Ok(particles.into_iter().map(|p| p.into()).collect())
+        let fluid: SerFluid3D = ron::from_str(&content).unwrap();
+        Ok(fluid.into())
     }
 
     fn get_system_parameters(&self) -> SystemParameters {
@@ -177,15 +177,15 @@ impl System3DConfigConstructor {
 
     fn build(
         &mut self,
-        particles: Vec<Particle3D>,
-        boundary_particles: Vec<BoundaryParticle3D>,
+        fluid: Fluid3D,
+        boundary: Boundary3D,
         #[cfg(feature = "springs")] springs: Vec<Spring>,
         system_properties: SystemParameters,
         properties: CurrentSystemProperties,
     ) {
         self.build = Some(System3DConfig {
-            particles,
-            boundary_particles,
+            fluid,
+            boundary,
             #[cfg(feature = "springs")]
             springs,
             system_parameters: system_properties,
@@ -202,8 +202,8 @@ impl System3DConfigConstructor {
         // load config file
         let mut constructor = Self::load_config(config_file_path)?;
 
-        // load particles
-        let particles = if let Some(particle_state_file_path) = particle_state_file_path {
+        // load fluid samples
+        let fluid = if let Some(particle_state_file_path) = particle_state_file_path {
             Self::load_particles(particle_state_file_path)?
         } else {
             constructor.config.scene.get_fluid(
@@ -238,7 +238,7 @@ impl System3DConfigConstructor {
         let properties = constructor.get_system_properties();
 
         constructor.build(
-            particles,
+            fluid,
             boundary_particles,
             #[cfg(feature = "springs")]
             springs,

@@ -5,7 +5,7 @@ use nalgebra::Vector3;
 use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
 use super::distance;
-use super::particle::{Disableable, ParticleQ3, Positional};
+use super::sample::{Len, Positional};
 
 type UniformGridCell = Vector3<i32>;
 
@@ -30,26 +30,21 @@ impl UniformGrid {
     }
 
     /// Insert fluid samples from array into hash map
-    pub fn populate(&mut self, particles: &[super::particle::Particle3D]) {
-        for (i, particle) in particles.iter().enumerate() {
-            if particle.is_enabled() {
-                let cell = self.get_cell(&particle.pos().now());
-                let cell_hash = Self::hash(cell.x, cell.y, cell.z);
-                self.hash_map.entry(cell_hash).or_default().push(i);
-            }
-        }
+    pub fn populate(&mut self, fluid: &(impl Len + Positional)) {
+        (0..fluid.len()).for_each(|id| {
+            let cell = self.get_cell(fluid.pos_now(id));
+            let cell_hash = Self::hash(cell.x, cell.y, cell.z);
+            self.hash_map.entry(cell_hash).or_default().push(id);
+        });
     }
 
     /// Insert boundary samples from array into hash map
-    pub fn populate_boundary_particles(
-        &mut self,
-        particles: &[super::particle::BoundaryParticle3D],
-    ) {
-        for (i, particle) in particles.iter().enumerate() {
-            let cell = self.get_cell(&particle.pos());
+    pub fn populate_boundary_particles(&mut self, boundary: &(impl Len + Positional)) {
+        (0..boundary.len()).for_each(|id| {
+            let cell = self.get_cell(boundary.pos_now(id));
             let cell_hash = Self::hash(cell.x, cell.y, cell.z);
-            self.hash_map.entry(cell_hash).or_default().push(i);
-        }
+            self.hash_map.entry(cell_hash).or_default().push(id);
+        });
     }
 
     /// Given a sample's position, calculate its grid cell
@@ -91,7 +86,7 @@ impl UniformGrid {
     pub fn get_particles_in_kernel_range(
         &self,
         position: &Vector3<f64>,
-        particles: &[impl Positional],
+        other_positions: &[Vector3<f64>],
     ) -> Vec<usize> {
         let mut particles_in_kernel_range = Vec::new();
         let cell = self.get_cell(position);
@@ -101,11 +96,12 @@ impl UniformGrid {
                 for dz in -2..=2 {
                     let neighbor_cell = (cell.x + dx, cell.y + dy, cell.z + dz);
                     let hash = Self::hash(neighbor_cell.0, neighbor_cell.1, neighbor_cell.2);
-                    if let Some(indices) = self.hash_map.get(&hash) {
-                        for &j in indices {
+                    if let Some(neighbors) = self.hash_map.get(&hash) {
+                        for &neighbor in neighbors {
                             // Distance check
-                            if distance(&particles[j].pos_now(), position) < 2. * self.cell_size {
-                                particles_in_kernel_range.push(j);
+                            if distance(&other_positions[neighbor], position) < 2. * self.cell_size
+                            {
+                                particles_in_kernel_range.push(neighbor);
                             }
                         }
                     }

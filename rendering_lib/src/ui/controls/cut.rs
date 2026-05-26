@@ -1,7 +1,6 @@
 use iced_widget::{Column, Toggler, button, column, row, text};
 
 use crate::ui::UserInput;
-use simulation_lib::sph::particle::Positional;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cut {
@@ -33,14 +32,14 @@ impl Default for Cut {
 }
 
 impl Cut {
-    pub fn cut(&self, particle: &impl Positional) -> bool {
+    pub fn cut(&self, position: &[f64; 3]) -> bool {
         if self.x && self.y {
-            self.x_inv * (particle.pos_now()[0] as f32 - self.x_bound) >= 0.
-                && self.y_inv * (particle.pos_now()[1] as f32 - self.y_bound) >= 0.
+            self.x_inv * (position[0] as f32 - self.x_bound) >= 0.
+                && self.y_inv * (position[1] as f32 - self.y_bound) >= 0.
         } else if self.x {
-            self.x_inv * (particle.pos_now()[0] as f32 - self.x_bound) >= 0.
+            self.x_inv * (position[0] as f32 - self.x_bound) >= 0.
         } else if self.y {
-            self.y_inv * (particle.pos_now()[1] as f32 - self.y_bound) >= 0.
+            self.y_inv * (position[1] as f32 - self.y_bound) >= 0.
         } else {
             true
         }

@@ -320,7 +320,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                     simulation_controller.compute_more_timesteps(num);
                 }
                 WorkerCommand::SaveState {
-                    particles,
+                    fluid: particles,
                     filepath,
                 } => {
                     let save_message = if recording::save_system_state(particles, &filepath).is_ok()

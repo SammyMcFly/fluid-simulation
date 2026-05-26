@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 // #[cfg(feature = "logging")]
 // use tracing::{error, warn, info}; // debug, error, info, span, trace, warn,
 
-use sph::particle::{SerBoundaryParticle3D, SerParticle3D};
+mod macros;
+pub(crate) use macros::for_each;
+
+use sph::sample::{SerBoundary3D, SerFluid3D};
 
 pub mod measurement;
 pub mod setup;
@@ -76,8 +79,8 @@ pub struct TimeStepInfo {
     // average density
     pub average_density: f32,
     // particles
-    pub fluid: Vec<SerParticle3D>,
-    pub boundary: Vec<SerBoundaryParticle3D>,
+    pub fluid: SerFluid3D,
+    pub boundary: SerBoundary3D,
 }
 
 impl From<&[u8]> for TimeStepInfo {
