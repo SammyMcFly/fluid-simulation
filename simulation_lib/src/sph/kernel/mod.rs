@@ -3,6 +3,7 @@
 use nalgebra::Vector3;
 
 pub mod cubic_spline;
+pub use cubic_spline::CubicBSpline;
 
 pub trait KernelFn: Send + Sync {
     /// W(r, h)

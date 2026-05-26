@@ -10,7 +10,7 @@ use simulation_lib::measurement::RecordingStatus;
 use simulation_lib::sph::integration_schemes::EulerCromer;
 #[cfg(feature = "optimized_source_term")]
 use simulation_lib::sph::integration_schemes::TakePredicted;
-use simulation_lib::sph::kernel::cubic_spline::CubicBSpline;
+use simulation_lib::sph::kernel::CubicBSpline;
 use simulation_lib::*;
 
 use crate::app::messages::WorkerMessage;
