@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 
 use crate::for_each;
-use crate::sph::pressure_solver::PressureSolver;
+use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
 use crate::sph::SystemParameters;
@@ -29,6 +29,8 @@ pub struct IISPH {
     s_f: Vec<f64>,
     a_ff: Vec<f64>,
     pub pressure_acc_f: Vec<Vector3<f64>>,
+    pub last_solver_iterations: u32,
+    pub predicted_density_error: f64,
 }
 
 impl PressureSolver for IISPH {
@@ -37,7 +39,7 @@ impl PressureSolver for IISPH {
         fluid: &mut Fluid3D,
         boundary: &Boundary3D,
         params: &SystemParameters,
-        properties: &mut CurrentSystemProperties,
+        _properties: &mut CurrentSystemProperties,
     ) {
         self.resize_scratch(fluid.len());
 
@@ -54,7 +56,6 @@ impl PressureSolver for IISPH {
                 fluid,
                 boundary,
                 params,
-                properties,
                 false,
                 // TerminationCondition::AfterIteration(params.solver_iterations),
                 TerminationCondition::TargetDensityError(self.target_density_error),
@@ -71,6 +72,16 @@ impl PressureSolver for IISPH {
             false,
         );
     }
+
+    fn measurement_info(&self) -> SolverMeasurementInfo {
+        SolverMeasurementInfo {
+            target_density_error: self.target_density_error,
+            solver_iterations: self.last_solver_iterations,
+            relaxation_factor: self.relaxation_factor,
+            predicted_density_error: self.predicted_density_error,
+            ..Default::default()
+        }
+    }
 }
 
 impl IISPH {
@@ -82,6 +93,8 @@ impl IISPH {
             s_f: Vec::new(),
             a_ff: Vec::new(),
             pressure_acc_f: Vec::new(),
+            last_solver_iterations: u32::default(),
+            predicted_density_error: f64::default(),
         }
     }
 
@@ -380,7 +393,6 @@ impl IISPH {
         fluid: &mut Fluid3D,
         boundary: &Boundary3D,
         params: &SystemParameters,
-        properties: &mut CurrentSystemProperties,
         with_pred_positions: bool,
         termination_condition: TerminationCondition,
         clamp_pressure: bool,
@@ -525,7 +537,7 @@ impl IISPH {
         #[cfg(feature = "logging")]
         debug!("final average_relative_predicted_density_error (%): {predicted_density_error}");
 
-        properties.solver_iterations = solver_iteration;
-        properties.predicted_density_error = predicted_density_error;
+        self.last_solver_iterations = solver_iteration;
+        self.predicted_density_error = predicted_density_error;
     }
 }

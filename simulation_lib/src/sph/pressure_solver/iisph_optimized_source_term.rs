@@ -4,7 +4,7 @@ use nalgebra::Matrix3;
 use rayon::prelude::*;
 
 use crate::for_each;
-use crate::sph::pressure_solver::PressureSolver;
+use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
 use crate::sph::{SystemParameters, direction, Outer};
@@ -30,7 +30,7 @@ impl PressureSolver for IISPHwOST {
         fluid: &mut Fluid3D,
         boundary: &Boundary3D,
         params: &SystemParameters,
-        properties: &mut CurrentSystemProperties,
+        _properties: &mut CurrentSystemProperties,
     ) {
         self.inner.resize_scratch(fluid.len());
 
@@ -46,7 +46,6 @@ impl PressureSolver for IISPHwOST {
                 fluid,
                 boundary,
                 params,
-                properties,
                 false,
                 TerminationCondition::AfterIteration(3),
                 // TerminationCondition::TargetDensityError(params.target_density_error),
@@ -88,7 +87,6 @@ impl PressureSolver for IISPHwOST {
                 fluid,
                 boundary,
                 params,
-                properties,
                 false,
                 TerminationCondition::TargetDensityError(self.inner.target_density_error),
                 true,
@@ -176,5 +174,15 @@ impl PressureSolver for IISPHwOST {
         }
         // pressure acceleration is applied to particle movement implicitly
         // resulting in the velocity and position predictions
+    }
+
+    fn measurement_info(&self) -> SolverMeasurementInfo {
+        SolverMeasurementInfo {
+            target_density_error: self.inner.target_density_error,
+            solver_iterations: self.inner.last_solver_iterations,
+            relaxation_factor: self.inner.relaxation_factor,
+            predicted_density_error: self.inner.predicted_density_error,
+            ..Default::default()
+        }
     }
 }

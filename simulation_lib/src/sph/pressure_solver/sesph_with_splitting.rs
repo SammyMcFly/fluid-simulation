@@ -3,7 +3,7 @@
 use rayon::prelude::*;
 
 use crate::for_each;
-use crate::sph::pressure_solver::PressureSolver;
+use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
 use crate::sph::SystemParameters;
@@ -58,6 +58,13 @@ impl PressureSolver for SESPHwSplitting {
             false,
             false,
         );
+    }
+
+    fn measurement_info(&self) -> SolverMeasurementInfo {
+        SolverMeasurementInfo {
+            stiffness: self.stiffness,
+            ..Default::default()
+        }
     }
 }
 
