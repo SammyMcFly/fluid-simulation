@@ -3,6 +3,12 @@ name = "rusty_fluid_solver"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = [] # managed by meta crate
+
+# Features
+optimized_source_term = []
+
 # [dev-dependencies]
 # criterion ={ version = "0.5.1", features = ["html_reports"] }
 

@@ -4,10 +4,14 @@
 use nalgebra::Vector3;
 use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
-use super::distance;
-use super::sample::{Len, Positional};
+use crate::sample::{Len, Positional};
 
 type UniformGridCell = Vector3<i32>;
+
+/// Calculate the distance between two 3D points
+pub fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
+    (to - from).norm()
+}
 
 /// Container that stores indices of samples in a hash map depending
 /// on their spatial position on the uniform grid.

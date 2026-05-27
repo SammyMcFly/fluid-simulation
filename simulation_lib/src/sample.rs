@@ -43,25 +43,6 @@ pub struct Fluid3D {
     pub neighbors: Vec<Vec<usize>>,
     /// boundary neighbors
     pub boundary_neighbors: Vec<Vec<usize>>,
-    // local pressure with splitting variable
-    #[cfg(feature = "splitting")]
-    pub density_pred: Vec<f64>,
-    // global pressure solver variables
-    #[cfg(feature = "global_pressure")]
-    pub s_f: Vec<f64>,
-    #[cfg(feature = "global_pressure")]
-    pub a_ff: Vec<f64>,
-    #[cfg(feature = "global_pressure")]
-    pub pressure_acc_f: Vec<Vector3<f64>>,
-    // implicit euler variables
-    #[cfg(feature = "implicit_euler")]
-    pub d_l: Vec<Vector3<f64>>,
-    #[cfg(feature = "implicit_euler")]
-    pub r_l: Vec<Vector3<f64>>,
-    #[cfg(feature = "implicit_euler")]
-    pub alpha_l: Vec<f64>,
-    #[cfg(feature = "implicit_euler")]
-    pub a_times_d_l: Vec<Vector3<f64>>,
 }
 
 impl Len for Fluid3D {
@@ -84,22 +65,6 @@ impl Expandable for Fluid3D {
         self.pressure.push(0.);
         self.neighbors.push(Vec::new());
         self.boundary_neighbors.push(Vec::new());
-        #[cfg(feature = "splitting")]
-        self.density_pred.push(0.);
-        #[cfg(feature = "global_pressure")]
-        self.s_f.push(0.);
-        #[cfg(feature = "global_pressure")]
-        self.a_ff.push(0.);
-        #[cfg(feature = "global_pressure")]
-        self.pressure_acc_f.push(Vector3::zeros());
-        #[cfg(feature = "implicit_euler")]
-        self.d_l.push(Vector3::zeros());
-        #[cfg(feature = "implicit_euler")]
-        self.r_l.push(Vector3::zeros());
-        #[cfg(feature = "implicit_euler")]
-        self.alpha_l.push(0.);
-        #[cfg(feature = "implicit_euler")]
-        self.a_times_d_l.push(Vector3::zeros());
 
         let insert_at = self.num_active;
         let last = self.position.len() - 1;
@@ -113,6 +78,7 @@ impl Expandable for Fluid3D {
 
     fn extend(&mut self, other: Self) {
         assert!(self.num_active == self.total_len());
+        self.num_active += other.num_active;
         self.position.extend(other.position);
         self.position_prev.extend(other.position_prev);
         self.position_pred.extend(other.position_pred);
@@ -125,22 +91,6 @@ impl Expandable for Fluid3D {
         self.pressure.extend(other.pressure);
         self.neighbors.extend(other.neighbors);
         self.boundary_neighbors.extend(other.boundary_neighbors);
-        #[cfg(feature = "splitting")]
-        self.density_pred.extend(other.density_pred);
-        #[cfg(feature = "global_pressure")]
-        self.s_f.extend(other.s_f);
-        #[cfg(feature = "global_pressure")]
-        self.a_ff.extend(other.a_ff);
-        #[cfg(feature = "global_pressure")]
-        self.pressure_acc_f.extend(other.pressure_acc_f);
-        #[cfg(feature = "implicit_euler")]
-        self.d_l.extend(other.d_l);
-        #[cfg(feature = "implicit_euler")]
-        self.r_l.extend(other.r_l);
-        #[cfg(feature = "implicit_euler")]
-        self.alpha_l.extend(other.alpha_l);
-        #[cfg(feature = "implicit_euler")]
-        self.a_times_d_l.extend(other.a_times_d_l);
     }
 }
 
@@ -159,19 +109,12 @@ impl Fluid3D {
         self.position.len()
     }
 
-    // pub fn rotate_position(&mut self, pos: &mut Vec<Vector3<f64>>) {
-    //     std::mem::swap(&mut self.position, pos);
-    // }
-    // pub fn rotate_velocity(&mut self, vel: &mut Vec<Vector3<f64>>) {
-    //     std::mem::swap(&mut self.velocity, vel);
-    // }
-
-    pub fn accept_pred_pos(&mut self) {
+    pub fn rotate_position(&mut self) {
         std::mem::swap(&mut self.position_prev, &mut self.position);
         std::mem::swap(&mut self.position, &mut self.position_pred);
     }
 
-    pub fn accept_pred_vel(&mut self) {
+    pub fn rotate_velocity(&mut self) {
         std::mem::swap(&mut self.velocity_prev, &mut self.velocity);
         std::mem::swap(&mut self.velocity, &mut self.velocity_pred);
     }
@@ -198,22 +141,6 @@ impl Fluid3D {
         self.pressure.swap(a, b);
         self.neighbors.swap(a, b);
         self.boundary_neighbors.swap(a, b);
-        #[cfg(feature = "splitting")]
-        self.pred_density.swap(a, b);
-        #[cfg(feature = "global_pressure")]
-        self.s_f.swap(a, b);
-        #[cfg(feature = "global_pressure")]
-        self.a_ff.swap(a, b);
-        #[cfg(feature = "global_pressure")]
-        self.pressure_acc_f.swap(a, b);
-        #[cfg(feature = "implicit_euler")]
-        self.d_l.swap(a, b);
-        #[cfg(feature = "implicit_euler")]
-        self.r_l.swap(a, b);
-        #[cfg(feature = "implicit_euler")]
-        self.alpha_l.swap(a, b);
-        #[cfg(feature = "implicit_euler")]
-        self.a_times_d_l.swap(a, b);
     }
 
     pub fn drop_inactive(&mut self) {
@@ -229,22 +156,6 @@ impl Fluid3D {
         self.pressure.truncate(self.num_active);
         self.neighbors.truncate(self.num_active);
         self.boundary_neighbors.truncate(self.num_active);
-        #[cfg(feature = "splitting")]
-        self.pred_density.truncate(self.num_active);
-        #[cfg(feature = "global_pressure")]
-        self.s_f.truncate(self.num_active);
-        #[cfg(feature = "global_pressure")]
-        self.a_ff.truncate(self.num_active);
-        #[cfg(feature = "global_pressure")]
-        self.pressure_acc_f.truncate(self.num_active);
-        #[cfg(feature = "implicit_euler")]
-        self.d_l.truncate(self.num_active);
-        #[cfg(feature = "implicit_euler")]
-        self.r_l.truncate(self.num_active);
-        #[cfg(feature = "implicit_euler")]
-        self.alpha_l.truncate(self.num_active);
-        #[cfg(feature = "implicit_euler")]
-        self.a_times_d_l.truncate(self.num_active);
     }
 }
 
@@ -265,22 +176,6 @@ impl From<SerFluid3D> for Fluid3D {
             pressure: vec![0.; len],
             neighbors: vec![Vec::new(); len],
             boundary_neighbors: vec![Vec::new(); len],
-            #[cfg(feature = "splitting")]
-            density_pred: vec![0.; len],
-            #[cfg(feature = "global_pressure")]
-            s_f: vec![0.; len],
-            #[cfg(feature = "global_pressure")]
-            a_ff: vec![0.; len],
-            #[cfg(feature = "global_pressure")]
-            pressure_acc_f: vec![Vector3::zeros(); len],
-            #[cfg(feature = "implicit_euler")]
-            d_l: vec![Vector3::zeros(); len],
-            #[cfg(feature = "implicit_euler")]
-            r_l: vec![Vector3::zeros(); len],
-            #[cfg(feature = "implicit_euler")]
-            alpha_l: vec![0.; len],
-            #[cfg(feature = "implicit_euler")]
-            a_times_d_l: vec![Vector3::zeros(); len],
         }
     }
 }

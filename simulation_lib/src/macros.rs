@@ -1,3 +1,5 @@
+/// macros.rs
+
 #[cfg(not(feature = "parallelized_sph"))]
 macro_rules! for_each {
     // 1 mutable field

@@ -5,15 +5,12 @@ mod scenes;
 
 use serde::Deserialize;
 
-use super::SimulationParameters;
+use crate::SimulationParameters;
 
-use super::sph::sample::{Boundary3D, Fluid3D, SerFluid3D};
+use crate::sample::{Boundary3D, Fluid3D, SerFluid3D};
 #[cfg(feature = "springs")]
 use super::sph::spring::Spring;
-use super::sph::{
-    CurrentSystemProperties, PropagationMethod, SystemParameters, cubic_b_spline_3d,
-    cubic_b_spline_3d_gradient,
-};
+use super::sph::{CurrentSystemProperties, SystemParameters};
 // use super::measure;
 
 use crate::ParticleColor;
@@ -34,7 +31,6 @@ pub struct Parameters {
     pub max_time_increment: f64,
     #[cfg(feature = "cfl_time_step")]
     pub cfl_number: f64,
-    pub integration_scheme: PropagationMethod,
     pub rest_density: f64,
     pub rest_density_grid_spacing: f64,
     pub smoothing_length: f64,
@@ -43,14 +39,10 @@ pub struct Parameters {
     pub boundary_viscosity: f64,
     pub boundary_pressure_acceleration_weighting: f64,
     pub boundary_rest_volume_weighting: f64,
-    #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
-    #[cfg(feature = "global_pressure")]
     // solver_iterations: u32,
-    target_density_error: f64,
-    #[cfg(feature = "global_pressure")]
+    pub target_density_error: f64,
     pub relaxation_factor: f64,
-    #[cfg(feature = "global_pressure")]
     pub min_diagonal_element: f64,
 }
 
@@ -112,7 +104,7 @@ pub struct System3DConfig {
 }
 
 pub struct System3DConfigConstructor {
-    config: Setup,
+    pub config: Setup,
     build: Option<System3DConfig>,
 }
 
@@ -151,17 +143,6 @@ impl System3DConfigConstructor {
                 .parameters
                 .boundary_pressure_acceleration_weighting,
             self.config.parameters.boundary_rest_volume_weighting,
-            #[cfg(feature = "local_pressure")]
-            self.config.parameters.stiffness,
-            #[cfg(feature = "global_pressure")]
-            // self.config.parameters.solver_iterations,
-            self.config.parameters.target_density_error,
-            #[cfg(feature = "global_pressure")]
-            self.config.parameters.relaxation_factor,
-            #[cfg(feature = "global_pressure")]
-            self.config.parameters.min_diagonal_element,
-            cubic_b_spline_3d,
-            cubic_b_spline_3d_gradient,
         )
     }
 
@@ -227,7 +208,6 @@ impl System3DConfigConstructor {
             light_position: constructor.config.light.position,
             particle_color: ParticleColor::default(),
             boundary_particle_color: ParticleColor::FixedColor([0.; 3]),
-            integration_scheme: constructor.config.parameters.integration_scheme.clone(),
             buffer_length_limit: constructor.config.parameters.buffer_length_limit,
             is_measured,
             is_recorded,

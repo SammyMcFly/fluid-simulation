@@ -1,13 +1,17 @@
-//! Backend module
-use std::time::Duration;
-
+/// Backend module
 use crossbeam::channel::Receiver;
 use iced_wgpu::wgpu;
 use iced_winit::winit::event_loop::EventLoopProxy;
-
+use std::time::Duration;
 use tracing::{error, info, warn}; // debug, error, info, span, trace, warn,
 
 use simulation_lib::measurement::RecordingStatus;
+// use simulation_lib::sph::pressure_solver::SESPH;
+use simulation_lib::sph::pressure_solver::IISPH;
+use simulation_lib::integration_schemes::EulerCromer;
+// use simulation_lib::sph::pressure_solver::IISPHwOST;
+// use simulation_lib::sph::integration_schemes::TakePredicted;
+use simulation_lib::sph::kernel::CubicBSpline;
 use simulation_lib::*;
 
 use crate::app::messages::WorkerMessage;
@@ -17,6 +21,15 @@ pub mod recording;
 
 use commands::WorkerCommand;
 
+
+const INTEGRATOR: EulerCromer = EulerCromer;
+// const INTEGRATOR: TakePredicted = TakePredicted;
+
+// type SimSystem = sph::System3D<CubicBSpline, EulerCromer, SESPH>;
+type SimSystem = sph::System3D<CubicBSpline, EulerCromer, IISPH>;
+// type SimSystem = sph::System3D<CubicBSpline, TakePredicted, IISPHwOST>;
+
+
 /// Struct that does:
 /// - holds initial state of a system
 /// - develops the system in time
@@ -24,7 +37,7 @@ use commands::WorkerCommand;
 /// - optionally: memorizes all taken measurements, stores them at the end
 struct Simulation {
     // initial_system: sph::System3D,
-    system: sph::System3D,
+    system: SimSystem,
     parameters: SimulationParameters,
     measurement_series: Option<measurement::MeasurementSeries>,
     state_appender: Option<recording::StateAppender>,
@@ -45,7 +58,16 @@ impl Simulation {
             simulation_load_info.recording_file_path.is_some(),
         ) {
             Ok((sys_conf, sim_info)) => {
-                let initial_system = sph::System3D::new(sys_conf.finish());
+                let pressure_solver = IISPH::new(
+                    sys_conf.config.parameters.target_density_error,
+                    sys_conf.config.parameters.relaxation_factor,
+                    sys_conf.config.parameters.min_diagonal_element,
+                );
+                let initial_system = sph::System3D::new(
+                    sys_conf.finish(),
+                    INTEGRATOR,
+                    pressure_solver
+                );
                 let measurement_series = match simulation_load_info
                     .measurement_file_path
                     .as_deref()
@@ -97,8 +119,7 @@ impl Simulation {
         }
     }
     fn get_next_time_step(&mut self) -> TimeStepInfo {
-        self.system
-            .step_forward_in_time(&self.parameters.integration_scheme);
+        self.system.step_forward_in_time();
         let time_step_info = self.system.get_time_step_info();
         self.record(&time_step_info);
         time_step_info
