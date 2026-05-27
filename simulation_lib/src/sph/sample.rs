@@ -43,16 +43,6 @@ pub struct Fluid3D {
     pub neighbors: Vec<Vec<usize>>,
     /// boundary neighbors
     pub boundary_neighbors: Vec<Vec<usize>>,
-    // local pressure with splitting variable
-    #[cfg(feature = "splitting")]
-    pub density_pred: Vec<f64>,
-    // global pressure solver variables
-    #[cfg(feature = "global_pressure")]
-    pub s_f: Vec<f64>,
-    #[cfg(feature = "global_pressure")]
-    pub a_ff: Vec<f64>,
-    #[cfg(feature = "global_pressure")]
-    pub pressure_acc_f: Vec<Vector3<f64>>
 }
 
 impl Len for Fluid3D {
@@ -75,14 +65,6 @@ impl Expandable for Fluid3D {
         self.pressure.push(0.);
         self.neighbors.push(Vec::new());
         self.boundary_neighbors.push(Vec::new());
-        #[cfg(feature = "splitting")]
-        self.density_pred.push(0.);
-        #[cfg(feature = "global_pressure")]
-        self.s_f.push(0.);
-        #[cfg(feature = "global_pressure")]
-        self.a_ff.push(0.);
-        #[cfg(feature = "global_pressure")]
-        self.pressure_acc_f.push(Vector3::zeros());
 
         let insert_at = self.num_active;
         let last = self.position.len() - 1;
@@ -109,14 +91,6 @@ impl Expandable for Fluid3D {
         self.pressure.extend(other.pressure);
         self.neighbors.extend(other.neighbors);
         self.boundary_neighbors.extend(other.boundary_neighbors);
-        #[cfg(feature = "splitting")]
-        self.density_pred.extend(other.density_pred);
-        #[cfg(feature = "global_pressure")]
-        self.s_f.extend(other.s_f);
-        #[cfg(feature = "global_pressure")]
-        self.a_ff.extend(other.a_ff);
-        #[cfg(feature = "global_pressure")]
-        self.pressure_acc_f.extend(other.pressure_acc_f);
     }
 }
 
@@ -167,14 +141,6 @@ impl Fluid3D {
         self.pressure.swap(a, b);
         self.neighbors.swap(a, b);
         self.boundary_neighbors.swap(a, b);
-        #[cfg(feature = "splitting")]
-        self.pred_density.swap(a, b);
-        #[cfg(feature = "global_pressure")]
-        self.s_f.swap(a, b);
-        #[cfg(feature = "global_pressure")]
-        self.a_ff.swap(a, b);
-        #[cfg(feature = "global_pressure")]
-        self.pressure_acc_f.swap(a, b);
     }
 
     pub fn drop_inactive(&mut self) {
@@ -190,14 +156,6 @@ impl Fluid3D {
         self.pressure.truncate(self.num_active);
         self.neighbors.truncate(self.num_active);
         self.boundary_neighbors.truncate(self.num_active);
-        #[cfg(feature = "splitting")]
-        self.pred_density.truncate(self.num_active);
-        #[cfg(feature = "global_pressure")]
-        self.s_f.truncate(self.num_active);
-        #[cfg(feature = "global_pressure")]
-        self.a_ff.truncate(self.num_active);
-        #[cfg(feature = "global_pressure")]
-        self.pressure_acc_f.truncate(self.num_active);
     }
 }
 
@@ -218,14 +176,6 @@ impl From<SerFluid3D> for Fluid3D {
             pressure: vec![0.; len],
             neighbors: vec![Vec::new(); len],
             boundary_neighbors: vec![Vec::new(); len],
-            #[cfg(feature = "splitting")]
-            density_pred: vec![0.; len],
-            #[cfg(feature = "global_pressure")]
-            s_f: vec![0.; len],
-            #[cfg(feature = "global_pressure")]
-            a_ff: vec![0.; len],
-            #[cfg(feature = "global_pressure")]
-            pressure_acc_f: vec![Vector3::zeros(); len],
         }
     }
 }

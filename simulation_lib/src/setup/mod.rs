@@ -39,14 +39,10 @@ pub struct Parameters {
     pub boundary_viscosity: f64,
     pub boundary_pressure_acceleration_weighting: f64,
     pub boundary_rest_volume_weighting: f64,
-    #[cfg(feature = "local_pressure")]
     pub stiffness: f64,
-    #[cfg(feature = "global_pressure")]
     // solver_iterations: u32,
-    target_density_error: f64,
-    #[cfg(feature = "global_pressure")]
+    pub target_density_error: f64,
     pub relaxation_factor: f64,
-    #[cfg(feature = "global_pressure")]
     pub min_diagonal_element: f64,
 }
 
@@ -108,7 +104,7 @@ pub struct System3DConfig {
 }
 
 pub struct System3DConfigConstructor {
-    config: Setup,
+    pub config: Setup,
     build: Option<System3DConfig>,
 }
 
@@ -147,15 +143,6 @@ impl System3DConfigConstructor {
                 .parameters
                 .boundary_pressure_acceleration_weighting,
             self.config.parameters.boundary_rest_volume_weighting,
-            #[cfg(feature = "local_pressure")]
-            self.config.parameters.stiffness,
-            #[cfg(feature = "global_pressure")]
-            // self.config.parameters.solver_iterations,
-            self.config.parameters.target_density_error,
-            #[cfg(feature = "global_pressure")]
-            self.config.parameters.relaxation_factor,
-            #[cfg(feature = "global_pressure")]
-            self.config.parameters.min_diagonal_element,
         )
     }
 

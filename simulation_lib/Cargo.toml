@@ -9,13 +9,8 @@ default = [] # managed by meta crate
 # Features
 logging = ["dep:tracing"]
 parallelized_sph = ["dep:rayon"]
-implicit_euler = ["springs"]
 springs = []
 pseudo_volume_boundary = []
-local_pressure = []
-splitting = ["local_pressure"]
-global_pressure = []
-optimized_source_term = ["global_pressure"]
 cfl_time_step = []
 
 # [dev-dependencies]

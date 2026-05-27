@@ -6,10 +6,11 @@ use std::time::Duration;
 use tracing::{error, info, warn}; // debug, error, info, span, trace, warn,
 
 use simulation_lib::measurement::RecordingStatus;
-#[cfg(not(feature = "optimized_source_term"))]
+// use simulation_lib::sph::pressure_solver::SESPH;
+use simulation_lib::sph::pressure_solver::IISPH;
 use simulation_lib::sph::integration_schemes::EulerCromer;
-#[cfg(feature = "optimized_source_term")]
-use simulation_lib::sph::integration_schemes::TakePredicted;
+// use simulation_lib::sph::pressure_solver::IISPHwOST;
+// use simulation_lib::sph::integration_schemes::TakePredicted;
 use simulation_lib::sph::kernel::CubicBSpline;
 use simulation_lib::*;
 
@@ -20,15 +21,14 @@ pub mod recording;
 
 use commands::WorkerCommand;
 
-#[cfg(not(feature = "optimized_source_term"))]
-type SimSystem = sph::System3D<CubicBSpline, EulerCromer>;
-#[cfg(feature = "optimized_source_term")]
-type SimSystem = sph::System3D<CubicBSpline, TakePredicted>;
 
-#[cfg(not(feature = "optimized_source_term"))]
 const INTEGRATOR: EulerCromer = EulerCromer;
-#[cfg(feature = "optimized_source_term")]
-const INTEGRATOR: TakePredicted = TakePredicted;
+// const INTEGRATOR: TakePredicted = TakePredicted;
+
+// type SimSystem = sph::System3D<CubicBSpline, EulerCromer, SESPH>;
+type SimSystem = sph::System3D<CubicBSpline, EulerCromer, IISPH>;
+// type SimSystem = sph::System3D<CubicBSpline, TakePredicted, IISPHwOST>;
+
 
 /// Struct that does:
 /// - holds initial state of a system
@@ -58,7 +58,16 @@ impl Simulation {
             simulation_load_info.recording_file_path.is_some(),
         ) {
             Ok((sys_conf, sim_info)) => {
-                let initial_system = sph::System3D::new(sys_conf.finish(), INTEGRATOR);
+                let pressure_solver = IISPH::new(
+                    sys_conf.config.parameters.target_density_error,
+                    sys_conf.config.parameters.relaxation_factor,
+                    sys_conf.config.parameters.min_diagonal_element,
+                );
+                let initial_system = sph::System3D::new(
+                    sys_conf.finish(),
+                    INTEGRATOR,
+                    pressure_solver
+                );
                 let measurement_series = match simulation_load_info
                     .measurement_file_path
                     .as_deref()

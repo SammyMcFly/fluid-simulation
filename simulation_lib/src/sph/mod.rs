@@ -14,6 +14,8 @@ pub mod kernel;
 use kernel::KernelFn;
 pub mod integration_schemes;
 use integration_schemes::IntegrationScheme;
+pub mod pressure_solver;
+use pressure_solver::PressureSolver;
 pub mod sample;
 use sample::*;
 #[cfg(feature = "springs")]
@@ -48,7 +50,6 @@ enum TerminationCondition {
 pub struct CurrentSystemProperties {
     average_density: f64,
     fluid_depth: f64,
-    #[cfg(feature = "global_pressure")]
     solver_iterations: u32,
     /// wall clock time passed calculating current time step
     time_step_wall_clock_time: f64,
@@ -85,15 +86,6 @@ pub struct SystemParameters {
     boundary_viscosity: f64,
     boundary_pressure_acceleration_weighting: f64,
     boundary_rest_volume_weighting: f64,
-    #[cfg(feature = "local_pressure")]
-    stiffness: f64,
-    #[cfg(feature = "global_pressure")]
-    // solver_iterations: u32,
-    target_density_error: f64,
-    #[cfg(feature = "global_pressure")]
-    relaxation_factor: f64,
-    #[cfg(feature = "global_pressure")]
-    min_diagonal_element: f64,
 }
 
 impl SystemParameters {
@@ -135,15 +127,6 @@ impl SystemParameters {
             boundary_viscosity,
             boundary_pressure_acceleration_weighting,
             boundary_rest_volume_weighting,
-            #[cfg(feature = "local_pressure")]
-            stiffness,
-            #[cfg(feature = "global_pressure")]
-            // solver_iterations,
-            target_density_error,
-            #[cfg(feature = "global_pressure")]
-            relaxation_factor,
-            #[cfg(feature = "global_pressure")]
-            min_diagonal_element,
         }
     }
 
@@ -156,7 +139,7 @@ impl SystemParameters {
 
 ///  3D implementation of a physical system to be simulated
 #[derive(Debug, Clone)]
-pub struct System3D<K: KernelFn, I: IntegrationScheme> {
+pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver> {
     /// Collection of all fluid samples
     fluid: Fluid3D,
     /// Uniform grid for fluid samples
@@ -182,10 +165,15 @@ pub struct System3D<K: KernelFn, I: IntegrationScheme> {
     properties: CurrentSystemProperties,
     _kernel_fn: std::marker::PhantomData<K>,
     integrator: I,
+    pressure_solver: P,
 }
 
-impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
-    pub fn new(systemconfig: setup::System3DConfig, integrator: I) -> Self {
+impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
+    pub fn new(
+        systemconfig: setup::System3DConfig,
+        integrator: I,
+        pressure_solver: P,
+    ) -> Self {
         let particle_grid =
             neighbor_search::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
         let mut boundary_particle_grid =
@@ -203,6 +191,7 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
             properties: systemconfig.properties,
             _kernel_fn: std::marker::PhantomData,
             integrator,
+            pressure_solver,
         };
         // set boundary mass such that the density is equal to the fluids rest density
         system.init_boundary_volume();
@@ -484,70 +473,6 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
         );
     }
 
-    // perform splitting step conditionally
-    #[cfg(feature = "splitting")]
-    fn calc_predicted_density(&mut self) {
-        for_each!(
-            mut [self.fluid.density_pred],
-            ref [
-                pos_now = self.fluid.position,
-                vel_pred = self.fluid.velocity_pred,
-                volume = self.fluid.volume,
-                mass = self.fluid.mass,
-                neighbors = self.fluid.neighbors,
-                boundary_neighbors = self.fluid.boundary_neighbors,
-            ],
-            |id, density_pred| {
-                // reset density
-                let mut accu = 0.;
-                // add density for every neighbor
-                for &neighbor in &neighbors[id] {
-                    let r_vec = direction(
-                        &pos_now[neighbor],
-                        &pos_now[id],
-                    );
-                    let dist = r_vec.norm();
-                    accu += mass[neighbor]
-                        * K::value(
-                            dist,
-                            self.parameters.smoothing_length,
-                        )
-                        + self.parameters.time_increment
-                            * (vel_pred[id] - vel_pred[neighbor]).dot(&K::gradient(
-                                &r_vec,
-                                dist,
-                                self.parameters.smoothing_length,
-                            ));
-                }
-                // add density for every boundary neighbor (mirror mass of moving sample onto boundary sample)
-                for &boundary_neighbor in &boundary_neighbors[id] {
-                    let dir = direction(
-                        &pos_now[id],
-                        &self.boundary.pos_now(boundary_neighbor),
-                    );
-                    let dist = r_vec.norm();
-                    accu += self.boundary.volume(boundary_neighbor)
-                        * self.parameters.rest_density
-                        * K::value(
-                            dist,
-                            self.parameters.smoothing_length,
-                        )
-                        + self.parameters.time_increment
-                            * vel_pred[id]
-                                .dot(&K::gradient(
-                                    &r_vec,
-                                    dist,
-                                    self.parameters.smoothing_length,
-                                ));
-                }
-                *density_pred = accu;
-                // if cfg!(feature = "logging") {
-                // debug!("density: {}", fluid.density());
-                // }
-            }
-        );
-    }
-
     /// reset acceleration, i. e. set it to 0.
     fn reset_acceleration(&mut self) {
         for_each!(
@@ -671,627 +596,6 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
         );
     }
 
-    /// Calculate and update pressure for all particles for the current point in time.
-    ///
-    /// Function uses a state equation to calculate the pressure locally.
-    #[cfg(feature = "local_pressure")]
-    fn update_pressure_locally(&mut self) {
-        #[cfg(not(feature = "splitting"))]
-        {
-            for_each!(
-                mut [self.fluid.pressure],
-                ref [
-                    volume = self.fluid.volume,
-                ],
-                |id, id_pressure| {
-                    // select density
-                    let id_volume = volume[id];
-                    // calc pressure with state equation
-                    *id_pressure = self.parameters.stiffness
-                        * f64::max(self.parameters.rest_volume / id_volume - 1., 0.);
-                    // if cfg!(feature = "logging") {
-                    //     debug!("pressure: {}", pressure);
-                    // }
-                }
-            );
-        }
-        #[cfg(feature = "splitting")]
-        {
-            for_each!(
-                mut [self.fluid.pressure],
-                ref [
-                    density_pred = self.fluid.density_pred,
-                    mass = self.fluid.mass,
-                ],
-                |id, id_pressure| {
-                    // select density
-                    let id_volume = mass[id] / density_pred[id];
-                    // calc pressure with state equation
-                    *id_pressure = self.parameters.stiffness
-                        * f64::max(self.parameters.rest_volume / id_volume - 1., 0.);
-                    // if cfg!(feature = "logging") {
-                    //     debug!("pressure: {}", pressure);
-                    // }
-                }
-            );
-        }
-    }
-
-    /// Locally calculate pressure acceleration with a state equation at current time
-    /// and add it to respective particles
-    fn add_pressure_acceleration(&mut self, with_pred_positions: bool, overwrite: bool) {
-        // compute pressure acceleration
-        for_each!(
-            mut [self.fluid.acceleration],
-            ref [
-                pos_now = self.fluid.position,
-                pos_pred = self.fluid.position_pred,
-                mass = self.fluid.mass,
-                volume = self.fluid.volume,
-                pressure = self.fluid.pressure,
-                neighbors = self.fluid.neighbors,
-                boundary_neighbors = self.fluid.boundary_neighbors
-            ],
-            |id, id_acceleration| {
-                let mut accu = Vector3::zeros();
-                // add pressure acceleration from other moving particles
-                for &neighbor in &neighbors[id] {
-                    // select positions
-                    let particle_pos = if with_pred_positions {
-                        pos_pred[id]
-                    } else {
-                        pos_now[id]
-                    };
-                    let fluid_neighbor_pos = if with_pred_positions {
-                        pos_pred[neighbor]
-                    } else {
-                        pos_now[neighbor]
-                    };
-                    // calc acceleration
-                    let r_vec = direction(
-                        &fluid_neighbor_pos,
-                        &particle_pos,
-                    );
-                    let dist = r_vec.norm();
-                    accu -= volume[id] / mass[id]
-                        * volume[neighbor]
-                        * (pressure[id] + pressure[neighbor])
-                        * K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-                }
-                // add pressure acceleration from boundary particles
-                for &boundary_neighbor in &boundary_neighbors[id] {
-                    // select weighting
-                    let weighting = self.parameters.boundary_pressure_acceleration_weighting;
-                    // select position
-                    let particle_pos = if with_pred_positions {
-                        pos_pred[id]
-                    } else {
-                        pos_now[id]
-                    };
-                    // calc acceleration
-                    // mirror only pressure into boundary particle, set density to rest density
-                    let r_vec = direction(
-                        self.boundary.pos_now(boundary_neighbor),
-                        &particle_pos,
-                    );
-                    let dist = r_vec.norm();
-                    accu -= 2. * weighting * volume[id] / mass[id]
-                        * *self.boundary.volume(boundary_neighbor)
-                        * pressure[id]
-                        * K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-                }
-                if overwrite {
-                    *id_acceleration = accu;
-                } else {
-                    *id_acceleration += accu;
-                }
-            }
-        );
-    }
-
-    /// calculate and set predicted velocity due to currently set acceleration
-    fn set_pred_vel_by_applying_acc(&mut self, to_pred_vel: bool) {
-        for_each!(
-            mut [self.fluid.velocity_pred],
-            ref [
-                vel_now = self.fluid.velocity,
-                acceleration = self.fluid.acceleration,
-            ],
-            |id, id_velocity_pred| {
-                // select velocity
-                let base_vel = if to_pred_vel {
-                    *id_velocity_pred
-                } else {
-                    vel_now[id]
-                };
-                let vel = base_vel + self.parameters.time_increment * acceleration[id];
-                *id_velocity_pred = vel;
-            }
-        );
-    }
-
-    /// Calculate source term for velocity divergence eliminating linear equation system for pressure
-    #[cfg(feature = "global_pressure")]
-    #[allow(dead_code)]
-    fn set_source_term_vde(&mut self) {
-        // compute source term s_f of pressure linear equation system
-        for_each!(
-            mut [self.fluid.s_f],
-            ref [
-                pos_now = self.fluid.position,
-                vel_pred = self.fluid.velocity_pred,
-                volume = self.fluid.volume,
-                neighbors = self.fluid.neighbors,
-                boundary_neighbors = self.fluid.boundary_neighbors
-            ],
-            |id, id_s_f| {
-                let mut accu = 0.;
-                for &neighbor in &neighbors[id] {
-                    let r_vec = direction(
-                        &pos_now[neighbor],
-                        &pos_now[id],
-                    );
-                    let dist = r_vec.norm();
-                    accu -= self.parameters.time_increment
-                        * volume[neighbor]
-                        * (vel_pred[id] - vel_pred[neighbor]).dot(
-                            &K::gradient(
-                                &r_vec,
-                                dist,
-                                self.parameters.smoothing_length,
-                            ),
-                        );
-                }
-                for &boundary_neighbor in &boundary_neighbors[id] {
-                    let r_vec = direction(
-                        self.boundary.pos_now(boundary_neighbor),
-                        &pos_now[id],
-                    );
-                    let dist = r_vec.norm();
-                    accu -= self.parameters.time_increment
-                        * *self.boundary.volume(boundary_neighbor)
-                        * (vel_pred[id]
-                            - *self.boundary.vel_now(boundary_neighbor))
-                        .dot(&K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        ));
-                }
-                *id_s_f = accu;
-                // if i == 200 {
-                //     println!("source term vel.div.: {}", particle.s_f[id]);
-                // }
-            }
-        );
-    }
-
-    /// Calculate source term for volume preserving linear equation system for pressure
-    #[cfg(feature = "global_pressure")]
-    fn set_source_term_vp(&mut self, with_pred_positions: bool) {
-        // compute source term s_f of pressure linear equation system
-        for_each!(
-            mut [self.fluid.s_f],
-            ref [
-                pos_now = self.fluid.position,
-                pos_pred = self.fluid.position_pred,
-                vel_pred = self.fluid.velocity_pred,
-                volume = self.fluid.volume,
-                neighbors = self.fluid.neighbors,
-                boundary_neighbors = self.fluid.boundary_neighbors
-            ],
-            |id, id_s_f| {
-                let mut accu = 1. - self.parameters.rest_volume / volume[id];
-                for &neighbor in &neighbors[id] {
-                    // select positions
-                    let particle_pos = if with_pred_positions {
-                        pos_pred[id]
-                    } else {
-                        pos_now[id]
-                    };
-                    let fluid_neighbor_pos = if with_pred_positions {
-                        pos_pred[neighbor]
-                    } else {
-                        pos_now[neighbor]
-                    };
-
-                    let r_vec = direction(
-                        &fluid_neighbor_pos,
-                        &particle_pos,
-                    );
-                    let dist = r_vec.norm();
-                    accu -= self.parameters.time_increment
-                        * volume[neighbor]
-                        * (vel_pred[id] - vel_pred[neighbor]).dot(
-                            &K::gradient(
-                                &r_vec,
-                                dist,
-                                self.parameters.smoothing_length,
-                            ),
-                        );
-                }
-                for &boundary_neighbor in &boundary_neighbors[id] {
-                    // select position
-                    let particle_pos = if with_pred_positions {
-                        pos_pred[id]
-                    } else {
-                        pos_now[id]
-                    };
-
-                    let r_vec = direction(
-                        self.boundary.pos_now(boundary_neighbor),
-                        &particle_pos,
-                    );
-                    let dist = r_vec.norm();
-                    accu -= self.parameters.time_increment
-                        * *self.boundary.volume(boundary_neighbor)
-                        * (vel_pred[id]
-                            - *self.boundary.vel_now(boundary_neighbor))
-                        .dot(&K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        ));
-                }
-                *id_s_f = accu;
-                // if i == 200 {
-                //     println!("source term vol.pre.: {}", particle.s_f[id]);
-                // }
-            }
-        );
-    }
-
-    fn continue_solving(
-        &self,
-        termination_condition: &TerminationCondition,
-        solver_iteration: u32,
-        predicted_density_error: f64,
-    ) -> bool {
-        match termination_condition {
-            TerminationCondition::AfterIteration(number) => solver_iteration < *number,
-            TerminationCondition::TargetDensityError(tde) => {
-                let min_solver_iterations = 2;
-                solver_iteration < min_solver_iterations || predicted_density_error > *tde
-            }
-        }
-    }
-
-    /// Globally calculate pressure by solving a linear equation system at current time
-    /// and update respective particles' fields
-    ///
-    /// For the implementation the following document was closedly followed:
-    /// Notes on  Ihmsen et al. ”Implicit Incompressible SPH” by  Matthias Teschner, University of Freiburg
-    #[cfg(feature = "global_pressure")]
-    // fn resolve_pressure_globally(&mut self, with_pred_positions: bool, target_density_error: f64) {
-    fn resolve_pressure_globally(
-        &mut self,
-        with_pred_positions: bool,
-        termination_condition: TerminationCondition,
-        clamp_pressure: bool,
-    ) {
-        // compute diagonal element A_ff
-        for_each!(
-            mut [self.fluid.a_ff, self.fluid.pressure],
-            ref [
-                pos_now = self.fluid.position,
-                pos_pred = self.fluid.position_pred,
-                mass = self.fluid.mass,
-                volume = self.fluid.volume,
-                neighbors = self.fluid.neighbors,
-                boundary_neighbors = self.fluid.boundary_neighbors,
-                s_f = self.fluid.s_f,
-            ],
-            |id, id_a_ff, id_pressure| {
-                // calc intermediate variables
-                let mut sum_fluid = Vector3::zeros();
-                let mut sum_fluid2 = 0.;
-                for &neighbor in &neighbors[id] {
-                    // select positions
-                    let particle_pos = if with_pred_positions {
-                        pos_pred[id]
-                    } else {
-                        pos_now[id]
-                    };
-                    let fluid_neighbor_pos = if with_pred_positions {
-                        pos_pred[neighbor]
-                    } else {
-                        pos_now[neighbor]
-                    };
-
-                    let r_vec = direction(
-                        &fluid_neighbor_pos,
-                        &particle_pos,
-                    );
-                    let dist = r_vec.norm();
-                    sum_fluid += volume[neighbor]
-                        * K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-
-                    sum_fluid2 -= self.parameters.time_increment.powi(2)
-                        * volume[id]
-                        * volume[neighbor].powi(2)
-                        / mass[neighbor]
-                        * K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        )
-                        .norm_squared();
-                }
-                let mut sum_boundary = Vector3::zeros();
-                for &boundary_neighbor in &boundary_neighbors[id] {
-                    // select position
-                    let particle_pos = if with_pred_positions {
-                        pos_pred[id]
-                    } else {
-                        pos_now[id]
-                    };
-
-                    let r_vec = direction(
-                        self.boundary.pos_now(boundary_neighbor),
-                        &particle_pos,
-                    );
-                    let dist = r_vec.norm();
-                    sum_boundary += *self.boundary.volume(boundary_neighbor)
-                        * K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-                }
-                // select weighting
-                let weighting = self.parameters.boundary_pressure_acceleration_weighting;
-                // calc intermediate variable c_f
-                let c_f = -volume[id] / mass[id]
-                    * (sum_fluid + 2. * weighting * sum_boundary);
-                // use intermediate variables to calc a_ff
-                *id_a_ff = self.parameters.time_increment.powi(2)
-                    * c_f.dot(&(sum_fluid + sum_boundary))
-                    + sum_fluid2;
-
-                // initialize pressure with fixed result of first solver iteration
-                // Update pressure
-                if *id_a_ff > self.parameters.min_diagonal_element
-                    || *id_a_ff < -self.parameters.min_diagonal_element
-                {
-                    let p_next_iter =
-                        self.parameters.relaxation_factor * s_f[id] / *id_a_ff;
-                    // particle.set_pressure(0.); // TODO remove
-                    if clamp_pressure {
-                        // TODO uncomment
-                        *id_pressure = p_next_iter.max(0.);
-                    } else {
-                        *id_pressure = p_next_iter;
-                    }
-                } else {
-                    *id_pressure = 0.;
-                }
-                assert!(*id_a_ff <= 0.);
-            }
-        );
-        // Solve linear equation system until a sufficiently accurate result is obtained
-        let mut solver_iteration = 0;
-        let mut predicted_density_error = f64::INFINITY;
-        // for _solver_iteration in 0..self.properties.solver_iterations {
-        while self.continue_solving(
-            &termination_condition,
-            solver_iteration,
-            predicted_density_error,
-        ) {
-            // compute intermediate pressure acceleration
-            for_each!(
-                mut [self.fluid.pressure_acc_f],
-                ref [
-                    pos_now = self.fluid.position,
-                    pos_pred = self.fluid.position_pred,
-                    mass = self.fluid.mass,
-                    volume = self.fluid.volume,
-                    pressure = self.fluid.pressure,
-                    neighbors = self.fluid.neighbors,
-                    boundary_neighbors = self.fluid.boundary_neighbors
-                ],
-                |id, id_pressure_acc_f| {
-                    // reset pressure acceleration
-                    let mut accu = Vector3::zeros();
-                    // add pressure acceleration from other moving particles
-                    for &neighbor in &neighbors[id] {
-                        // select positions
-                        let particle_pos = if with_pred_positions {
-                            pos_pred[id]
-                        } else {
-                            pos_now[id]
-                        };
-                        let fluid_neighbor_pos = if with_pred_positions {
-                            pos_pred[neighbor]
-                        } else {
-                            pos_now[neighbor]
-                        };
-
-                        let r_vec = direction(
-                            &fluid_neighbor_pos,
-                            &particle_pos,
-                        );
-                        let dist = r_vec.norm();
-                        accu -= volume[id] / mass[id]
-                            * volume[neighbor]
-                            * (pressure[id] + pressure[neighbor])
-                            * K::gradient(
-                                &r_vec,
-                                dist,
-                                self.parameters.smoothing_length,
-                            );
-                    }
-                    // add pressure acceleration from boundary particles
-                    for &boundary_neighbor in &boundary_neighbors[id] {
-                        // select weighting
-                        let weighting = self.parameters.boundary_pressure_acceleration_weighting;
-                        // select positions
-                        let particle_pos = if with_pred_positions {
-                            pos_pred[id]
-                        } else {
-                            pos_now[id]
-                        };
-
-                        let r_vec = direction(
-                            self.boundary.pos_now(boundary_neighbor),
-                            &particle_pos,
-                        );
-                        let dist = r_vec.norm();
-                        accu -= 2.*weighting*volume[id]/mass[id]
-                        * *self.boundary.volume(boundary_neighbor)
-                        *pressure[id] // mirror pressure
-                        *K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-                    }
-                    *id_pressure_acc_f = accu;
-                }
-            );
-            // perform solver iteration for all fluid particles
-            let mut pred_density_errors: Vec<f64> = vec![0.0; self.fluid.len()];
-            for_each!(
-                mut [self.fluid.pressure, pred_density_errors],
-                ref [
-                    pos_now = self.fluid.position,
-                    pos_pred = self.fluid.position_pred,
-                    pressure_acc_f = self.fluid.pressure_acc_f,
-                    volume = self.fluid.volume,
-                    neighbors = self.fluid.neighbors,
-                    boundary_neighbors = self.fluid.boundary_neighbors,
-                    s_f = self.fluid.s_f,
-                    a_ff = self.fluid.a_ff,
-                ],
-                |id, id_pressure, id_pred_density_errors| {
-                    // calculate the divergence of the velocity change due to the pressure acceleration: a_dot_p_f
-                    let mut a_dot_p_f = 0.;
-                    for &neighbor in &neighbors[id] {
-                        // select positions
-                        let particle_pos = if with_pred_positions {
-                            pos_pred[id]
-                        } else {
-                            pos_now[id]
-                        };
-                        let fluid_neighbor_pos = if with_pred_positions {
-                            pos_pred[neighbor]
-                        } else {
-                            pos_now[neighbor]
-                        };
-
-                        let r_vec = direction(
-                            &fluid_neighbor_pos,
-                            &particle_pos,
-                        );
-                        let dist = r_vec.norm();
-                        a_dot_p_f += self.parameters.time_increment.powi(2)
-                            * volume[neighbor]
-                            * (pressure_acc_f[id] - pressure_acc_f[neighbor])
-                                .dot(&K::gradient(
-                                    &r_vec,
-                                    dist,
-                                    self.parameters.smoothing_length,
-                                ));
-                    }
-                    for &boundary_neighbor in &boundary_neighbors[id] {
-                        // select positions
-                        let particle_pos = if with_pred_positions {
-                            pos_pred[id]
-                        } else {
-                            pos_now[id]
-                        };
-
-                        let r_vec = direction(
-                            self.boundary.pos_now(boundary_neighbor),
-                            &particle_pos,
-                        );
-                        let dist = r_vec.norm();
-                        a_dot_p_f += self.parameters.time_increment.powi(2)
-                            * *self.boundary.volume(boundary_neighbor)
-                            * pressure_acc_f[id]
-                                .dot(&K::gradient(
-                                    &r_vec,
-                                    dist,
-                                    self.parameters.smoothing_length,
-                                ));
-                    }
-                    // Update pressure
-                    if a_ff[id] < -self.parameters.min_diagonal_element {
-                        // || particle.a_ff[id] > self.parameters.min_diagonal_element {
-                        let p_next_iter = *id_pressure
-                            + self.parameters.relaxation_factor * (s_f[id] - a_dot_p_f)
-                                / a_ff[id];
-                        // particle.set_pressure(p_next_iter.max(0.));
-                        if clamp_pressure {
-                            *id_pressure = p_next_iter.max(0.);
-                        } else {
-                            *id_pressure = p_next_iter;
-                        }
-                    }
-                    // Calculate and send absolute value of predicted density error
-                    // if particle.s_f[id] < 0. {
-                    if (s_f[id] < 0. && clamp_pressure)
-                        || (!clamp_pressure
-                            && a_ff[id] < -self.parameters.min_diagonal_element)
-                    {
-                        *id_pred_density_errors = (a_dot_p_f - s_f[id]).abs();
-                    } else {
-                        *id_pred_density_errors = 0.;
-                    }
-                }
-            );
-            // accumulate average_predicted_density_error
-            // let handle = std::thread::spawn(move || {
-            //     let mut average_predicted_density_error = 0.;
-            //     let mut count: u64 = 0;
-            //     for value in receiver.iter() {
-            //         average_predicted_density_error += value;
-            //         count += 1;
-            //     }
-            //     average_predicted_density_error / (count as f64)
-            // });
-            // predicted_density_error = handle.join().unwrap() * 100.;
-            #[cfg(not(feature = "parallelized_sph"))]
-            let total_error: f64 = pred_density_errors.iter().sum();
-            #[cfg(feature = "parallelized_sph")]
-            let total_error: f64 = pred_density_errors.par_iter().sum();
-            let count = pred_density_errors.len();
-            predicted_density_error = if count > 0 {
-                total_error / count as f64 * 100.0
-            } else {
-                0.0
-            };
-            #[cfg(feature = "logging")]
-            debug!("solver_iteration {}", solver_iteration);
-            #[cfg(feature = "logging")]
-            debug!("average_relative_predicted_density_error (%): {predicted_density_error}");
-
-            solver_iteration += 1;
-            #[cfg(feature = "logging")]
-            if solver_iteration == 100 {
-                warn!("Number of global pressure solver iterations >= 100");
-            }
-        }
-        #[cfg(feature = "logging")]
-        debug!("final number of solver iterations: {solver_iteration} (+1)");
-        #[cfg(feature = "logging")]
-        debug!("final average_relative_predicted_density_error (%): {predicted_density_error}");
-
-        self.properties.solver_iterations = solver_iteration;
-        self.properties.predicted_density_error = predicted_density_error;
-    }
-
     /// Calculate non-pressure accelerations and add them to each particles acceleration
     fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
@@ -1306,174 +610,19 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
     /// Calculate acceleration at current time
     ///
     /// Supports: Gravity, spring force, viscosity and pressure acceleration
-    #[cfg(feature = "local_pressure")]
+    // #[cfg(feature = "local_pressure")]
     fn calc_acceleration(&mut self) {
         // reset acceleration
         self.reset_acceleration();
         // add non-pressure acceleration
         self.add_non_pressure_acceleration();
-        // perform splitting step conditionally
-        #[cfg(feature = "splitting")]
-        self.set_pred_vel_by_applying_acc(false);
-        #[cfg(feature = "splitting")]
-        self.calc_predicted_density();
         // compute pressure
-        self.update_pressure_locally();
-        // add pressure acceleration
-        self.add_pressure_acceleration(false, false);
-    }
-
-    /// Calculate acceleration at current time
-    ///
-    /// Supports: Gravity, spring force, viscosity and pressure acceleration
-    #[cfg(all(feature = "global_pressure", not(feature = "optimized_source_term")))]
-    fn calc_acceleration(&mut self) {
-        // reset acceleration
-        self.reset_acceleration();
-        // add non-pressure acceleration
-        self.add_non_pressure_acceleration();
-        // solve pressure equation system
-        {
-            // set predicted velocity by applying non-pressure acceleration
-            self.set_pred_vel_by_applying_acc(false);
-            // set source term
-            self.set_source_term_vp(false);
-            // self.set_source_term_vde();
-            // println!("s_f: {}", self.particles[200].s_f);
-            // solve pressure equation system
-            self.resolve_pressure_globally(
-                false,
-                // TerminationCondition::AfterIteration(self.parameters.solver_iterations),
-                TerminationCondition::TargetDensityError(self.parameters.target_density_error),
-                true,
-            );
-        }
-        // add pressure acceleration due to pressure from pressure equation system
-        self.add_pressure_acceleration(false, false);
-    }
-
-    /// Calculate acceleration at current time
-    ///
-    /// Supports: Gravity, spring force, viscosity and pressure acceleration
-    #[cfg(feature = "optimized_source_term")]
-    fn calc_acceleration(&mut self) {
-        // reset acceleration
-        self.reset_acceleration();
-        // add non-pressure acceleration
-        self.add_non_pressure_acceleration();
-        // solve EQS1
-        {
-            // set predicted velocity by applying non-pressure acceleration
-            self.set_pred_vel_by_applying_acc(false);
-            // set source term
-            self.set_source_term_vde();
-            // self.set_source_term_vp(false);
-            // solve pressure equation system
-            self.resolve_pressure_globally(
-                false,
-                TerminationCondition::AfterIteration(3),
-                // TerminationCondition::TargetDensityError(self.parameters.target_density_error),
-                true,
-            );
-            // set acceleration to pressure acceleration with pressure from EQS1
-            self.add_pressure_acceleration(false, true);
-        }
-        // println!("pressure acc eq1: {}", self.particles[200].acc());
-        // set predicted velocity and positions
-        {
-            // set predicted velocity
-            self.set_pred_vel_by_applying_acc(true);
-            // set predicted position
-            for_each!(
-                mut [self.fluid.position_pred],
-                ref [
-                    pos_now = self.fluid.position,
-                    vel_pred = self.fluid.velocity_pred,
-                ],
-                |id, id_position_pred| {
-                    *id_position_pred = pos_now[id] + self.parameters.time_increment * vel_pred[id];
-                }
-            );
-        }
-        // solve EQS2
-        {
-            // set source term
-            self.set_source_term_vp(false);
-            // solve pressure equation system
-            self.resolve_pressure_globally(
-                false,
-                TerminationCondition::TargetDensityError(self.parameters.target_density_error),
-                true,
-            );
-            // set acceleration to pressure acceleration with pressure from EQS2
-            self.add_pressure_acceleration(false, true);
-        }
-        // println!("pressure acc eq2: {}", self.particles[200].acc());
-        // write new positions and resampled velocities to predicted velocity and position field of each particle
-        {
-            for_each!(
-                mut [self.fluid.position_pred, self.fluid.pressure_acc_f],
-                ref [
-                    pos_now = self.fluid.position,
-                    vel_pred = self.fluid.velocity_pred,
-                    acceleration = self.fluid.acceleration,
-                    volume = self.fluid.volume,
-                    neighbors = self.fluid.neighbors,
-                    boundary_neighbors = self.fluid.boundary_neighbors,
-                    s_f = self.fluid.s_f,
-                    a_ff = self.fluid.a_ff,
-                ],
-                |id, id_position_pred, id_pressure_acc_f| {
-                    // calculate new position and store it intermediately
-                    let new_pos = *id_position_pred
-                        + self.parameters.time_increment.powi(2) * acceleration[id]; // TODO uncomment
-                    // calculate and set velocity gradient (Jacobian) as predicted velocity
-                    let mut jac_vel = Matrix3::zeros();
-                    for &neighbor in &neighbors[id] {
-                        jac_vel -= volume[neighbor]
-                            * (vel_pred[id] - vel_pred[neighbor]).outer(
-                                &K::gradient(
-                                    &pos_now[id],
-                                    &pos_now[neighbor],
-                                    self.parameters.smoothing_length,
-                                ),
-                            );
-                    }
-                    for &boundary_neighbor in &boundary_neighbors[id] {
-                        jac_vel -= self.boundary.volume[boundary_neighbor]
-                            * (vel_pred[id]
-                                - *self.boundary.vel_now(boundary_neighbor))
-                            .outer(&K::gradient(
-                                &pos_now[id],
-                                self.boundary.pos_now(boundary_neighbor),
-                                self.parameters.smoothing_length,
-                            ));
-                    }
-                    // calculate new velocity and intermediately store it as pressure_acc_f to avoid race condition on .vel().pred()
-                    // particle.pressure_acc_f[id] = vel_pred[id] + jac_vel*(new_pos - pos_pred[id]); // original "optimized source term" approach
-                    // particle.pressure_acc_f[id] = vel_pred[id] + jac_vel*(new_pos - pos_pred[id]) + self.parameters.time_increment*particle.acc(); // TODO test
-                    // particle.pressure_acc_f[id] = vel_pred[id]; // TODO test
-                    *id_pressure_acc_f =
-                        vel_pred[id] + self.parameters.time_increment * acceleration[id]; // DFSPH approach
-                    // store new position in predicted position
-                    *id_position_pred = new_pos;
-                }
-            );
-            // move velocity from pressure_acc_f to predicted velocity
-            // self.particles
-            //     .for_each_mut_enabled(|id, particle, _imm_particles| {
-            //         particle.set_pred_vel(particle.pressure_acc_f[id]);
-            //     });
-            for_each!(
-                mut [self.fluid.velocity_pred],
-                ref [
-                    pressure_acc_f = self.fluid.pressure_acc_f,
-                ],
-                |id, id_vel_pred| {
-                    *id_vel_pred = pressure_acc_f[id];
-                }
-            );
-        }
+        self.pressure_solver.solve_and_add_acceleration::<K>(
+            &mut self.fluid,
+            &self.boundary,
+            &self.parameters,
+            &mut self.properties,
+        );
     }
 
     /// Step forward in time one time increment.
@@ -1545,37 +694,28 @@ impl<K: KernelFn, I: IntegrationScheme> System3D<K, I> {
         //     debug!("time: {}, cfl coefficient: {}, max speed: {}", self.time(), cfl_coeff, max_speed);
         // }
 
-        series.push_back(measurement::Measurement {
-            time: self.time(),
-            density: self.properties.average_density,
-            kinetic_energy: self.calc_average_kinetic_energy(),
-            #[cfg(feature = "local_pressure")]
-            stiffness: self.parameters.stiffness,
-            #[cfg(feature = "global_pressure")]
-            stiffness: 0.,
-            fluid_viscosity: self.parameters.fluid_viscosity,
-            boundary_viscosity: self.parameters.boundary_viscosity,
-            fluid_depth: self.properties.fluid_depth,
-            rest_density_grid_spacing: self.parameters.rest_density_grid_spacing,
-            smoothing_length: self.parameters.smoothing_length,
-            rest_density: self.parameters.rest_density,
-            time_step_size: self.parameters.time_increment,
-            #[cfg(feature = "local_pressure")]
-            target_density_error: 0.,
-            #[cfg(feature = "global_pressure")]
-            // target_density_error: 0.,
-            target_density_error: self.parameters.target_density_error,
-            #[cfg(feature = "local_pressure")]
-            solver_iterations: 0,
-            #[cfg(feature = "global_pressure")]
-            solver_iterations: self.properties.solver_iterations,
-            #[cfg(feature = "local_pressure")]
-            relaxation_factor: 0.,
-            #[cfg(feature = "global_pressure")]
-            relaxation_factor: self.parameters.relaxation_factor,
-            time_step_wall_clock_time: self.properties.time_step_wall_clock_time,
-            predicted_density_error: self.properties.predicted_density_error,
-        });
+        // series.push_back(measurement::Measurement {
+        //     time: self.time(),
+        //     density: self.properties.average_density,
+        //     kinetic_energy: self.calc_average_kinetic_energy(),
+        //     stiffness: self.parameters.stiffness,
+        //     fluid_viscosity: self.parameters.fluid_viscosity,
+        //     boundary_viscosity: self.parameters.boundary_viscosity,
+        //     fluid_depth: self.properties.fluid_depth,
+        //     rest_density_grid_spacing: self.parameters.rest_density_grid_spacing,
+        //     smoothing_length: self.parameters.smoothing_length,
+        //     rest_density: self.parameters.rest_density,
+        //     time_step_size: self.parameters.time_increment,
+        //     target_density_error: 0.,
+        //     // target_density_error: 0.,
+        //     target_density_error: self.parameters.target_density_error,
+        //     solver_iterations: 0,
+        //     solver_iterations: self.properties.solver_iterations,
+        //     relaxation_factor: 0.,
+        //     relaxation_factor: self.parameters.relaxation_factor,
+        //     time_step_wall_clock_time: self.properties.time_step_wall_clock_time,
+        //     predicted_density_error: self.properties.predicted_density_error,
+        // });
     }
 
     fn get_serializable_particles(&self) -> SerFluid3D {
