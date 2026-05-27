@@ -11,23 +11,26 @@ use rayon::prelude::*;
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 
 pub mod kernel;
-use kernel::KernelFn;
-pub mod integration_schemes;
-use integration_schemes::IntegrationScheme;
 pub mod pressure_solver;
-use pressure_solver::PressureSolver;
-pub mod sample;
-use sample::*;
+mod non_pressure_accelerations;
+mod volume;
+
 #[cfg(feature = "springs")]
 pub mod spring;
+
 #[cfg(feature = "springs")]
 use spring::*;
-pub mod neighbor_search;
-
+use crate::sample::*;
+use crate::sph::non_pressure_accelerations::*;
+use pressure_solver::PressureSolver;
+use crate::neighbor_search::UniformGrid;
 use crate::TimeStepInfo;
 use crate::for_each;
 use crate::measurement;
 use crate::setup;
+use kernel::KernelFn;
+use crate::integration_schemes::IntegrationScheme;
+use volume::update_volume;
 
 /// Calculate the distance between two 3D points
 fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
@@ -102,12 +105,6 @@ impl SystemParameters {
         boundary_viscosity: f64,
         boundary_pressure_acceleration_weighting: f64,
         boundary_rest_volume_weighting: f64,
-        #[cfg(feature = "local_pressure")] stiffness: f64,
-        #[cfg(feature = "global_pressure")]
-        // solver_iterations: u32,
-        target_density_error: f64,
-        #[cfg(feature = "global_pressure")] relaxation_factor: f64,
-        #[cfg(feature = "global_pressure")] min_diagonal_element: f64,
     ) -> Self {
         Self {
             #[cfg(not(feature = "cfl_time_step"))]
@@ -145,13 +142,13 @@ pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver> {
     /// Uniform grid for fluid samples
     ///
     /// Accelerates neighbor search
-    fluid_neighbor_search: neighbor_search::UniformGrid,
+    fluid_neighbor_search: UniformGrid,
     /// Collection of all boundary (not moving) samples
     boundary: Boundary3D,
     /// Uniform grid for boundary particles
     ///
     /// Accelerates neighbor search
-    boundary_neighbor_search: neighbor_search::UniformGrid,
+    boundary_neighbor_search: UniformGrid,
     /// Springs connecting different samples
     ///
     /// Spring stores indices of samples connected to via spring force,
@@ -175,9 +172,9 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
         pressure_solver: P,
     ) -> Self {
         let particle_grid =
-            neighbor_search::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
+            UniformGrid::new(systemconfig.system_parameters.smoothing_length);
         let mut boundary_particle_grid =
-            neighbor_search::UniformGrid::new(systemconfig.system_parameters.smoothing_length);
+            UniformGrid::new(systemconfig.system_parameters.smoothing_length);
         boundary_particle_grid.populate_boundary_particles(&systemconfig.boundary);
         let mut system = Self {
             fluid: systemconfig.fluid,
@@ -435,176 +432,15 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
         );
     }
 
-    /// Calculate and update volume for all particles for the current point in time
-    fn update_volume(&mut self) {
-        for_each!(
-            mut [self.fluid.volume],
-            ref [pos_now = self.fluid.position, neighbors = self.fluid.neighbors, boundary_neighbors = self.fluid.boundary_neighbors],
-            |id, id_volume| {
-                // reset volume
-                *id_volume = 0.;
-                let mut accu = 0.;
-                // add volume for every neighbor
-                for &neighbor in &neighbors[id] {
-                    let dist = distance(
-                        &pos_now[id],
-                        &pos_now[neighbor],
-                    );
-                    accu += self.parameters.rest_volume
-                        * K::value(
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-                }
-                // add volume for every boundary neighbor (mirror mass of moving particle onto boundary particle)
-                for &boundary_neighbor in &boundary_neighbors[id] {
-                    let dist = distance(
-                        &pos_now[id],
-                        self.boundary.pos_now(boundary_neighbor),
-                    );
-                    accu += *self.boundary.volume(boundary_neighbor)
-                        * K::value(
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-                }
-                *id_volume += self.parameters.rest_volume / accu;
-            }
-        );
-    }
-
-    /// reset acceleration, i. e. set it to 0.
-    fn reset_acceleration(&mut self) {
-        for_each!(
-            mut [self.fluid.acceleration],
-            ref [],
-            |_id, id_acceleration| {
-                *id_acceleration = Vector3::zeros();
-            }
-        );
-    }
-
-    /// Add gravity acceleration to all not boundary particles
-    fn add_gravity(&mut self) {
-        for_each!(
-            mut [self.fluid.acceleration],
-            ref [],
-            |_id, id_acceleration| {
-                let strength_of_gravity = 9.81;
-                // gravitate downwards
-                let accu = Vector3::new(0.0, 0.0, -strength_of_gravity);
-                // gravitate around point
-                // let gravitation_center = Vector3::new(0.0, 0.0, 0.0);
-                // let accu = strength_of_gravity*(gravitation_center-fluid.pos_now(id));
-
-                *id_acceleration += accu;
-            }
-        );
-    }
-
-    /// Calculate spring acceleration at current time and add it to respective particles
-    #[cfg(feature = "springs")]
-    fn add_spring_acceleration(&mut self) {
-        for Spring {
-            indices: (i1, i2),
-            k,
-            l,
-            ..
-        } in &self.springs
-        {
-            // if cfg!(feature = "logging") {
-            //     debug!("Calculate spring force");
-            // }
-            // calculate force for spring
-            let force = k / l
-                * ((self.particles[*i2].pos().now() - self.particles[*i1].pos().now())
-                    - (*l * (self.particles[*i2].pos().now() - self.particles[*i1].pos().now())
-                        / (self.particles[*i2].pos().now() - self.particles[*i1].pos().now())
-                            .norm()));
-
-            let m: f64 = self.particles[*i1].mass();
-            self.particles[*i1].add_acc(force / m);
-            let m: f64 = self.particles[*i2].mass();
-            self.particles[*i2].add_acc(-force / m);
-        }
-        // calculate other forces here
-    }
-
-    /// Calculate viscosity acceleration at current time and add it to respective particles
-    fn add_viscosity_acceleration(&mut self) {
-        for_each!(
-            mut [self.fluid.acceleration],
-            ref [
-                pos_now = self.fluid.position,
-                vel_now = self.fluid.velocity,
-                volume = self.fluid.volume,
-                neighbors = self.fluid.neighbors,
-                boundary_neighbors = self.fluid.boundary_neighbors
-            ],
-            |id, id_acceleration| {
-                let mut accu = Vector3::zeros();
-                // add viscostiy acceleration from other moving particles
-                for &neighbor in &neighbors[id] {
-                    let r_vec = direction(
-                        &pos_now[neighbor],
-                        &pos_now[id],
-                    );
-                    let dist = r_vec.norm();
-                    accu += self.parameters.fluid_viscosity
-                        * 2.
-                        * (3. + 2.)
-                        * volume[neighbor]
-                        * (vel_now[id] - vel_now[neighbor])
-                            .dot(&(pos_now[id] - pos_now[neighbor]))
-                        / ((pos_now[id] - pos_now[neighbor])
-                            .norm_squared()
-                            + 0.01 * self.parameters.smoothing_length.powi(2))
-                        * K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-                }
-                // add viscostiy acceleration from boundary particles
-                for &boundary_neighbor in &boundary_neighbors[id] {
-                    let r_vec = direction(
-                        self.boundary.pos_now(boundary_neighbor),
-                        &pos_now[id],
-                    );
-                    let dist = r_vec.norm();
-                    accu += self.parameters.boundary_viscosity
-                        * 2.
-                        * (3. + 2.)
-                        * *self.boundary.volume(boundary_neighbor)
-                        * (vel_now[id] - *self.boundary.vel_now(boundary_neighbor))
-                            .dot(
-                                &(pos_now[id]
-                                    - *self.boundary.pos_now(boundary_neighbor)),
-                            )
-                        / ((pos_now[id]
-                            - *self.boundary.pos_now(boundary_neighbor))
-                        .norm_squared()
-                            + 0.01 * self.parameters.smoothing_length.powi(2))
-                        * K::gradient(
-                            &r_vec,
-                            dist,
-                            self.parameters.smoothing_length,
-                        );
-                }
-                *id_acceleration += accu;
-            }
-        );
-    }
-
     /// Calculate non-pressure accelerations and add them to each particles acceleration
     fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
-        self.add_gravity();
+        add_gravity(&mut self.fluid);
         // add spring acceleration
         #[cfg(feature = "springs")]
-        self.add_spring_acceleration();
+        add_spring_acceleration();
         // add viscosity acceleration
-        self.add_viscosity_acceleration();
+        add_viscosity_acceleration::<K>(&mut self.fluid, &self.boundary, &self.parameters);
     }
 
     /// Calculate acceleration at current time
@@ -613,7 +449,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
     // #[cfg(feature = "local_pressure")]
     fn calc_acceleration(&mut self) {
         // reset acceleration
-        self.reset_acceleration();
+        reset_acceleration(&mut self.fluid);
         // add non-pressure acceleration
         self.add_non_pressure_acceleration();
         // compute pressure
@@ -660,7 +496,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
         // update neighbors of all fluid particles
         self.update_particle_neighbors();
         // compute density
-        self.update_volume();
+        update_volume::<K>(&mut self.fluid, &self.boundary, &self.parameters);
         // calculate new accelerations
         self.calc_acceleration();
         // update properties

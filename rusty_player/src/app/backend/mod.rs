@@ -12,7 +12,7 @@ use iced_winit::winit::event_loop::EventLoopProxy;
 use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
 use rendering_lib::readback::{ReadbackBuffer, ReadbackRequest};
-use simulation_lib::{SimulationParameters, TimeStepInfo, sph::sample::SerFluid3D};
+use simulation_lib::{SimulationParameters, TimeStepInfo, sample::SerFluid3D};
 
 pub mod commands;
 

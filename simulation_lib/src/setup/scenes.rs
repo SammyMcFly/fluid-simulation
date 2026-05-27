@@ -1,8 +1,8 @@
-use super::super::sph::sample::Expandable;
+use crate::sample::Expandable;
 use nalgebra::Vector3;
 use serde::Deserialize;
 
-use super::super::sph::sample::{Boundary3D, Fluid3D};
+use crate::sample::{Boundary3D, Fluid3D};
 use super::Scene;
 #[cfg(feature = "springs")]
 use crate::sph::spring::Spring;

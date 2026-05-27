@@ -1,7 +1,7 @@
 /// Implicit Euler integration scheme
-use crate::{for_each, sph::sample::Len};
-use crate::sph::integration_schemes::IntegrationScheme;
-use crate::sph::sample::Fluid3D;
+use crate::for_each;
+use crate::integration_schemes::IntegrationScheme;
+use crate::sample::{Fluid3D, Len};
 use nalgebra::Vector3;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 

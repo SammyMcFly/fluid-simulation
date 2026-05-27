@@ -8,7 +8,7 @@ use tracing::{error, info, warn}; // debug, error, info, span, trace, warn,
 use simulation_lib::measurement::RecordingStatus;
 // use simulation_lib::sph::pressure_solver::SESPH;
 use simulation_lib::sph::pressure_solver::IISPH;
-use simulation_lib::sph::integration_schemes::EulerCromer;
+use simulation_lib::integration_schemes::EulerCromer;
 // use simulation_lib::sph::pressure_solver::IISPHwOST;
 // use simulation_lib::sph::integration_schemes::TakePredicted;
 use simulation_lib::sph::kernel::CubicBSpline;

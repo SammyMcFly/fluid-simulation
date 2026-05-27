@@ -5,9 +5,9 @@ mod scenes;
 
 use serde::Deserialize;
 
-use super::SimulationParameters;
+use crate::SimulationParameters;
 
-use super::sph::sample::{Boundary3D, Fluid3D, SerFluid3D};
+use crate::sample::{Boundary3D, Fluid3D, SerFluid3D};
 #[cfg(feature = "springs")]
 use super::sph::spring::Spring;
 use super::sph::{CurrentSystemProperties, SystemParameters};

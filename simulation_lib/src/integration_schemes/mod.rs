@@ -1,5 +1,5 @@
 /// Integration schemes
-use crate::sph::sample::Fluid3D;
+use crate::sample::Fluid3D;
 
 pub mod euler_cromer;
 pub mod explicit_euler;

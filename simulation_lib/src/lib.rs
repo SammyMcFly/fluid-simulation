@@ -13,9 +13,12 @@ use serde::{Deserialize, Serialize};
 mod macros;
 pub(crate) use macros::for_each;
 
-use sph::sample::{SerBoundary3D, SerFluid3D};
+use sample::{SerBoundary3D, SerFluid3D};
 
+pub mod integration_schemes;
 pub mod measurement;
+pub mod neighbor_search;
+pub mod sample;
 pub mod setup;
 pub mod sph;
 

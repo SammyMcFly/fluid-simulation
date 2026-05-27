@@ -4,7 +4,7 @@
 use nalgebra::Vector3;
 use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
-use super::sample::{Len, Positional};
+use crate::sample::{Len, Positional};
 
 type UniformGridCell = Vector3<i32>;
 

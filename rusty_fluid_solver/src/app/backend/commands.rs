@@ -1,5 +1,5 @@
 //! Worker commands
-use crate::app::backend::sph::sample::SerFluid3D;
+use crate::app::backend::sample::SerFluid3D;
 use rendering_lib::readback::ReadbackRequest;
 
 pub enum WorkerCommand {

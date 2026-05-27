@@ -12,7 +12,7 @@ use rendering_lib::readback::{ReadbackBuffer, ReadbackRequest};
 
 use crate::app::backend::SimulationParameters;
 
-use super::sph::sample::SerFluid3D;
+use super::sample::SerFluid3D;
 
 /// Store the current state of all fluid particles to a file
 pub fn save_system_state(fluid: SerFluid3D, file_path: &str) -> std::io::Result<()> {
