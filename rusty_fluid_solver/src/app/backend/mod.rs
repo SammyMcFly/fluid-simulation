@@ -12,6 +12,7 @@ use simulation_lib::integration_schemes::EulerCromer;
 // use simulation_lib::sph::pressure_solver::IISPHwOST;
 // use simulation_lib::sph::integration_schemes::TakePredicted;
 use simulation_lib::sph::kernel::CubicBSpline;
+use simulation_lib::neighbor_search::SpatialHashing;
 use simulation_lib::*;
 
 use crate::app::messages::WorkerMessage;
@@ -25,9 +26,9 @@ use commands::WorkerCommand;
 const INTEGRATOR: EulerCromer = EulerCromer;
 // const INTEGRATOR: TakePredicted = TakePredicted;
 
-// type SimSystem = sph::System3D<CubicBSpline, EulerCromer, SESPH>;
-type SimSystem = sph::System3D<CubicBSpline, EulerCromer, IISPH>;
-// type SimSystem = sph::System3D<CubicBSpline, TakePredicted, IISPHwOST>;
+// type SimSystem = sph::System3D<CubicBSpline, EulerCromer, SESPH, SpatialHashing>;
+type SimSystem = sph::System3D<CubicBSpline, EulerCromer, IISPH, SpatialHashing>;
+// type SimSystem = sph::System3D<CubicBSpline, TakePredicted, IISPHwOST, SpatialHashing>;
 
 
 /// Struct that does:
@@ -63,10 +64,12 @@ impl Simulation {
                     sys_conf.config.parameters.relaxation_factor,
                     sys_conf.config.parameters.min_diagonal_element,
                 );
+                let neighbor_search = SpatialHashing::new(sys_conf.config.parameters.smoothing_length);
                 let initial_system = sph::System3D::new(
                     sys_conf.finish(),
                     INTEGRATOR,
-                    pressure_solver
+                    pressure_solver,
+                    neighbor_search,
                 );
                 let measurement_series = match simulation_load_info
                     .measurement_file_path
