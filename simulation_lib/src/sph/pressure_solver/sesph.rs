@@ -1,5 +1,5 @@
 /// State equation SPH (SESPH) or weakly compressible SPH (WCSPH) pressure solver
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::for_each;

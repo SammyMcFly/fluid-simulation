@@ -1,6 +1,6 @@
 /// macros.rs
 
-#[cfg(not(feature = "parallelized_sph"))]
+#[cfg(not(feature = "parallel"))]
 macro_rules! for_each {
     // 1 mutable field
     (
@@ -57,7 +57,7 @@ macro_rules! for_each {
     }};
 }
 
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 macro_rules! for_each {
     // 1 mutable field
     (

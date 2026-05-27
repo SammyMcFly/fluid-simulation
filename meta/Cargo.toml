@@ -9,11 +9,11 @@ rendering_lib = { path = "../rendering_lib", default-features = false }
 
 [features]
 # default = ["logging", "pseudo_volume_boundary"]
-default = ["logging", "parallelized_sph", "pseudo_volume_boundary"]
-# default = ["logging", "parallelized_sph", "pseudo_volume_boundary", "cfl_time_step"]
+default = ["logging", "parallel", "pseudo_volume_boundary"]
+# default = ["logging", "parallel", "pseudo_volume_boundary", "cfl_time_step"]
 
 logging = ["simulation_lib/logging", "rendering_lib/logging"]
-parallelized_sph = ["simulation_lib/parallelized_sph"]
+parallel = ["simulation_lib/parallel"]
 springs = ["simulation_lib/springs"] # does not work yet
 pseudo_volume_boundary = ["simulation_lib/pseudo_volume_boundary"]
 cfl_time_step = ["simulation_lib/cfl_time_step"]

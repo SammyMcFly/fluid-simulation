@@ -1,5 +1,5 @@
 /// Volume calculation module
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::for_each;

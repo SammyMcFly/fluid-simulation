@@ -11,7 +11,7 @@ This workspace implements a 3D SPH fluid solver with an interactive wgpu-based r
 | Crate | Type | Description |
 |-------|------|-------------|
 | `meta` | lib | Synchronous feature management |
-| `simulation_lib` | lib | SPH kernels, particle dynamics, pressure solvers, neighbor search, scene setup |
+| `simulation_lib` | lib | SPH kernels, integration schemes, pressure solvers, neighbor search, scene setup |
 | `rendering_lib` | lib | wgpu-based 3D renderer with camera, lighting, UI overlay, and screenshot export |
 | `rusty_fluid_solver` | bin | Main application — runs SPH simulation with real-time visualization |
 | `rusty_player` | bin | Playback application for recorded simulation data |
@@ -34,26 +34,38 @@ rusty_measurement_runner (automates parameter sweeps)
 
 The `.csv` measurement files are produced by the `--measurement-file` flag.
 
+## Architecture
+
+The simulation core is generic over three traits:
+
+```text
+System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
+```
+
+| Trait | Responsibility | Examples |
+|-------|---------------|----------|
+| `KernelFn` | SPH smoothing kernel (W, ∇W) | `CubicBSpline` |
+| `IntegrationScheme` | Time integration of positions/velocities | `EulerCromer`, `Verlet`, `TakePredicted` |
+| `PressureSolver` | Compute pressure field and apply acceleration | `SESPH`, `IISPH`, `IISPHwOST` |
+
 ## Features
 
 ### Physics
 
 
-- **SPH Fluid Simulation** with cubic B-spline kernel (3D)
-- **Pressure Solvers**
-
-  - Local state-equation solver (feature: `local_pressure`)
-  - Global implicit incompressible SPH (feature: `global_pressure`)
-
-  - Optimized source-term approach (feature: `optimized_source_term`)
-- **Integration Schemes**
-
-  - Explicit Euler
-  - Euler–Cromer
-
-  - Verlet
-  - Implicit Euler with conjugate gradient (feature: `implicit_euler`)(WIP)
-
+- **SPH Fluid Simulation** with pluggable kernel functions (trait: `KernelFn`)
+  - Cubic B-spline kernel (default)
+- **Pressure Solvers** (trait: `PressureSolver`)
+  - Local state-equation solver (`SESPH`)
+  - Local state-equation solver with splitting (`SESPHwSplitting`)
+  - Implicit Incompressible SPH (`IISPH`)
+  - IISPH with optimized source term (`IISPHwOST`)
+- **Integration Schemes** (trait: `IntegrationScheme`)
+  - Euler–Cromer (`EulerCromer`)
+  - Explicit Euler (`ExplicitEuler`)
+  - Verlet (`Verlet`)
+  - Accept predicted state (`TakePredicted`) — used by `IISPHwOST`
+  <!-- - Implicit Euler with conjugate gradient (WIP) -->
 - **Viscosity** — artificial viscosity for fluid–fluid and fluid–boundary interactions
 - **Boundary Handling** — static boundary particles with pseudo-volume computation (feature: `pseudo_volume_boundary`)
 <!-- - **Spring Forces** — elastic connections between particles (feature: `springs`) -->
@@ -75,7 +87,7 @@ The `.csv` measurement files are produced by the `--measurement-file` flag.
 
 
 - **Spatial Hashing Uniform Grid** for O(1) amortized neighbor search
-- **Parallelization** with Rayon (feature: `parallelized_sph`)
+- **Parallelization** with Rayon (feature: `parallel`)
 - **Structure-of-Arrays (SoA)** particle layout for cache-efficient iteration
 - `rustc_hash::FxHashMap` for fast grid lookups
 
@@ -94,18 +106,13 @@ The `.csv` measurement files are produced by the `--measurement-file` flag.
 
 | Feature | Description |
 |---------|-------------|
-| `local_pressure` | Local state-equation pressure solver |
-| `global_pressure` | Global implicit pressure solver (IISPH-style) |
-| `optimized_source_term` | Two-stage pressure solve (velocity-divergence + volume-preservation) |
-| `splitting` | Predicted-density splitting for local pressure |
-| `springs` | Enable spring forces between particles |
-| `implicit_euler` | Implicit Euler integration with conjugate gradient |
+| `parallel` | Parallelize particle loops with Rayon |
 | `cfl_time_step` | Adaptive time stepping based on CFL condition |
-| `parallelized_sph` | Parallelize particle loops with Rayon |
 | `pseudo_volume_boundary` | Compute boundary particle volumes from kernel summation |
+| `springs` | Enable spring forces between particles |
 | `logging` | Enable `tracing`-based structured logging |
 
-> **Note:** `local_pressure` and `global_pressure` are mutually exclusive — exactly one must be enabled.
+**Note:** Pressure solver and integration scheme are selected at compile time via type parameters on `System3D<K, I, P>`, not feature flags.
 
 ## Getting Started
 
@@ -125,7 +132,7 @@ cargo build --release
 
 ### Build with specific features
 
-cargo build --release -p rusty_fluid_solver --features "global_pressure,parallelized_sph,cfl_time_step"
+cargo build --release -p rusty_fluid_solver --features "parallel,cfl_time_step"
 ```
 
 ### Run the Simulation

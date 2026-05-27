@@ -1,6 +1,6 @@
 /// Pressure solver algorithm module
 use nalgebra::Vector3;
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::for_each;

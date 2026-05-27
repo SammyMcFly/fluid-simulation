@@ -1,6 +1,6 @@
 /// Implicit imcompressible SPH (SESPH) pressure self
 use nalgebra::Vector3;
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 #[cfg(feature = "logging")]
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
@@ -499,9 +499,9 @@ impl IISPH {
                 }
             );
             // accumulate average_predicted_density_error
-            #[cfg(not(feature = "parallelized_sph"))]
+            #[cfg(not(feature = "parallel"))]
             let total_error: f64 = pred_density_errors.iter().sum();
-            #[cfg(feature = "parallelized_sph")]
+            #[cfg(feature = "parallel")]
             let total_error: f64 = pred_density_errors.par_iter().sum();
             let count = pred_density_errors.len();
             predicted_density_error = if count > 0 {

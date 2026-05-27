@@ -8,7 +8,7 @@ default = [] # managed by meta crate
 
 # Features
 logging = ["dep:tracing"]
-parallelized_sph = ["dep:rayon"]
+parallel = ["dep:rayon"]
 springs = []
 pseudo_volume_boundary = []
 cfl_time_step = []

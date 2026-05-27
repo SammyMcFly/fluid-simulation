@@ -13,6 +13,8 @@ pub fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
     (to - from).norm()
 }
 
+
+
 /// Container that stores indices of samples in a hash map depending
 /// on their spatial position on the uniform grid.
 #[derive(Debug, Clone)]
