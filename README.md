@@ -72,7 +72,6 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 
 ### Rendering
 
-
 - Real-time 3D particle visualization via **wgpu**
 - Instanced sphere rendering with Phong lighting
 
@@ -84,8 +83,10 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 
 ### Performance
 
-
-- **Spatial Hashing Uniform Grid** for O(1) amortized neighbor search
+- **Neighbor Search** algorithms (trait: `NeighborSearch`) for O(n·k) neighbor search
+  (k = average neighbors per particle; optimal when `cell_size ≈ search_range`)
+  - Spatial Hashing with Uniform Grid
+ <!--  - Octree -->
 - **Parallelization** with Rayon (feature: `parallel`)
 - **Structure-of-Arrays (SoA)** particle layout for cache-efficient iteration
 - `rustc_hash::FxHashMap` for fast grid lookups
@@ -93,7 +94,6 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 - Dedicated worker thread keeps UI responsive
 
 ### Recording & Playback
-
 
 - Full simulation state serialization via `serde` + `bincode`
 - Record time step data to binary files
@@ -115,7 +115,6 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 ## Getting Started
 
 ### Prerequisites
-
 
 - [Rust](https://www.rust-lang.org/tools/install) (edition 2021+)
 - A GPU with Vulkan, Metal, or DX12 support (for wgpu rendering)
@@ -144,6 +143,26 @@ cargo run --release -p rusty_fluid_solver -- scene_config.toml
 ```bash
 cargo run --release -p rusty_player -- recording.bin
 ```
+
+### Testing
+
+```bash
+
+### Run all tests
+
+cargo test
+
+### Run tests for a specific crate
+
+cargo test -p simulation_lib
+
+### Run tests with output visible
+
+cargo test -- --nocapture
+
+### Run tests matching a pattern
+
+cargo test neighbor_search
 
 ## CLI Reference
 
