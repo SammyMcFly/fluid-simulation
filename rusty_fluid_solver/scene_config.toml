@@ -51,5 +51,3 @@ x_offset = -2.0
 y_offset = -2.0
 z_offset = -3.0
 particle_spacing = 0.8
-
-# [springs]

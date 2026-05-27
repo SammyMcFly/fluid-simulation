@@ -5,7 +5,7 @@
 ///
 use nalgebra::{Matrix3, Vector3};
 use num_traits::Zero;
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 #[cfg(feature = "logging")]
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
@@ -15,11 +15,6 @@ pub mod pressure_solver;
 mod non_pressure_accelerations;
 mod volume;
 
-#[cfg(feature = "springs")]
-pub mod spring;
-
-#[cfg(feature = "springs")]
-use spring::*;
 use crate::sample::*;
 use crate::sph::non_pressure_accelerations::*;
 use pressure_solver::PressureSolver;
@@ -53,10 +48,8 @@ enum TerminationCondition {
 pub struct CurrentSystemProperties {
     average_density: f64,
     fluid_depth: f64,
-    solver_iterations: u32,
     /// wall clock time passed calculating current time step
     time_step_wall_clock_time: f64,
-    predicted_density_error: f64,
 }
 
 impl CurrentSystemProperties {
@@ -149,12 +142,6 @@ pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver> {
     ///
     /// Accelerates neighbor search
     boundary_neighbor_search: UniformGrid,
-    /// Springs connecting different samples
-    ///
-    /// Spring stores indices of samples connected to via spring force,
-    /// spring force coeff (k) and rest length (l)
-    #[cfg(feature = "springs")]
-    springs: Vec<Spring>,
     /// Time
     time_steps_propagated: u64,
     /// Properties of the system
@@ -181,8 +168,6 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
             fluid_neighbor_search: particle_grid,
             boundary: systemconfig.boundary,
             boundary_neighbor_search: boundary_particle_grid,
-            #[cfg(feature = "springs")]
-            springs: systemconfig.springs,
             time_steps_propagated: 0,
             parameters: systemconfig.system_parameters,
             properties: systemconfig.properties,
@@ -241,7 +226,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
 
     /// Calculate 2-norm of maximum velocity of any particle
     fn calc_max_speed(&self) -> f64 {
-        #[cfg(not(feature = "parallelized_sph"))]
+        #[cfg(not(feature = "parallel"))]
         {
             self.fluid
                 .velocity
@@ -249,7 +234,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
                 .map(|vel| vel.norm())
                 .fold(0.0_f64, f64::max)
         }
-        #[cfg(feature = "parallelized_sph")]
+        #[cfg(feature = "parallel")]
         {
             self.fluid
                 .velocity
@@ -261,7 +246,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
 
     /// Calculate average kinetic energy for all fluid particles
     fn calc_average_kinetic_energy(&self) -> f64 {
-        #[cfg(not(feature = "parallelized_sph"))]
+        #[cfg(not(feature = "parallel"))]
         let (total_energy, count) = {
             self.fluid
                 .velocity
@@ -272,7 +257,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
                     (sum + energy, cnt + 1)
                 })
         };
-        #[cfg(feature = "parallelized_sph")]
+        #[cfg(feature = "parallel")]
         let (total_energy, count) = self
             .fluid
             .velocity
@@ -367,7 +352,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
 
     /// Calculate average mass density for all fluid particles
     fn calc_average_mass_density(&self) -> f64 {
-        #[cfg(not(feature = "parallelized_sph"))]
+        #[cfg(not(feature = "parallel"))]
         let (total_mass_density, count) = {
             self.fluid
                 .volume
@@ -382,7 +367,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
                 })
                 .fold((0.0_f64, 0_u64), |(sum, cnt), d| (sum + d, cnt + 1))
         };
-        #[cfg(feature = "parallelized_sph")]
+        #[cfg(feature = "parallel")]
         let (total_mass_density, count) = self
             .fluid
             .volume
@@ -436,9 +421,6 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
     fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
         add_gravity(&mut self.fluid);
-        // add spring acceleration
-        #[cfg(feature = "springs")]
-        add_spring_acceleration();
         // add viscosity acceleration
         add_viscosity_acceleration::<K>(&mut self.fluid, &self.boundary, &self.parameters);
     }
@@ -530,28 +512,26 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
         //     debug!("time: {}, cfl coefficient: {}, max speed: {}", self.time(), cfl_coeff, max_speed);
         // }
 
-        // series.push_back(measurement::Measurement {
-        //     time: self.time(),
-        //     density: self.properties.average_density,
-        //     kinetic_energy: self.calc_average_kinetic_energy(),
-        //     stiffness: self.parameters.stiffness,
-        //     fluid_viscosity: self.parameters.fluid_viscosity,
-        //     boundary_viscosity: self.parameters.boundary_viscosity,
-        //     fluid_depth: self.properties.fluid_depth,
-        //     rest_density_grid_spacing: self.parameters.rest_density_grid_spacing,
-        //     smoothing_length: self.parameters.smoothing_length,
-        //     rest_density: self.parameters.rest_density,
-        //     time_step_size: self.parameters.time_increment,
-        //     target_density_error: 0.,
-        //     // target_density_error: 0.,
-        //     target_density_error: self.parameters.target_density_error,
-        //     solver_iterations: 0,
-        //     solver_iterations: self.properties.solver_iterations,
-        //     relaxation_factor: 0.,
-        //     relaxation_factor: self.parameters.relaxation_factor,
-        //     time_step_wall_clock_time: self.properties.time_step_wall_clock_time,
-        //     predicted_density_error: self.properties.predicted_density_error,
-        // });
+        let solver_info = self.pressure_solver.measurement_info();
+
+        series.push_back(measurement::Measurement {
+            time: self.time(),
+            density: self.properties.average_density,
+            kinetic_energy: self.calc_average_kinetic_energy(),
+            stiffness: solver_info.stiffness,
+            fluid_viscosity: self.parameters.fluid_viscosity,
+            boundary_viscosity: self.parameters.boundary_viscosity,
+            fluid_depth: self.properties.fluid_depth,
+            rest_density_grid_spacing: self.parameters.rest_density_grid_spacing,
+            smoothing_length: self.parameters.smoothing_length,
+            rest_density: self.parameters.rest_density,
+            time_step_size: self.parameters.time_increment,
+            target_density_error: solver_info.target_density_error,
+            solver_iterations: solver_info.solver_iterations,
+            relaxation_factor: solver_info.relaxation_factor,
+            time_step_wall_clock_time: self.properties.time_step_wall_clock_time,
+            predicted_density_error: solver_info.predicted_density_error,
+        });
     }
 
     fn get_serializable_particles(&self) -> SerFluid3D {

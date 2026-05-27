@@ -1,6 +1,6 @@
 /// Acceleration module
 use nalgebra::Vector3;
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::for_each;
@@ -40,34 +40,6 @@ pub fn add_gravity(
             *id_acceleration += accu;
         }
     );
-}
-
-/// Calculate spring acceleration at current time and add it to respective particles
-#[cfg(feature = "springs")]
-pub fn add_spring_acceleration(&mut self) {
-    for Spring {
-        indices: (i1, i2),
-        k,
-        l,
-        ..
-    } in &self.springs
-    {
-        // if cfg!(feature = "logging") {
-        //     debug!("Calculate spring force");
-        // }
-        // calculate force for spring
-        let force = k / l
-            * ((self.particles[*i2].pos().now() - self.particles[*i1].pos().now())
-                - (*l * (self.particles[*i2].pos().now() - self.particles[*i1].pos().now())
-                    / (self.particles[*i2].pos().now() - self.particles[*i1].pos().now())
-                        .norm()));
-
-        let m: f64 = self.particles[*i1].mass();
-        self.particles[*i1].add_acc(force / m);
-        let m: f64 = self.particles[*i2].mass();
-        self.particles[*i2].add_acc(-force / m);
-    }
-    // calculate other forces here
 }
 
 /// Calculate viscosity acceleration at current time and add it to respective particles

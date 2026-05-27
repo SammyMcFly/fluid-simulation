@@ -8,8 +8,6 @@ use serde::Deserialize;
 use crate::SimulationParameters;
 
 use crate::sample::{Boundary3D, Fluid3D, SerFluid3D};
-#[cfg(feature = "springs")]
-use super::sph::spring::Spring;
 use super::sph::{CurrentSystemProperties, SystemParameters};
 // use super::measure;
 
@@ -71,13 +69,6 @@ impl Scene for SceneVariant {
             Self::Spiral(variant) => variant.get_fluid(rest_density, rest_density_grid_spacing),
         }
     }
-    #[cfg(feature = "springs")]
-    fn get_springs(&self) -> Vec<Spring> {
-        match self {
-            Self::NoLidCube(variant) => variant.get_springs(),
-            Self::Spiral(variant) => variant.get_springs(),
-        }
-    }
     fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64 {
         match self {
             Self::NoLidCube(variant) => variant.calc_fluid_depth(rest_density_grid_spacing),
@@ -89,16 +80,12 @@ impl Scene for SceneVariant {
 trait Scene {
     fn get_boundary(&self, rest_density_grid_spacing: f64) -> Boundary3D;
     fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Fluid3D;
-    #[cfg(feature = "springs")]
-    fn get_springs(&self) -> Vec<Spring>;
     fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64;
 }
 
 pub struct System3DConfig {
     pub fluid: Fluid3D,
     pub boundary: Boundary3D,
-    #[cfg(feature = "springs")]
-    pub springs: Vec<Spring>,
     pub system_parameters: SystemParameters,
     pub properties: CurrentSystemProperties,
 }
@@ -160,15 +147,12 @@ impl System3DConfigConstructor {
         &mut self,
         fluid: Fluid3D,
         boundary: Boundary3D,
-        #[cfg(feature = "springs")] springs: Vec<Spring>,
         system_properties: SystemParameters,
         properties: CurrentSystemProperties,
     ) {
         self.build = Some(System3DConfig {
             fluid,
             boundary,
-            #[cfg(feature = "springs")]
-            springs,
             system_parameters: system_properties,
             properties,
         });
@@ -198,9 +182,6 @@ impl System3DConfigConstructor {
             .config
             .scene
             .get_boundary(constructor.config.parameters.rest_density_grid_spacing);
-        // load springs
-        #[cfg(feature = "springs")]
-        let springs = constructor.config.scene.get_springs();
 
         let sim_info = SimulationParameters {
             particle_diameter: constructor.config.parameters.rest_density_grid_spacing as f32,
@@ -220,8 +201,6 @@ impl System3DConfigConstructor {
         constructor.build(
             fluid,
             boundary_particles,
-            #[cfg(feature = "springs")]
-            springs,
             system_parameters,
             properties,
         );

@@ -1,6 +1,6 @@
 /// Pressure solver algorithm module
 use nalgebra::Vector3;
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::for_each;
@@ -32,6 +32,20 @@ pub trait PressureSolver: Send + Sync {
         params: &SystemParameters,
         properties: &mut CurrentSystemProperties,
     );
+
+    /// Return solver-specific measurement data
+    fn measurement_info(&self) -> SolverMeasurementInfo {
+        SolverMeasurementInfo::default()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SolverMeasurementInfo {
+    pub stiffness: f64,
+    pub target_density_error: f64,
+    pub solver_iterations: u32,
+    pub relaxation_factor: f64,
+    pub predicted_density_error: f64,
 }
 
 /// calculate and set predicted velocity due to currently set acceleration
