@@ -9,7 +9,7 @@ use crate::sample::{Fluid3D, Boundary3D};
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::pressure_solver::add_pressure_acceleration;
-
+use crate::neighbor_search::NeighborList;
 
 pub struct SESPH {
     stiffness: f64,
@@ -23,6 +23,8 @@ impl PressureSolver for SESPH {
         &mut self,
         fluid: &mut Fluid3D,
         boundary: &Boundary3D,
+        neighbors: &NeighborList,
+        boundary_neighbors: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
     ) {
@@ -49,6 +51,8 @@ impl PressureSolver for SESPH {
             None,
             fluid,
             boundary,
+            neighbors,
+            boundary_neighbors,
             params,
             false,
             false,

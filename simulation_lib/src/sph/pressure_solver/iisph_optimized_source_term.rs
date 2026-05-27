@@ -11,6 +11,7 @@ use crate::sph::{SystemParameters, direction, Outer};
 use crate::sph::CurrentSystemProperties;
 use crate::sph::pressure_solver::iisph::{IISPH, TerminationCondition};
 use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
+use crate::neighbor_search::NeighborList;
 
 pub struct IISPHwOST {
     inner: IISPH,
@@ -29,6 +30,8 @@ impl PressureSolver for IISPHwOST {
         &mut self,
         fluid: &mut Fluid3D,
         boundary: &Boundary3D,
+        neighbors: &NeighborList,
+        boundary_neighbors: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
     ) {
@@ -39,12 +42,20 @@ impl PressureSolver for IISPHwOST {
             // set predicted velocity by applying non-pressure acceleration
             set_pred_vel_by_applying_acc(fluid, params, false);
             // set source term
-            self.inner.set_source_term_vde::<K>(fluid, boundary, params);
+            self.inner.set_source_term_vde::<K>(
+                fluid,
+                boundary,
+                neighbors,
+                boundary_neighbors,
+                params,
+            );
             // self.set_source_term_vp(false);
             // solve pressure equation system
             self.inner.resolve_pressure_globally::<K>(
                 fluid,
                 boundary,
+                neighbors,
+                boundary_neighbors,
                 params,
                 false,
                 TerminationCondition::AfterIteration(3),
@@ -56,6 +67,8 @@ impl PressureSolver for IISPHwOST {
                 None,
                 fluid,
                 boundary,
+                neighbors,
+                boundary_neighbors,
                 params,
                 false,
                 true,
@@ -81,11 +94,20 @@ impl PressureSolver for IISPHwOST {
         // solve EQS2
         {
             // set source term
-            self.inner.set_source_term_vp::<K>(fluid, boundary, params, false);
+            self.inner.set_source_term_vp::<K>(
+                fluid,
+                boundary,
+                neighbors,
+                boundary_neighbors,
+                params,
+                false,
+            );
             // solve pressure equation system
             self.inner.resolve_pressure_globally::<K>(
                 fluid,
                 boundary,
+                neighbors,
+                boundary_neighbors,
                 params,
                 false,
                 TerminationCondition::TargetDensityError(self.inner.target_density_error),
@@ -96,6 +118,8 @@ impl PressureSolver for IISPHwOST {
                 None,
                 fluid,
                 boundary,
+                neighbors,
+                boundary_neighbors,
                 params,
                 false,
                 true,
@@ -110,8 +134,8 @@ impl PressureSolver for IISPHwOST {
                     vel_pred = fluid.velocity_pred,
                     acceleration = fluid.acceleration,
                     volume = fluid.volume,
-                    neighbors = fluid.neighbors,
-                    boundary_neighbors = fluid.boundary_neighbors,
+                    neighbors = neighbors,
+                    boundary_neighbors = boundary_neighbors,
                     // s_f = self.s_f,
                     // a_ff = self.a_ff,
                 ],
@@ -121,7 +145,7 @@ impl PressureSolver for IISPHwOST {
                         + params.time_increment.powi(2) * acceleration[id]; // TODO uncomment
                     // calculate and set velocity gradient (Jacobian) as predicted velocity
                     let mut jac_vel = Matrix3::zeros();
-                    for &neighbor in &neighbors[id] {
+                    for &neighbor in neighbors.get_neighbors(id) {
                         let r_vec = direction(
                             &pos_now[neighbor],
                             &pos_now[id],
@@ -136,7 +160,7 @@ impl PressureSolver for IISPHwOST {
                                 ),
                             );
                     }
-                    for &boundary_neighbor in &boundary_neighbors[id] {
+                    for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
                         let r_vec = direction(
                             boundary.pos_now(boundary_neighbor),
                             &pos_now[id],

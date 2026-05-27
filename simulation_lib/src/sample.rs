@@ -39,10 +39,6 @@ pub struct Fluid3D {
     /// volume (necessary for sph fluid)
     pub volume: Vec<f64>,
     pub pressure: Vec<f64>,
-    /// neighbors
-    pub neighbors: Vec<Vec<usize>>,
-    /// boundary neighbors
-    pub boundary_neighbors: Vec<Vec<usize>>,
 }
 
 impl Len for Fluid3D {
@@ -63,8 +59,6 @@ impl Expandable for Fluid3D {
         self.mass.push(mass);
         self.volume.push(0.);
         self.pressure.push(0.);
-        self.neighbors.push(Vec::new());
-        self.boundary_neighbors.push(Vec::new());
 
         let insert_at = self.num_active;
         let last = self.position.len() - 1;
@@ -89,8 +83,6 @@ impl Expandable for Fluid3D {
         self.mass.extend(other.mass);
         self.volume.extend(other.volume);
         self.pressure.extend(other.pressure);
-        self.neighbors.extend(other.neighbors);
-        self.boundary_neighbors.extend(other.boundary_neighbors);
     }
 }
 
@@ -139,8 +131,6 @@ impl Fluid3D {
         self.mass.swap(a, b);
         self.volume.swap(a, b);
         self.pressure.swap(a, b);
-        self.neighbors.swap(a, b);
-        self.boundary_neighbors.swap(a, b);
     }
 
     pub fn drop_inactive(&mut self) {
@@ -154,8 +144,6 @@ impl Fluid3D {
         self.mass.truncate(self.num_active);
         self.volume.truncate(self.num_active);
         self.pressure.truncate(self.num_active);
-        self.neighbors.truncate(self.num_active);
-        self.boundary_neighbors.truncate(self.num_active);
     }
 }
 
@@ -174,8 +162,6 @@ impl From<SerFluid3D> for Fluid3D {
             mass: vec![ser_fluid.mass; len],
             volume: vec![0.; len],
             pressure: vec![0.; len],
-            neighbors: vec![Vec::new(); len],
-            boundary_neighbors: vec![Vec::new(); len],
         }
     }
 }

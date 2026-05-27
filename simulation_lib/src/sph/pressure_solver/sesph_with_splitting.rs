@@ -8,9 +8,9 @@ use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
-
 use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
 use crate::sph::direction;
+use crate::neighbor_search::NeighborList;
 
 pub struct SESPHwSplitting {
     stiffness: f64,
@@ -22,13 +22,21 @@ impl PressureSolver for SESPHwSplitting {
         &mut self,
         fluid: &mut Fluid3D,
         boundary: &Boundary3D,
+        neighbors: &NeighborList,
+        boundary_neighbors: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
     ) {
         self.resize_scratch(fluid.len());
         // perform splitting step conditionally
         set_pred_vel_by_applying_acc(fluid, params, false);
-        self.calc_predicted_density::<K>(fluid, boundary, params,);
+        self.calc_predicted_density::<K>(
+            fluid,
+            boundary,
+            neighbors,
+            boundary_neighbors,
+            params,
+        );
         // compute pressure
         {
             for_each!(
@@ -54,6 +62,8 @@ impl PressureSolver for SESPHwSplitting {
             None,
             fluid,
             boundary,
+            neighbors,
+            boundary_neighbors,
             params,
             false,
             false,
@@ -84,6 +94,8 @@ impl SESPHwSplitting {
         &mut self,
         fluid: &mut Fluid3D,
         boundary: &Boundary3D,
+        neighbors: &NeighborList,
+        boundary_neighbors: &NeighborList,
         params: &SystemParameters,
     ) {
         for_each!(
@@ -92,14 +104,14 @@ impl SESPHwSplitting {
                 pos_now = fluid.position,
                 vel_pred = fluid.velocity_pred,
                 mass = fluid.mass,
-                neighbors = fluid.neighbors,
-                boundary_neighbors = fluid.boundary_neighbors,
+                neighbors = neighbors,
+                boundary_neighbors = boundary_neighbors,
             ],
             |id, density_pred| {
                 // reset density
                 let mut accu = 0.;
                 // add density for every neighbor
-                for &neighbor in &neighbors[id] {
+                for &neighbor in neighbors.get_neighbors(id) {
                     let r_vec = direction(
                         &pos_now[neighbor],
                         &pos_now[id],
@@ -118,7 +130,7 @@ impl SESPHwSplitting {
                             ));
                 }
                 // add density for every boundary neighbor (mirror mass of moving sample onto boundary sample)
-                for &boundary_neighbor in &boundary_neighbors[id] {
+                for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
                     let r_vec = direction(
                         boundary.pos_now(boundary_neighbor),
                         &pos_now[id],

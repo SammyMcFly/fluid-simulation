@@ -8,6 +8,7 @@ use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Positional};
 use crate::sph::SystemParameters;
 use crate::sph::direction;
+use crate::neighbor_search::NeighborList;
 
 /// reset acceleration, i. e. set it to 0.
 pub fn reset_acceleration(
@@ -46,6 +47,8 @@ pub fn add_gravity(
 pub fn add_viscosity_acceleration<K: KernelFn>(
     fluid: &mut Fluid3D,
     boundary: &Boundary3D,
+    neighbors: &NeighborList,
+    boundary_neighbors: &NeighborList,
     params: &SystemParameters,
 ) {
     for_each!(
@@ -54,13 +57,13 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
             pos_now = fluid.position,
             vel_now = fluid.velocity,
             volume = fluid.volume,
-            neighbors = fluid.neighbors,
-            boundary_neighbors = fluid.boundary_neighbors
+            neighbors = neighbors,
+            boundary_neighbors = boundary_neighbors
         ],
         |id, id_acceleration| {
             let mut accu = Vector3::zeros();
             // add viscostiy acceleration from other moving particles
-            for &neighbor in &neighbors[id] {
+            for &neighbor in neighbors.get_neighbors(id) {
                 let r_vec = direction(
                     &pos_now[neighbor],
                     &pos_now[id],
@@ -82,7 +85,7 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                     );
             }
             // add viscostiy acceleration from boundary particles
-            for &boundary_neighbor in &boundary_neighbors[id] {
+            for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
                 let r_vec = direction(
                     boundary.pos_now(boundary_neighbor),
                     &pos_now[id],

@@ -8,19 +8,18 @@ use num_traits::Zero;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 #[cfg(feature = "logging")]
-use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
+use tracing::{debug}; // debug, error, info, span, trace, warn,
 
 pub mod kernel;
 pub mod pressure_solver;
 mod non_pressure_accelerations;
 mod volume;
 
+use crate::neighbor_search::{NeighborSearch, NeighborList};
 use crate::sample::*;
 use crate::sph::non_pressure_accelerations::*;
 use pressure_solver::PressureSolver;
-use crate::neighbor_search::UniformGrid;
 use crate::TimeStepInfo;
-use crate::for_each;
 use crate::measurement;
 use crate::setup;
 use kernel::KernelFn;
@@ -35,12 +34,6 @@ fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
 /// Direction from particle1 towards particle2
 fn direction(from: &Vector3<f64>, towards: &Vector3<f64>) -> Vector3<f64> {
     towards - from
-}
-
-#[allow(dead_code)]
-enum TerminationCondition {
-    AfterIteration(u32),
-    TargetDensityError(f64),
 }
 
 /// Information about the system at the current time
@@ -129,19 +122,15 @@ impl SystemParameters {
 
 ///  3D implementation of a physical system to be simulated
 #[derive(Debug, Clone)]
-pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver> {
+pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> {
     /// Collection of all fluid samples
     fluid: Fluid3D,
-    /// Uniform grid for fluid samples
-    ///
-    /// Accelerates neighbor search
-    fluid_neighbor_search: UniformGrid,
+    /// List of fluid neighbors
+    fluid_neighbor_list: NeighborList,
     /// Collection of all boundary (not moving) samples
     boundary: Boundary3D,
-    /// Uniform grid for boundary particles
-    ///
-    /// Accelerates neighbor search
-    boundary_neighbor_search: UniformGrid,
+    /// List of boundary neighbors
+    boundary_neighbor_list: NeighborList,
     /// Time
     time_steps_propagated: u64,
     /// Properties of the system
@@ -150,30 +139,29 @@ pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver> {
     _kernel_fn: std::marker::PhantomData<K>,
     integrator: I,
     pressure_solver: P,
+    neighbor_search: N,
 }
 
-impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
+impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> System3D<K, I, P, N> {
     pub fn new(
         systemconfig: setup::System3DConfig,
         integrator: I,
         pressure_solver: P,
+        neighbor_search: N,
     ) -> Self {
-        let particle_grid =
-            UniformGrid::new(systemconfig.system_parameters.smoothing_length);
-        let mut boundary_particle_grid =
-            UniformGrid::new(systemconfig.system_parameters.smoothing_length);
-        boundary_particle_grid.populate_boundary_particles(&systemconfig.boundary);
+        let len = systemconfig.fluid.len();
         let mut system = Self {
             fluid: systemconfig.fluid,
-            fluid_neighbor_search: particle_grid,
+            fluid_neighbor_list: NeighborList::new(len),
             boundary: systemconfig.boundary,
-            boundary_neighbor_search: boundary_particle_grid,
+            boundary_neighbor_list: NeighborList::new(len),
             time_steps_propagated: 0,
             parameters: systemconfig.system_parameters,
             properties: systemconfig.properties,
             _kernel_fn: std::marker::PhantomData,
             integrator,
             pressure_solver,
+            neighbor_search,
         };
         // set boundary mass such that the density is equal to the fluids rest density
         system.init_boundary_volume();
@@ -195,17 +183,24 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
     /// Calculate and set pseudo mass of all boundary particles
     #[cfg(feature = "pseudo_volume_boundary")]
     fn init_boundary_volume(&mut self) {
+        let mut boundary_boundary_neighbor_list = NeighborList::new(self.boundary.len());
+        self.neighbor_search.find_neighbors(
+            2.*self.parameters.smoothing_length,
+            &self.boundary.position,
+            &[],
+            &mut boundary_boundary_neighbor_list,
+            &mut NeighborList::new(0),
+        );
         for boundary_particle_index in 0..self.boundary.len() {
             // add inverse volume for every boundary neighbor
             let mut inverse_volume = 0.;
             // get boundary neighbors of boundary particles
-            for boundary_neighbor in self.boundary_neighbor_search.get_particles_in_kernel_range(
-                self.boundary.pos_now(boundary_particle_index),
-                &self.boundary.position,
+            for boundary_neighbor in boundary_boundary_neighbor_list.get_neighbors(
+                boundary_particle_index,
             ) {
                 let dist = distance(
                     self.boundary.pos_now(boundary_particle_index),
-                    self.boundary.pos_now(boundary_neighbor),
+                    self.boundary.pos_now(*boundary_neighbor),
                 );
                 inverse_volume += K::value(dist, self.parameters.smoothing_length);
             }
@@ -395,39 +390,23 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
         }
     }
 
-    /// Perform neighbor search for all fluid particles
-    ///
-    /// Adds fluid neighbors and boundary neighbors as neighbors
-    fn update_particle_neighbors(&mut self) {
-        for_each!(
-            mut [self.fluid.neighbors, self.fluid.boundary_neighbors],
-            ref [pos_now = self.fluid.position],
-            |id, id_neighbors, id_boundary_neighbors| {
-                // update neighbors
-                let neighbors = self
-                    .fluid_neighbor_search
-                    .get_particles_in_kernel_range(&pos_now[id], pos_now);
-                *id_neighbors = neighbors;
-                // update boundary neighbors
-                let boundary_neighbors = self
-                    .boundary_neighbor_search
-                    .get_particles_in_kernel_range(&pos_now[id], &self.boundary.position);
-                *id_boundary_neighbors = boundary_neighbors;
-            }
-        );
-    }
-
     /// Calculate non-pressure accelerations and add them to each particles acceleration
     fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
         add_gravity(&mut self.fluid);
         // add viscosity acceleration
-        add_viscosity_acceleration::<K>(&mut self.fluid, &self.boundary, &self.parameters);
+        add_viscosity_acceleration::<K>(
+            &mut self.fluid,
+            &self.boundary,
+            &self.fluid_neighbor_list,
+            &self.boundary_neighbor_list,
+            &self.parameters,
+        );
     }
 
     /// Calculate acceleration at current time
     ///
-    /// Supports: Gravity, spring force, viscosity and pressure acceleration
+    /// Supports: Gravity, viscosity and pressure acceleration
     // #[cfg(feature = "local_pressure")]
     fn calc_acceleration(&mut self) {
         // reset acceleration
@@ -438,6 +417,8 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
         self.pressure_solver.solve_and_add_acceleration::<K>(
             &mut self.fluid,
             &self.boundary,
+            &self.fluid_neighbor_list,
+            &self.boundary_neighbor_list,
             &self.parameters,
             &mut self.properties,
         );
@@ -471,14 +452,24 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
                 id += 1;
             }
         }
-        self.fluid.drop_inactive(); // truncate
-        // update uniform grid of fluid particles
-        self.fluid_neighbor_search.clear();
-        self.fluid_neighbor_search.populate(&self.fluid);
-        // update neighbors of all fluid particles
-        self.update_particle_neighbors();
+        // truncate arrays
+        self.fluid.drop_inactive();
+        // update neighbors of fluid particles
+        self.neighbor_search.find_neighbors(
+            2.*self.parameters.smoothing_length,
+            &self.fluid.position,
+            &self.boundary.position,
+            &mut self.fluid_neighbor_list,
+            &mut self.boundary_neighbor_list,
+        );
         // compute density
-        update_volume::<K>(&mut self.fluid, &self.boundary, &self.parameters);
+        update_volume::<K>(
+            &mut self.fluid,
+            &self.boundary,
+            &self.fluid_neighbor_list,
+            &self.boundary_neighbor_list,
+            &self.parameters,
+        );
         // calculate new accelerations
         self.calc_acceleration();
         // update properties

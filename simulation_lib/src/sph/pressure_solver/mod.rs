@@ -9,6 +9,7 @@ use crate::sample::{Fluid3D, Boundary3D, Positional};
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::direction;
+use crate::neighbor_search::NeighborList;
 
 pub mod sesph;
 pub mod sesph_with_splitting;
@@ -29,6 +30,8 @@ pub trait PressureSolver: Send + Sync {
         &mut self,
         fluid: &mut Fluid3D,
         boundary: &Boundary3D,
+        neighbors: &NeighborList,
+        boundary_neighbors: &NeighborList,
         params: &SystemParameters,
         properties: &mut CurrentSystemProperties,
     );
@@ -75,6 +78,8 @@ fn add_pressure_acceleration<K: KernelFn>(
     custom_target: Option<&mut Vec<Vector3<f64>>>,
     fluid: &mut Fluid3D,
     boundary: &Boundary3D,
+    neighbors: &NeighborList,
+    boundary_neighbors: &NeighborList,
     params: &SystemParameters,
     with_pred_positions: bool,
     overwrite: bool
@@ -93,13 +98,13 @@ fn add_pressure_acceleration<K: KernelFn>(
             mass = fluid.mass,
             volume = fluid.volume,
             pressure = fluid.pressure,
-            neighbors = fluid.neighbors,
-            boundary_neighbors = fluid.boundary_neighbors
+            neighbors = neighbors,
+            boundary_neighbors = boundary_neighbors
         ],
         |id, target_acceleration| {
             let mut accu = Vector3::zeros();
             // add pressure acceleration from other moving particles
-            for &neighbor in &neighbors[id] {
+            for &neighbor in neighbors.get_neighbors(id) {
                 // select positions
                 let particle_pos = if with_pred_positions {
                     pos_pred[id]
@@ -127,7 +132,7 @@ fn add_pressure_acceleration<K: KernelFn>(
                     );
             }
             // add pressure acceleration from boundary particles
-            for &boundary_neighbor in &boundary_neighbors[id] {
+            for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
                 // select weighting
                 let weighting = params.boundary_pressure_acceleration_weighting;
                 // select position
