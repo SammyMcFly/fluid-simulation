@@ -14,6 +14,5 @@ default = ["logging", "parallel", "pseudo_volume_boundary"]
 
 logging = ["simulation_lib/logging", "rendering_lib/logging"]
 parallel = ["simulation_lib/parallel"]
-springs = ["simulation_lib/springs"] # does not work yet
 pseudo_volume_boundary = ["simulation_lib/pseudo_volume_boundary"]
 cfl_time_step = ["simulation_lib/cfl_time_step"]

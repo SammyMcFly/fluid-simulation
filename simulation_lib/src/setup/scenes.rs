@@ -4,14 +4,11 @@ use serde::Deserialize;
 
 use crate::sample::{Boundary3D, Fluid3D};
 use super::Scene;
-#[cfg(feature = "springs")]
-use crate::sph::spring::Spring;
 
 #[derive(Debug, Deserialize)]
 pub struct NoLidCube {
     pub particles: ParticleSetup,
     pub boundary_particles: BoundaryParticleSetup,
-    // pub springs: SpringConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,14 +132,6 @@ impl Scene for NoLidCube {
             }
         }
         fluid
-    }
-
-    #[cfg(feature = "springs")]
-    fn get_springs(&self) -> Vec<Spring> {
-        // init springs (Note: Consider not disabling particles)
-        let mut springs = vec![];
-        // add springs configured in config file here
-        springs
     }
 
     fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64 {
@@ -430,14 +419,6 @@ impl Scene for Spiral {
             fluid_body_height,
         )
         .fetch::<Fluid3D>(rest_density, rest_density_grid_spacing)
-    }
-
-    #[cfg(feature = "springs")]
-    fn get_springs(&self) -> Vec<Spring> {
-        // init springs (Note: Consider not disabling particles)
-        let mut springs = vec![];
-        // add springs configured in config file here
-        springs
     }
 
     fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64 {

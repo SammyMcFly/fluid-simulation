@@ -68,7 +68,6 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
   <!-- - Implicit Euler with conjugate gradient (WIP) -->
 - **Viscosity** — artificial viscosity for fluid–fluid and fluid–boundary interactions
 - **Boundary Handling** — static boundary particles with pseudo-volume computation (feature: `pseudo_volume_boundary`)
-<!-- - **Spring Forces** — elastic connections between particles (feature: `springs`) -->
 - **Adaptive Time Stepping** via CFL condition (feature: `cfl_time_step`)
 
 ### Rendering
@@ -109,7 +108,6 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 | `parallel` | Parallelize particle loops with Rayon |
 | `cfl_time_step` | Adaptive time stepping based on CFL condition |
 | `pseudo_volume_boundary` | Compute boundary particle volumes from kernel summation |
-| `springs` | Enable spring forces between particles |
 | `logging` | Enable `tracing`-based structured logging |
 
 **Note:** Pressure solver and integration scheme are selected at compile time via type parameters on `System3D<K, I, P>`, not feature flags.

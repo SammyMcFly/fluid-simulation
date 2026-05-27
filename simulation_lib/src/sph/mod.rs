@@ -5,7 +5,7 @@
 ///
 use nalgebra::{Matrix3, Vector3};
 use num_traits::Zero;
-#[cfg(feature = "parallelized_sph")]
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 #[cfg(feature = "logging")]
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
@@ -15,11 +15,6 @@ pub mod pressure_solver;
 mod non_pressure_accelerations;
 mod volume;
 
-#[cfg(feature = "springs")]
-pub mod spring;
-
-#[cfg(feature = "springs")]
-use spring::*;
 use crate::sample::*;
 use crate::sph::non_pressure_accelerations::*;
 use pressure_solver::PressureSolver;
@@ -149,12 +144,6 @@ pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver> {
     ///
     /// Accelerates neighbor search
     boundary_neighbor_search: UniformGrid,
-    /// Springs connecting different samples
-    ///
-    /// Spring stores indices of samples connected to via spring force,
-    /// spring force coeff (k) and rest length (l)
-    #[cfg(feature = "springs")]
-    springs: Vec<Spring>,
     /// Time
     time_steps_propagated: u64,
     /// Properties of the system
@@ -181,8 +170,6 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
             fluid_neighbor_search: particle_grid,
             boundary: systemconfig.boundary,
             boundary_neighbor_search: boundary_particle_grid,
-            #[cfg(feature = "springs")]
-            springs: systemconfig.springs,
             time_steps_propagated: 0,
             parameters: systemconfig.system_parameters,
             properties: systemconfig.properties,
@@ -436,9 +423,6 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver> System3D<K, I, P> {
     fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
         add_gravity(&mut self.fluid);
-        // add spring acceleration
-        #[cfg(feature = "springs")]
-        add_spring_acceleration();
         // add viscosity acceleration
         add_viscosity_acceleration::<K>(&mut self.fluid, &self.boundary, &self.parameters);
     }
