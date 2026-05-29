@@ -9,8 +9,13 @@ use crate::neighbor_search::{NeighborSearch, distance};
 
 type UniformGridCell = Vector3<i32>;
 
-/// Container that stores indices of samples in a hash map depending
-/// on their spatial position on the uniform grid.
+/// Spatial hashing neighbor search structure.
+///
+/// Indices of samples are stored in a hash map depending
+/// on their spatial position on the uniform grid. The lookup
+/// of the samples in a certain cell or neighboring cells is
+/// efficient and because of this it accelerates neighbor search.
+/// This strategy is called spacial hashing.
 #[derive(Debug, Clone)]
 pub struct SpatialHashing {
     fluid_cells: FxHashMap<u64, Vec<usize>>,
@@ -31,8 +36,7 @@ impl SpatialHashing {
     /// - **`cell_size >> range`** → few cells searched, but each cell contains many
     ///   particles that fail the distance check
     ///
-    /// A good default is `cell_size = within_range` (or `cell_size = smoothing_length`
-    /// if `within_range = 2 * smoothing_length`).
+    /// A good default is `cell_size = within_range`
     pub fn new(cell_size: f64) -> Self {
         Self {
             fluid_cells: FxHashMap::default(),
