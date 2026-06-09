@@ -6,7 +6,6 @@ use rayon::prelude::*;
 
 use crate::for_each;
 pub mod spatial_hashing;
-pub mod octree;
 
 pub use spatial_hashing::SpatialHashing;
 
