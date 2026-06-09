@@ -5,6 +5,7 @@ buffer_length_limit = 1
 rest_density = 900.0 # rest density of fluid
 rest_density_grid_spacing = 0.8 # (not hot swappable)
 smoothing_length = 0.8 # (not hot swappable)
+kernel_support_radius = 1.6 # (not hot swappable)
 disable_particles_below = -20
 fluid_viscosity = 0.2
 boundary_viscosity = 0.2

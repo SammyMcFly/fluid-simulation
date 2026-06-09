@@ -5,8 +5,7 @@ use rayon::prelude::*;
 use crate::for_each;
 use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Positional};
-use crate::sph::SystemParameters;
-use crate::sph::distance;
+use crate::sph::{SystemParameters, vector};
 use crate::neighbor_search::NeighborList;
 
 /// Calculate and update volume for all particles for the current point in time
@@ -30,26 +29,27 @@ pub fn update_volume<K: KernelFn>(
             let mut accu = 0.;
             // add volume for every neighbor
             for &neighbor in neighbors.get_neighbors(id) {
-                let dist = distance(
-                    &pos_now[id],
+                let r_vec = vector(
                     &pos_now[neighbor],
+                    &pos_now[id],
+
                 );
                 accu += params.rest_volume
-                    * K::value(
-                        dist,
-                        params.smoothing_length,
+                    * K::kernel_function(
+                        &r_vec,
+                        params.kernel_support_radius,
                     );
             }
             // add volume for every boundary neighbor (mirror mass of moving particle onto boundary particle)
             for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
-                let dist = distance(
-                    &pos_now[id],
+                let r_vec = vector(
                     boundary.pos_now(boundary_neighbor),
+                    &pos_now[id],
                 );
                 accu += *boundary.volume(boundary_neighbor)
-                    * K::value(
-                        dist,
-                        params.smoothing_length,
+                    * K::kernel_function(
+                        &r_vec,
+                        params.kernel_support_radius,
                     );
             }
             *id_volume += params.rest_volume / accu;

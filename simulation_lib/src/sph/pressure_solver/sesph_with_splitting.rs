@@ -9,7 +9,7 @@ use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
-use crate::sph::direction;
+use crate::sph::vector;
 use crate::neighbor_search::NeighborList;
 
 pub struct SESPHwSplitting {
@@ -112,42 +112,38 @@ impl SESPHwSplitting {
                 let mut accu = 0.;
                 // add density for every neighbor
                 for &neighbor in neighbors.get_neighbors(id) {
-                    let r_vec = direction(
+                    let r_vec = vector(
                         &pos_now[neighbor],
                         &pos_now[id],
                     );
-                    let dist = r_vec.norm();
                     accu += mass[neighbor]
-                        * K::value(
-                            dist,
-                            params.smoothing_length,
+                        * K::kernel_function(
+                            &r_vec,
+                            params.kernel_support_radius,
                         )
                         + params.time_increment
-                            * (vel_pred[id] - vel_pred[neighbor]).dot(&K::gradient(
+                            * (vel_pred[id] - vel_pred[neighbor]).dot(&K::kernel_gradient(
                                 &r_vec,
-                                dist,
-                                params.smoothing_length,
+                                params.kernel_support_radius,
                             ));
                 }
                 // add density for every boundary neighbor (mirror mass of moving sample onto boundary sample)
                 for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
-                    let r_vec = direction(
+                    let r_vec = vector(
                         boundary.pos_now(boundary_neighbor),
                         &pos_now[id],
                     );
-                    let dist = r_vec.norm();
                     accu += *boundary.volume(boundary_neighbor)
                         * params.rest_density
-                        * K::value(
-                            dist,
-                            params.smoothing_length,
+                        * K::kernel_function(
+                            &r_vec,
+                            params.kernel_support_radius,
                         )
                         + params.time_increment
                             * vel_pred[id]
-                                .dot(&K::gradient(
+                                .dot(&K::kernel_gradient(
                                     &r_vec,
-                                    dist,
-                                    params.smoothing_length,
+                                    params.kernel_support_radius,
                                 ));
                 }
                 *density_pred = accu;
