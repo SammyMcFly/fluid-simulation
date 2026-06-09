@@ -1113,6 +1113,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gauss-quad"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92fb38d1bb6b7ee19b9b2a2d3543735979b921509354de34fdf593440435e0a8"
+dependencies = [
+ "libm",
+ "nalgebra",
+]
+
+[[package]]
 name = "gethostname"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1699,9 +1709,9 @@ dependencies = [
 
 [[package]]
 name = "libm"
-version = "0.2.15"
+version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "libredox"
@@ -2049,6 +2059,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -3006,6 +3017,7 @@ dependencies = [
  "bytemuck",
  "crossbeam",
  "csv",
+ "gauss-quad",
  "nalgebra",
  "num-traits",
  "rayon",

@@ -30,6 +30,9 @@ nalgebra = "0.34.1"
 # numer handling
 num-traits = "0.2.19"
 
+# gauss (legendre) quadrature
+gauss-quad = "0.3.1"
+
 # Faster hash map for uniform grid
 rustc-hash = "2.1.1"
 
