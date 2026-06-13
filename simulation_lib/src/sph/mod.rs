@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use tracing::{debug}; // debug, error, info, span, trace, warn,
 
 pub mod kernel;
+pub mod boundary_handling;
 pub mod pressure_solver;
 mod non_pressure_accelerations;
 mod volume;

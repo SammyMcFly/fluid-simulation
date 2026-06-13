@@ -25,7 +25,10 @@ cfl_time_step = []
 
 [dependencies]
 # linear algebra
-nalgebra = "0.34.1"
+nalgebra = "0.35"
+
+# collision detection
+parry3d = "0.28.0"
 
 # numer handling
 num-traits = "0.2.19"
