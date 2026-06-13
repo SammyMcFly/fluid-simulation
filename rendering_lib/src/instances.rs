@@ -13,12 +13,31 @@ use crate::model::ToRaw;
 use crate::ui::controls::cut::Cut;
 use simulation_lib::{ParticleColor, TimeStepInfo};
 
+const RADIUS: f32 = 0.4;
+const ALPHA: f32 = 1.0;
+
 #[derive(Debug, Clone, Default)]
 pub struct Instance {
     /// Position of instance with order: x, y, z
     pub position: nalgebra::Vector3<f32>,
+    pub radius: f32,
     /// Color of instance
-    pub color: [f32; 3],
+    pub color: [f32; 4],
+}
+
+/// Compact instance data for billboard impostors
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BillboardInstanceRaw {
+    pub center: [f32; 3],
+    pub radius: f32,
+    pub color: [f32; 4],
+}
+
+impl BillboardInstanceRaw {
+    pub fn new(center: [f32; 3], radius: f32, color: [f32; 4]) -> Self {
+        Self { center, radius, color }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,15 +110,11 @@ impl InstanceStore {
         {
             inst.iter().map(Instance::to_raw).collect::<Vec<_>>()
         } else {
-            // println!("is none or empty!");
-            vec![super::model::InstanceRaw::new(
-                [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                ],
-                [0., 1., 0.],
+            // Empty placeholder — one invisible particle
+            vec![BillboardInstanceRaw::new(
+                [0.0, 0.0, 0.0],
+                0.0,
+                [0., 1., 0., 1.],
             )]
         };
 
@@ -144,6 +159,13 @@ impl InstanceStore {
         }
     }
 
+    pub fn particle_count(&self) -> u32 {
+        self.rendered_instances
+            .as_ref()
+            .map(|v| v.len() as u32)
+            .unwrap_or(0)
+    }
+
     /// Filter particles and pass selected to rendered instances
     fn info_to_instances(&mut self) {
         let settings = self.staging_settings.as_ref().unwrap().clone();
@@ -154,7 +176,7 @@ impl InstanceStore {
                 .iter()
                 .zip(&self.info_buffer[self.current_index].fluid.velocity)
                 .filter(|(id_position, _id_velocity)| settings.cut.cut(id_position))
-                .map(|(_id_position, id_velocity)| {
+                .map(|(id_position, id_velocity)| {
                     let color = match settings.particle_color {
                         ParticleColor::VelocityGraded => {
                             let whiteness = f64::min(
@@ -171,11 +193,12 @@ impl InstanceStore {
                     };
                     Instance {
                         position: nalgebra::Vector3::new(
-                            _id_position[0] as f32,
-                            _id_position[1] as f32,
-                            _id_position[2] as f32,
+                            id_position[0] as f32,
+                            id_position[1] as f32,
+                            id_position[2] as f32,
                         ),
-                        color,
+                        radius: RADIUS,
+                        color: [color[0], color[1], color[2], ALPHA],
                     }
                 })
                 .collect(),
@@ -207,7 +230,8 @@ impl InstanceStore {
                                 id_position[1] as f32,
                                 id_position[2] as f32,
                             ),
-                            color,
+                            radius: RADIUS,
+                            color: [color[0], color[1], color[2], ALPHA],
                         }
                     })
                     .collect::<Vec<Instance>>(),

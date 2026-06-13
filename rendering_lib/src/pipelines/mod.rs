@@ -1,10 +1,12 @@
 //! Pipelines
 //!
 use iced_wgpu::wgpu;
+use crate::model::VertexBufferLayout;
 
 pub struct Pipelines {
     pub object: wgpu::RenderPipeline,
     pub light: wgpu::RenderPipeline,
+    pub particle: wgpu::RenderPipeline,
 }
 
 impl Pipelines {
@@ -13,26 +15,30 @@ impl Pipelines {
         camera: &super::camera::CameraBundle,
         light: &super::lighting::LightBundle,
         depth_format: Option<wgpu::TextureFormat>,
-        vertex_layouts: &[wgpu::VertexBufferLayout],
     ) -> Self {
         let object_render_pipeline = Self::create_object_render_pipeline(
             gpu_context,
             camera,
             light,
             depth_format,
-            vertex_layouts,
         );
         let light_render_pipeline = Self::create_light_render_pipeline(
             gpu_context,
             camera,
             light,
             depth_format,
-            vertex_layouts,
+        );
+        let particle_pipeline = Self::create_particle_pipeline(
+            gpu_context,
+            camera,
+            light,
+            depth_format,
         );
 
         Self {
             object: object_render_pipeline,
             light: light_render_pipeline,
+            particle: particle_pipeline,
         }
     }
 
@@ -41,7 +47,6 @@ impl Pipelines {
         camera: &super::camera::CameraBundle,
         light: &super::lighting::LightBundle,
         depth_format: Option<wgpu::TextureFormat>,
-        vertex_layouts: &[wgpu::VertexBufferLayout],
     ) -> wgpu::RenderPipeline {
         let layout = gpu_context
             .device
@@ -54,7 +59,15 @@ impl Pipelines {
             label: Some("Normal Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         };
-        Self::create_render_pipeline(gpu_context, &layout, depth_format, vertex_layouts, shader)
+        Self::create_render_pipeline(
+            gpu_context, &layout,
+            depth_format,
+            &[
+                super::model::ModelVertex::desc(),
+                super::model::InstanceRaw::desc(),
+            ],
+            shader,
+        )
     }
 
     fn create_light_render_pipeline(
@@ -62,7 +75,6 @@ impl Pipelines {
         camera: &super::camera::CameraBundle,
         light: &super::lighting::LightBundle,
         depth_format: Option<wgpu::TextureFormat>,
-        vertex_layouts: &[wgpu::VertexBufferLayout],
     ) -> wgpu::RenderPipeline {
         let layout = gpu_context
             .device
@@ -75,7 +87,49 @@ impl Pipelines {
             label: Some("Light Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
         };
-        Self::create_render_pipeline(gpu_context, &layout, depth_format, vertex_layouts, shader)
+        Self::create_render_pipeline(
+            gpu_context,
+            &layout,
+            depth_format,
+            &[super::model::ModelVertex::desc()],
+            shader,
+        )
+    }
+
+    fn create_particle_pipeline(
+        gpu_context: &super::gpu_context::GpuContext,
+        camera: &super::camera::CameraBundle,
+        light: &super::lighting::LightBundle,
+        depth_format: Option<wgpu::TextureFormat>,
+    ) -> wgpu::RenderPipeline {
+        let layout = gpu_context
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Particle Pipeline Layout"),
+                bind_group_layouts: &[&camera.bind_group_layout, &light.bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        // let shader = gpu_context.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        //     label: Some("Particle Impostor Shader"),
+        //     source: wgpu::ShaderSource::Wgsl(
+        //         include_str!("particle_impostor.wgsl").into()
+        //     ),
+        // });
+        let shader = wgpu::ShaderModuleDescriptor {
+            label: Some("Particle Impostor Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("particle_impostor.wgsl").into()
+            ),
+        };
+
+        Self::create_render_pipeline(
+            gpu_context,
+            &layout,
+            depth_format,
+            &[<super::instances::BillboardInstanceRaw as super::model::VertexBufferLayout>::desc()],
+            shader,
+        )
     }
 
     fn create_render_pipeline(

@@ -1,67 +1,22 @@
 use iced_wgpu::wgpu;
 use iced_wgpu::wgpu::util::DeviceExt;
 use std::ops::Range;
+use crate::instances::BillboardInstanceRaw;
 
 // Include the .obj file inside the binary so there is no dependency at runtime
 const SPHERE_DATA: &str = include_str!("sphere.obj");
 
-pub struct ModelAssets {
-    pub sphere_mesh: Model,
-    // pub light_mesh: Mesh,
-    // pub bind_group_layout: wgpu::BindGroupLayout,
-}
-
-impl ModelAssets {
-    pub fn new(
-        gpu_context: &super::gpu_context::GpuContext,
-        particle_diameter: f32,
-    ) -> Result<Self, tobj::LoadError> {
-        Ok(Self {
-            sphere_mesh: Model::load_model(gpu_context, particle_diameter)?,
-        })
-    }
-}
-
-pub trait ToRaw {
-    type Raw;
-
-    fn to_raw(&self) -> Self::Raw;
-}
-
-impl ToRaw for crate::instances::Instance {
-    type Raw = InstanceRaw;
-
-    /// Convert Intance to Raw
-    /// Invert y-axis, swap y and z coordinate to transform Instance into coordinates used in gpus
-    fn to_raw(&self) -> Self::Raw {
-        InstanceRaw {
-            model: [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [self.position.x, self.position.z, -self.position.y, 1.0],
-            ],
-            color: self.color,
-        }
-    }
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
-    model: [[f32; 4]; 4],
-    color: [f32; 3],
-    // normal: [[f32; 3]; 3],
+    pub model: [[f32; 4]; 4],
+    pub color: [f32; 3],
 }
 
 impl InstanceRaw {
     pub fn new(model: [[f32; 4]; 4], color: [f32; 3]) -> Self {
         Self { model, color }
     }
-}
-
-pub trait VertexBufferLayout {
-    fn desc() -> wgpu::VertexBufferLayout<'static>;
 }
 
 impl VertexBufferLayout for InstanceRaw {
@@ -102,6 +57,80 @@ impl VertexBufferLayout for InstanceRaw {
                     offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
                     shader_location: 6,
                     format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
+    }
+}
+
+pub struct ModelAssets {
+    pub sphere_mesh: Model,
+    // pub light_mesh: Mesh,
+    // pub bind_group_layout: wgpu::BindGroupLayout,
+}
+
+impl ModelAssets {
+    pub fn new(
+        gpu_context: &super::gpu_context::GpuContext,
+        particle_diameter: f32,
+    ) -> Result<Self, tobj::LoadError> {
+        Ok(Self {
+            sphere_mesh: Model::load_model(gpu_context, particle_diameter)?,
+        })
+    }
+}
+
+pub trait ToRaw {
+    type Raw;
+
+    fn to_raw(&self) -> Self::Raw;
+}
+
+impl ToRaw for crate::instances::Instance {
+    type Raw = BillboardInstanceRaw;
+
+    /// Convert Intance to Raw
+    /// Invert y-axis, swap y and z coordinate to transform Instance into coordinates used in gpus
+    fn to_raw(&self) -> Self::Raw {
+        BillboardInstanceRaw {
+            center: [self.position.x, self.position.z, -self.position.y],
+            radius: self.radius,
+            color: self.color,
+        }
+    }
+}
+
+pub trait VertexBufferLayout {
+    fn desc() -> wgpu::VertexBufferLayout<'static>;
+}
+
+impl VertexBufferLayout for BillboardInstanceRaw {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<BillboardInstanceRaw>() as wgpu::BufferAddress,
+            // We need to switch from using a step mode of Vertex to Instance
+            // This means that our shaders will only change to use the next
+            // instance when the shader starts processing a new instance
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                // center: vec3<f32>
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                // radius: f32
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // color: vec4<f32>
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
                 },
             ],
         }
