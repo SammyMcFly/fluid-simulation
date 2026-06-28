@@ -24,8 +24,6 @@ pub mod readback;
 pub mod settings;
 pub mod ui;
 
-use model::DrawLight;
-use model::DrawModel;
 use model::VertexBufferLayout;
 
 use ui::UserInput;
@@ -37,7 +35,7 @@ const YAW: cgmath::Deg<f32> = cgmath::Deg(-90.0);
 const PITCH: cgmath::Deg<f32> = cgmath::Deg(-30.0);
 const SPEED: f32 = 0.25;
 const SENSITIVITY: f32 = 1.25;
-const SCROLL_SPEED: f32 = 5.;
+const SCROLL_SPEED: f32 = 0.5;
 const FOVY: cgmath::Deg<f32> = cgmath::Deg(45.0);
 const ZNEAR: f32 = 0.1;
 const ZFAR: f32 = 100.;
@@ -106,7 +104,6 @@ impl AppState {
             &camera,
             &light,
             Some(gpu_context::Texture::DEPTH_FORMAT),
-            &[model::ModelVertex::desc(), model::InstanceRaw::desc()],
         );
 
         // let sphere = model::load_model("./src/gui/model/sphere.obj", &device, sphere_size).unwrap();
@@ -406,28 +403,27 @@ impl AppState {
                 timestamp_writes: None,
             });
 
+            // 1. Draw light indicator (uses sphere mesh)
             render_pass.set_vertex_buffer(1, self.instances.buffer.slice(..));
-
             render_pass.set_pipeline(&self.pipelines.light);
-            render_pass.draw_light_model(
-                &self.model.sphere_mesh,
-                &self.camera.bind_group,
-                &self.light.bind_group,
-            );
+            render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.light.bind_group, &[]);
+            // Draw a single sphere mesh at the light position (shader offsets by light.position)
+            for mesh in &self.model.sphere_mesh.meshes {
+                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..mesh.num_elements, 0, 0..1);
+            }
 
-            let length = if let Some(ren_incs) = &self.instances.rendered_instances {
-                ren_incs.len() as u32
-            } else {
-                1
-            };
-
-            render_pass.set_pipeline(&self.pipelines.object);
-            render_pass.draw_model_instanced(
-                &self.model.sphere_mesh,
-                0..length,
-                &self.camera.bind_group,
-                &self.light.bind_group,
-            );
+            // 2. Draw sph samples as impostors
+            let particle_count = self.instances.particle_count();
+            if particle_count > 0 {
+                render_pass.set_pipeline(&self.pipelines.particle);
+                render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+                render_pass.set_bind_group(1, &self.light.bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.instances.buffer.slice(..));
+                render_pass.draw(0..6, 0..particle_count);
+            }
         }
         // submit will accept anything that implements IntoIter
         self.gpu.queue.submit(std::iter::once(encoder.finish()));

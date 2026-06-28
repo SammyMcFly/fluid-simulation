@@ -7,7 +7,7 @@ use crate::for_each;
 use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
-use crate::sph::{SystemParameters, direction, Outer};
+use crate::sph::{SystemParameters, vector, Outer};
 use crate::sph::CurrentSystemProperties;
 use crate::sph::pressure_solver::iisph::{IISPH, TerminationCondition};
 use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
@@ -146,33 +146,29 @@ impl PressureSolver for IISPHwOST {
                     // calculate and set velocity gradient (Jacobian) as predicted velocity
                     let mut jac_vel = Matrix3::zeros();
                     for &neighbor in neighbors.get_neighbors(id) {
-                        let r_vec = direction(
+                        let r_vec = vector(
                             &pos_now[neighbor],
                             &pos_now[id],
                         );
-                        let dist = r_vec.norm();
                         jac_vel -= volume[neighbor]
                             * (vel_pred[id] - vel_pred[neighbor]).outer(
-                                &K::gradient(
+                                &K::kernel_gradient(
                                     &r_vec,
-                                    dist,
-                                    params.smoothing_length,
+                                    params.kernel_support_radius,
                                 ),
                             );
                     }
                     for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
-                        let r_vec = direction(
+                        let r_vec = vector(
                             boundary.pos_now(boundary_neighbor),
                             &pos_now[id],
                         );
-                        let dist = r_vec.norm();
                         jac_vel -= *boundary.volume(boundary_neighbor)
                             * (vel_pred[id]
                                 - boundary.vel_now(boundary_neighbor))
-                            .outer(&K::gradient(
+                            .outer(&K::kernel_gradient(
                                 &r_vec,
-                                dist,
-                                params.smoothing_length,
+                                params.kernel_support_radius,
                             ));
                     }
                     // calculate new velocity and intermediately store it as pressure_acc_f to avoid race condition on .vel().pred()

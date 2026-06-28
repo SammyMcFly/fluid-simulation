@@ -51,6 +51,8 @@ pub struct Measurement {
     pub rest_density_grid_spacing: f64,
     /// Smoothing lenght h
     pub smoothing_length: f64,
+    /// Kernel support radius
+    pub kernel_support_radius: f64,
     /// Rest density of the fluid
     pub rest_density: f64,
     pub time_step_size: f64,

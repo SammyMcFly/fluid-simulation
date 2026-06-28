@@ -8,7 +8,7 @@ use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Positional};
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
-use crate::sph::direction;
+use crate::sph::vector;
 use crate::neighbor_search::NeighborList;
 
 pub mod sesph;
@@ -117,18 +117,16 @@ fn add_pressure_acceleration<K: KernelFn>(
                     pos_now[neighbor]
                 };
                 // calc acceleration
-                let r_vec = direction(
+                let r_vec = vector(
                     &fluid_neighbor_pos,
                     &particle_pos,
                 );
-                let dist = r_vec.norm();
                 accu -= volume[id] / mass[id]
                     * volume[neighbor]
                     * (pressure[id] + pressure[neighbor])
-                    * K::gradient(
+                    * K::kernel_gradient(
                         &r_vec,
-                        dist,
-                        params.smoothing_length,
+                        params.kernel_support_radius,
                     );
             }
             // add pressure acceleration from boundary particles
@@ -143,18 +141,16 @@ fn add_pressure_acceleration<K: KernelFn>(
                 };
                 // calc acceleration
                 // mirror only pressure into boundary particle, set density to rest density
-                let r_vec = direction(
+                let r_vec = vector(
                     boundary.pos_now(boundary_neighbor),
                     &particle_pos,
                 );
-                let dist = r_vec.norm();
                 accu -= 2. * weighting * volume[id] / mass[id]
                     * *boundary.volume(boundary_neighbor)
                     * pressure[id]
-                    * K::gradient(
+                    * K::kernel_gradient(
                         &r_vec,
-                        dist,
-                        params.smoothing_length,
+                        params.kernel_support_radius,
                     );
             }
             if overwrite {

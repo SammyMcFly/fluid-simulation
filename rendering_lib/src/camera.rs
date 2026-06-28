@@ -61,26 +61,37 @@ impl Camera {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
+    view: [[f32; 4]; 4],
+    proj: [[f32; 4]; 4],
     view_position: [f32; 4],
     view_proj: [[f32; 4]; 4],
+    inv_view: [[f32; 4]; 4],
 }
 
 impl Default for CameraUniform {
     fn default() -> Self {
         Self {
+            view: cgmath::Matrix4::identity().into(),
+            proj: cgmath::Matrix4::identity().into(),
             view_position: [0.0; 4],
             view_proj: cgmath::Matrix4::identity().into(),
+            inv_view: cgmath::Matrix4::identity().into(),
         }
     }
 }
 
 impl CameraUniform {
     pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
+        let view = camera.calc_matrix();
+        let proj = projection.calc_matrix();
+        self.view = view.into();
+        self.proj = proj.into();
         self.view_position = camera
             .position_in_graphics_coordinates()
             .to_homogeneous()
             .into();
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
+        self.view_proj = (proj * view).into();
+        self.inv_view = view.invert().unwrap_or(Matrix4::identity()).into();
     }
 }
 

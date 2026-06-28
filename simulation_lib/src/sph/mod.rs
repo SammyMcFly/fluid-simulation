@@ -27,13 +27,13 @@ use kernel::KernelFn;
 use crate::integration_schemes::IntegrationScheme;
 use volume::update_volume;
 
-/// Calculate the distance between two 3D points
-fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
-    (to - from).norm()
-}
+// /// Calculate the distance between two 3D points
+// fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
+//     (to - from).norm()
+// }
 
-/// Direction from particle1 towards particle2
-fn direction(from: &Vector3<f64>, towards: &Vector3<f64>) -> Vector3<f64> {
+/// Create a vector from location 'from' towards location 'towards'
+fn vector(from: &Vector3<f64>, towards: &Vector3<f64>) -> Vector3<f64> {
     towards - from
 }
 
@@ -66,6 +66,8 @@ pub struct SystemParameters {
     pub cfl_number: f64,
     /// Smooting length h
     smoothing_length: f64,
+    /// Kernel support radius
+    kernel_support_radius: f64,
     /// disable particles below this threshold
     disable_particles_below: f64,
     rest_density: f64, // rho_0
@@ -87,6 +89,7 @@ impl SystemParameters {
         rest_density: f64,
         rest_density_grid_spacing: f64,
         smoothing_length: f64,
+        kernel_support_radius: f64,
         disable_particles_below: f64,
         fluid_viscosity: f64,
         boundary_viscosity: f64,
@@ -103,6 +106,7 @@ impl SystemParameters {
             #[cfg(feature = "cfl_time_step")]
             cfl_number,
             smoothing_length,
+            kernel_support_radius,
             disable_particles_below,
             rest_density,
             rest_volume: rest_density_grid_spacing.powi(3),
@@ -186,7 +190,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
     fn init_boundary_volume(&mut self) {
         let mut boundary_boundary_neighbor_list = NeighborList::new(self.boundary.len());
         self.neighbor_search.find_neighbors(
-            2.*self.parameters.smoothing_length,
+            self.parameters.kernel_support_radius,
             &self.boundary.position,
             &[],
             &mut boundary_boundary_neighbor_list,
@@ -199,11 +203,11 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
             for boundary_neighbor in boundary_boundary_neighbor_list.get_neighbors(
                 boundary_particle_index,
             ) {
-                let dist = distance(
-                    self.boundary.pos_now(boundary_particle_index),
+                let r_vec = vector(
                     self.boundary.pos_now(*boundary_neighbor),
+                    self.boundary.pos_now(boundary_particle_index),
                 );
-                inverse_volume += K::value(dist, self.parameters.smoothing_length);
+                inverse_volume += K::kernel_function(&r_vec, self.parameters.kernel_support_radius);
             }
             // calculate mass with rest density of fluid
             let pseudo_volume = self.parameters.boundary_rest_volume_weighting / inverse_volume;
@@ -457,7 +461,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
         self.fluid.drop_inactive();
         // update neighbors of fluid particles
         self.neighbor_search.find_neighbors(
-            2.*self.parameters.smoothing_length,
+            self.parameters.kernel_support_radius,
             &self.fluid.position,
             &self.boundary.position,
             &mut self.fluid_neighbor_list,
@@ -516,6 +520,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
             fluid_depth: self.properties.fluid_depth,
             rest_density_grid_spacing: self.parameters.rest_density_grid_spacing,
             smoothing_length: self.parameters.smoothing_length,
+            kernel_support_radius: self.parameters.kernel_support_radius,
             rest_density: self.parameters.rest_density,
             time_step_size: self.parameters.time_increment,
             target_density_error: solver_info.target_density_error,

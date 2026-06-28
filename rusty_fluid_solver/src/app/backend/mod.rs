@@ -11,7 +11,7 @@ use simulation_lib::sph::pressure_solver::IISPH;
 use simulation_lib::integration_schemes::EulerCromer;
 // use simulation_lib::sph::pressure_solver::IISPHwOST;
 // use simulation_lib::sph::integration_schemes::TakePredicted;
-use simulation_lib::sph::kernel::CubicBSpline;
+use simulation_lib::sph::kernel::CubicBSpline3D;
 use simulation_lib::neighbor_search::SpatialHashing;
 use simulation_lib::*;
 
@@ -27,7 +27,7 @@ const INTEGRATOR: EulerCromer = EulerCromer;
 // const INTEGRATOR: TakePredicted = TakePredicted;
 
 // type SimSystem = sph::System3D<CubicBSpline, EulerCromer, SESPH, SpatialHashing>;
-type SimSystem = sph::System3D<CubicBSpline, EulerCromer, IISPH, SpatialHashing>;
+type SimSystem = sph::System3D<CubicBSpline3D, EulerCromer, IISPH, SpatialHashing>;
 // type SimSystem = sph::System3D<CubicBSpline, TakePredicted, IISPHwOST, SpatialHashing>;
 
 

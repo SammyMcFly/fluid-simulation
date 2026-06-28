@@ -7,7 +7,7 @@ use crate::for_each;
 use crate::sph::kernel::KernelFn;
 use crate::sample::{Fluid3D, Boundary3D, Positional};
 use crate::sph::SystemParameters;
-use crate::sph::direction;
+use crate::sph::vector;
 use crate::neighbor_search::NeighborList;
 
 /// reset acceleration, i. e. set it to 0.
@@ -64,11 +64,10 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
             let mut accu = Vector3::zeros();
             // add viscostiy acceleration from other moving particles
             for &neighbor in neighbors.get_neighbors(id) {
-                let r_vec = direction(
+                let r_vec = vector(
                     &pos_now[neighbor],
                     &pos_now[id],
                 );
-                let dist = r_vec.norm();
                 accu += params.fluid_viscosity
                     * 2.
                     * (3. + 2.)
@@ -78,19 +77,17 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                     / ((pos_now[id] - pos_now[neighbor])
                         .norm_squared()
                         + 0.01 * params.smoothing_length.powi(2))
-                    * K::gradient(
+                    * K::kernel_gradient(
                         &r_vec,
-                        dist,
-                        params.smoothing_length,
+                        params.kernel_support_radius,
                     );
             }
             // add viscostiy acceleration from boundary particles
             for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
-                let r_vec = direction(
+                let r_vec = vector(
                     boundary.pos_now(boundary_neighbor),
                     &pos_now[id],
                 );
-                let dist = r_vec.norm();
                 accu += params.boundary_viscosity
                     * 2.
                     * (3. + 2.)
@@ -104,10 +101,9 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                         - *boundary.pos_now(boundary_neighbor))
                     .norm_squared()
                         + 0.01 * params.smoothing_length.powi(2))
-                    * K::gradient(
+                    * K::kernel_gradient(
                         &r_vec,
-                        dist,
-                        params.smoothing_length,
+                        params.kernel_support_radius,
                     );
             }
             *id_acceleration += accu;
