@@ -3,222 +3,359 @@
 /// Contains the simulated system, the information of the individual samples
 /// and provides the methods for propagating the system in time.
 ///
-use nalgebra::{Matrix3, Vector3};
+use nalgebra::{Matrix3, Point3, Vector3};
 use num_traits::Zero;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 #[cfg(feature = "logging")]
-use tracing::{debug}; // debug, error, info, span, trace, warn,
+use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 
-pub mod kernel;
 pub mod boundary_handling;
-pub mod pressure_solver;
+pub mod kernel;
 mod non_pressure_accelerations;
-mod volume;
+pub mod pressure_solver;
+mod quantities;
 
-use crate::neighbor_search::{NeighborSearch, NeighborList};
-use crate::sample::*;
-use crate::sph::non_pressure_accelerations::*;
-use pressure_solver::PressureSolver;
-use crate::TimeStepInfo;
-use crate::measurement;
-use crate::setup;
-use kernel::KernelFn;
+use crate::fluid::*;
 use crate::integration_schemes::IntegrationScheme;
-use volume::update_volume;
+use crate::measurement::{self, Measurement};
+use crate::neighbor_search::{NeighborList, NeighborSearch};
+use crate::render_info::{BoundaryVisualization, ScalarQuantity};
+use crate::setup;
+use crate::sph::boundary_handling::BoundaryHandling;
+use crate::sph::non_pressure_accelerations::*;
+use crate::sph::quantities::{get_density, get_density_error, get_kinetic_energy, get_pressure, get_speed};
+use crate::utilities::vector;
+use crate::utilities::triangle_mesh::RenderMesh;
+use kernel::KernelFn;
+use pressure_solver::PressureSolver;
+use quantities::get_volume;
 
-// /// Calculate the distance between two 3D points
-// fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
-//     (to - from).norm()
-// }
 
-/// Create a vector from location 'from' towards location 'towards'
-fn vector(from: &Vector3<f64>, towards: &Vector3<f64>) -> Vector3<f64> {
-    towards - from
-}
+pub trait SPHSystem {
+    fn time(&self) -> f64;
 
-/// Information about the system at the current time
-#[derive(Debug, Clone, Default)]
-pub struct CurrentSystemProperties {
-    average_density: f64,
-    fluid_depth: f64,
-    /// wall clock time passed calculating current time step
-    time_step_wall_clock_time: f64,
-}
+    /// Step forward in time one time increment.
+    ///
+    /// This includes calculating all parameters of the system at the next point in time.
+    fn step_forward_in_time(&mut self);
 
-impl CurrentSystemProperties {
-    pub fn set_fluid_depth(&mut self, fluid_depth: f64) {
-        self.fluid_depth = fluid_depth;
-    }
+    /// Measure (physical) quantities at current time step
+    fn take_measurement(&self) -> Measurement;
 
-    fn update(&mut self, average_density: f64) {
-        self.average_density = average_density;
-    }
-}
+    fn get_fluid_ids(&self) -> Vec<u32>;
+    fn get_fluid_pos(&self) -> Vec<[f32; 3]>;
+    fn get_quantity_of_fluid_samples(&self, quantity: &ScalarQuantity) -> ScalarQuantity;
+    fn get_quantity_at_positions(
+        &mut self,
+        quantity: &ScalarQuantity,
+        positions: &[[f32; 3]],
+    ) -> ScalarQuantity;
 
-/// Simulation parameters of a to be simulated system
-#[derive(Debug, Clone)]
-pub struct SystemParameters {
-    time_increment: f64,
-    #[cfg(feature = "cfl_time_step")]
-    max_time_increment: f64,
-    #[cfg(feature = "cfl_time_step")]
-    pub cfl_number: f64,
-    /// Smooting length h
-    smoothing_length: f64,
-    /// Kernel support radius
-    kernel_support_radius: f64,
-    /// disable particles below this threshold
-    disable_particles_below: f64,
-    rest_density: f64, // rho_0
-    rest_volume: f64,  // rho_0
-    /// Grid spacing when particles are ordered in a cubic grid at rest density
-    rest_density_grid_spacing: f64,
-    fluid_viscosity: f64,
-    boundary_viscosity: f64,
-    boundary_pressure_acceleration_weighting: f64,
-    boundary_rest_volume_weighting: f64,
-}
+    fn get_fluid_surface(&self) -> RenderMesh;
 
-impl SystemParameters {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        #[cfg(not(feature = "cfl_time_step"))] time_increment: f64,
-        #[cfg(feature = "cfl_time_step")] max_time_increment: f64,
-        #[cfg(feature = "cfl_time_step")] cfl_number: f64,
-        rest_density: f64,
-        rest_density_grid_spacing: f64,
-        smoothing_length: f64,
-        kernel_support_radius: f64,
-        disable_particles_below: f64,
-        fluid_viscosity: f64,
-        boundary_viscosity: f64,
-        boundary_pressure_acceleration_weighting: f64,
-        boundary_rest_volume_weighting: f64,
-    ) -> Self {
-        Self {
-            #[cfg(not(feature = "cfl_time_step"))]
-            time_increment,
-            #[cfg(feature = "cfl_time_step")]
-            time_increment: 0.,
-            #[cfg(feature = "cfl_time_step")]
-            max_time_increment,
-            #[cfg(feature = "cfl_time_step")]
-            cfl_number,
-            smoothing_length,
-            kernel_support_radius,
-            disable_particles_below,
-            rest_density,
-            rest_volume: rest_density_grid_spacing.powi(3),
-            rest_density_grid_spacing,
-            fluid_viscosity,
-            boundary_viscosity,
-            boundary_pressure_acceleration_weighting,
-            boundary_rest_volume_weighting,
-        }
-    }
-
-    #[cfg(feature = "cfl_time_step")]
-    fn set_cfl_time_step(&mut self, max_speed: f64) {
-        let cfl_time_step = self.cfl_number * self.rest_density_grid_spacing / max_speed;
-        self.time_increment = self.max_time_increment.min(cfl_time_step);
-    }
+    fn get_boundary_visualization(&self, selector: &BoundaryVisualization) -> BoundaryVisualization;
 }
 
 ///  3D implementation of a physical system to be simulated
 #[derive(Debug, Clone)]
-pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> {
-    /// Collection of all fluid samples
-    fluid: Fluid3D,
-    /// List of fluid neighbors
-    fluid_neighbor_list: NeighborList,
-    /// Collection of all boundary (not moving) samples
-    boundary: Boundary3D,
-    /// List of boundary neighbors
-    boundary_neighbor_list: NeighborList,
+pub struct System3D<
+    K: KernelFn,
+    I: IntegrationScheme,
+    P: PressureSolver,
+    N: NeighborSearch,
+    B: BoundaryHandling,
+> {
     /// Time
     time_steps_propagated: u64,
     /// Properties of the system
     parameters: SystemParameters,
     properties: CurrentSystemProperties,
+    /// Collection of all fluid samples
+    fluid: Fluid3D,
+    /// List of fluid neighbors
+    fluid_neighbor_list: NeighborList,
+    /// Collection of all boundary (not moving) samples
+    boundary: B,
     _kernel_fn: std::marker::PhantomData<K>,
     integrator: I,
     pressure_solver: P,
     neighbor_search: N,
 }
 
-impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> System3D<K, I, P, N> {
-    pub fn new(
-        systemconfig: setup::System3DConfig,
-        integrator: I,
-        pressure_solver: P,
-        neighbor_search: N,
-    ) -> Self {
-        let len = systemconfig.fluid.len();
+impl<
+    K: KernelFn + 'static,
+    I: IntegrationScheme + 'static,
+    P: PressureSolver + 'static,
+    N: NeighborSearch + 'static,
+    B: BoundaryHandling + 'static,
+> SPHSystem for System3D<K, I, P, N, B>
+{
+    fn time(&self) -> f64 {
+        (self.time_steps_propagated as f64) * self.parameters.time_increment
+    }
+
+    /// Step forward in time one time increment.
+    ///
+    /// This includes calculating all parameters of the system at the next point in time.
+    fn step_forward_in_time(&mut self) {
+        // measure wall clock time for time step
+        let start = std::time::Instant::now();
+
+        self.integrator
+            .integrate(&mut self.fluid, self.parameters.time_increment);
+
+        self.time_steps_propagated += 1;
+        // Update
+        self.update();
+        // measure wall clock time for time step
+        self.properties.time_step_wall_clock_time = start.elapsed().as_secs_f64();
+    }
+
+    /// Measure (physical) quantities at current time step
+    fn take_measurement(&self) -> Measurement {
+        // if cfg!(feature = "logging") {
+        //     debug!(
+        //         "{}, {}",
+        //         self.properties.average_density, self.properties.rest_density
+        //     );
+        //     let max_speed = self.calc_max_speed();
+        //     let cfl_coeff = max_speed * self.properties.time_increment
+        //         / self.properties.rest_density_grid_spacing;
+        //     debug!(
+        //         "time: {}, cfl coefficient: {}, max speed: {}",
+        //         self.time(),
+        //         cfl_coeff,
+        //         max_speed
+        //     );
+        // }
+
+        let solver_info = self.pressure_solver.measurement_info();
+
+        measurement::Measurement {
+            time: self.time(),
+            density: self.properties.average_density,
+            density_error: self.calc_average_mass_density_error(),
+            kinetic_energy: self.calc_average_kinetic_energy(),
+            stiffness: solver_info.stiffness,
+            fluid_viscosity: self.parameters.fluid_viscosity,
+            boundary_viscosity: self.parameters.boundary_viscosity,
+            fluid_depth: self.properties.fluid_depth,
+            rest_density_grid_spacing: self.parameters.rest_density_grid_spacing,
+            kernel_support_radius: self.parameters.kernel_support_radius,
+            time_step_size: self.parameters.time_increment,
+            target_density_error: solver_info.target_density_error,
+            solver_iterations: solver_info.solver_iterations,
+            relaxation_factor: solver_info.relaxation_factor,
+            time_step_wall_clock_time: self.properties.time_step_wall_clock_time,
+            predicted_density_error: solver_info.predicted_density_error,
+        }
+    }
+
+    // fn get_boundary_visualization(&self, selector: &FluidVisualization) -> BoundaryVisualization {
+
+    // }
+
+    fn get_fluid_ids(&self) -> Vec<u32> {
+        self.fluid.fluid_id.clone()
+    }
+
+    fn get_fluid_pos(&self) -> Vec<[f32; 3]> {
+        self.fluid
+            .position
+            .iter()
+            .map(|pos| [pos.x as f32, pos.y as f32, pos.z as f32])
+            .collect()
+    }
+
+    fn get_quantity_of_fluid_samples(&self, quantity: &ScalarQuantity) -> ScalarQuantity {
+        match quantity {
+            ScalarQuantity::SpeedGraded(_) => ScalarQuantity::SpeedGraded(
+                self.fluid
+                    .velocity
+                    .iter()
+                    .map(|vel| vel.norm() as f32)
+                    .collect(),
+            ),
+            ScalarQuantity::VolumeGraded(_) => ScalarQuantity::VolumeGraded(
+                self.fluid.volume.iter().map(|vol| *vol as f32).collect(),
+            ),
+            ScalarQuantity::DensityGraded(_) => ScalarQuantity::DensityGraded(
+                self.fluid
+                    .volume
+                    .iter()
+                    .zip(&self.fluid.mass)
+                    .map(|(vol, mass)| (*mass / *vol) as f32)
+                    .collect(),
+            ),
+            ScalarQuantity::DensityErrorGraded(_) => ScalarQuantity::DensityErrorGraded(
+                self.fluid
+                    .volume
+                    .iter()
+                    .map(|vol| {
+                        if *vol < self.parameters.rest_volume {
+                            (100. * (self.parameters.rest_volume / *vol - 1.)) as f32
+                        } else {
+                            0.
+                        }
+                    })
+                    .collect(),
+            ),
+            ScalarQuantity::PressureGraded(_) => ScalarQuantity::PressureGraded(
+                self.fluid.pressure.iter().map(|p| *p as f32).collect(),
+            ),
+            ScalarQuantity::KineticEnergyGraded(_) => ScalarQuantity::KineticEnergyGraded(
+                self.fluid
+                    .velocity
+                    .iter()
+                    .zip(&self.fluid.mass)
+                    .map(|(vel, mass)| (0.5 * *mass * vel.norm_squared()) as f32)
+                    .collect(),
+            ),
+        }
+    }
+
+    fn get_quantity_at_positions(
+        &mut self,
+        quantity: &ScalarQuantity,
+        positions: &[[f32; 3]],
+    ) -> ScalarQuantity {
+        let mut neighbor_list = NeighborList::new(positions.len());
+        let positions: &Vec<Point3<f64>> = &positions
+            .iter()
+            .map(|pos| Point3::new(pos[0] as f64, pos[1] as f64, pos[2] as f64))
+            .collect();
+        self.neighbor_search.find_samples(
+            self.parameters.kernel_support_radius,
+            positions,
+            &self.fluid.position,
+            &mut neighbor_list,
+        );
+        self.boundary.find_boundary_samples(
+            &mut self.neighbor_search,
+            self.parameters.kernel_support_radius,
+            positions,
+        );
+        let mut q = vec![0.; positions.len()];
+        match quantity {
+            ScalarQuantity::SpeedGraded(_) => {
+                get_speed::<K>(
+                    &mut q,
+                    positions,
+                    &neighbor_list,
+                    &self.fluid.position,
+                    &self.fluid.velocity,
+                    &self.fluid.volume,
+                    &self.boundary,
+                    &self.parameters,
+                );
+                ScalarQuantity::SpeedGraded(q.iter().map(|speed| *speed as f32).collect())
+            }
+            ScalarQuantity::VolumeGraded(_) => {
+                get_volume::<K>(
+                    &mut q,
+                    positions,
+                    &neighbor_list,
+                    &self.fluid.position,
+                    &self.boundary,
+                    &self.parameters,
+                );
+                ScalarQuantity::VolumeGraded(q.iter().map(|vol| *vol as f32).collect())
+            }
+            ScalarQuantity::DensityGraded(_) => {
+                get_density::<K>(
+                    &mut q,
+                    positions,
+                    &neighbor_list,
+                    &self.fluid.position,
+                    &self.fluid.mass,
+                    // &self.boundary,
+                    &self.parameters,
+                );
+                ScalarQuantity::DensityGraded(q.iter().map(|speed| *speed as f32).collect())
+            },
+            ScalarQuantity::DensityErrorGraded(_) => {
+                get_density_error::<K>(
+                    &mut q,
+                    positions,
+                    &neighbor_list,
+                    &self.fluid.position,
+                    &self.fluid.mass,
+                    // &self.boundary,
+                    &self.parameters,
+                );
+                ScalarQuantity::DensityGraded(q.iter().map(|speed| *speed as f32).collect())
+            },
+            ScalarQuantity::PressureGraded(_) => {
+                get_pressure::<K>(
+                    &mut q,
+                    positions,
+                    &neighbor_list,
+                    &self.fluid.position,
+                    &self.fluid.volume,
+                    &self.fluid.pressure,
+                    // &self.boundary,
+                    &self.parameters,
+                );
+                ScalarQuantity::PressureGraded(q.iter().map(|speed| *speed as f32).collect())
+            },
+            ScalarQuantity::KineticEnergyGraded(_) => {
+                get_kinetic_energy::<K>(
+                    &mut q,
+                    positions,
+                    &neighbor_list,
+                    &self.fluid.position,
+                    &self.fluid.velocity,
+                    &self.fluid.volume,
+                    &self.fluid.mass,
+                    // &self.boundary,
+                    &self.parameters,
+                );
+                ScalarQuantity::KineticEnergyGraded(q.iter().map(|speed| *speed as f32).collect())
+            }
+        }
+    }
+
+    fn get_fluid_surface(&self) -> RenderMesh {
+        self.fluid.reconstruct_surface()
+    }
+
+    fn get_boundary_visualization(
+        &self,
+        selector: &BoundaryVisualization,
+    ) -> BoundaryVisualization {
+        self.boundary.get_visualization(selector)
+    }
+}
+
+impl<
+    K: KernelFn + 'static,
+    I: IntegrationScheme + 'static,
+    P: PressureSolver + 'static,
+    N: NeighborSearch + 'static,
+    B: BoundaryHandling + 'static,
+> System3D<K, I, P, N, B>
+{
+    pub fn new_boxed(constructor: setup::System3DConstructor<K, I, P, N, B>) -> Box<dyn SPHSystem> {
+        let len = constructor.fluid.len();
         let mut system = Self {
-            fluid: systemconfig.fluid,
+            fluid: constructor.fluid,
             fluid_neighbor_list: NeighborList::new(len),
-            boundary: systemconfig.boundary,
-            boundary_neighbor_list: NeighborList::new(len),
+            boundary: constructor.boundary,
             time_steps_propagated: 0,
-            parameters: systemconfig.system_parameters,
-            properties: systemconfig.properties,
+            parameters: constructor.system_parameters,
+            properties: constructor.properties,
             _kernel_fn: std::marker::PhantomData,
-            integrator,
-            pressure_solver,
-            neighbor_search,
+            integrator: constructor.integrator,
+            pressure_solver: constructor.pressure_solver,
+            neighbor_search: constructor.neighbor_search,
         };
-        // set boundary mass such that the density is equal to the fluids rest density
-        system.init_boundary_volume();
+        // system.init_boundary_volume();
         // Update uniform grid
         system.update();
-        system
+        Box::new(system) as Box<dyn SPHSystem>
     }
 
-    /// Calculate and set pseudo mass of all boundary particles
-    #[cfg(not(feature = "pseudo_volume_boundary"))]
-    fn init_boundary_volume(&mut self) {
-        for boundary_particle_index in 0..self.boundary.len() {
-            // simple mass
-            self.boundary
-                .set_volume(boundary_particle_index, self.parameters.rest_volume);
-        }
-    }
-
-    /// Calculate and set pseudo mass of all boundary particles
-    #[cfg(feature = "pseudo_volume_boundary")]
-    fn init_boundary_volume(&mut self) {
-        let mut boundary_boundary_neighbor_list = NeighborList::new(self.boundary.len());
-        self.neighbor_search.find_neighbors(
-            self.parameters.kernel_support_radius,
-            &self.boundary.position,
-            &[],
-            &mut boundary_boundary_neighbor_list,
-            &mut NeighborList::new(0),
-        );
-        for boundary_particle_index in 0..self.boundary.len() {
-            // add inverse volume for every boundary neighbor
-            let mut inverse_volume = 0.;
-            // get boundary neighbors of boundary particles
-            for boundary_neighbor in boundary_boundary_neighbor_list.get_neighbors(
-                boundary_particle_index,
-            ) {
-                let r_vec = vector(
-                    self.boundary.pos_now(*boundary_neighbor),
-                    self.boundary.pos_now(boundary_particle_index),
-                );
-                inverse_volume += K::kernel_function(&r_vec, self.parameters.kernel_support_radius);
-            }
-            // calculate mass with rest density of fluid
-            let pseudo_volume = self.parameters.boundary_rest_volume_weighting / inverse_volume;
-            self.boundary
-                .set_volume(boundary_particle_index, pseudo_volume);
-            // #[cfg(feature = "logging")]
-            // debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
-            // #[cfg(feature = "logging")]
-            // debug!("boundary particle {} has mass: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].mass());
-        }
-    }
 
     pub fn time(&self) -> f64 {
         (self.time_steps_propagated as f64) * self.parameters.time_increment
@@ -244,7 +381,95 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
         }
     }
 
-    /// Calculate average kinetic energy for all fluid particles
+    /// Calculate average mass density for all fluid particles
+    fn calc_average_mass_density(&self) -> f64 {
+        #[cfg(not(feature = "parallel"))]
+        let (total_mass_density, count) = {
+            self.fluid
+                .volume
+                .iter()
+                .zip(self.fluid.mass.iter())
+                .map(|(volume, mass)| {
+                    if *quantities < self.parameters.rest_volume {
+                        mass / quantities
+                    } else {
+                        mass / self.parameters.rest_volume
+                    }
+                })
+                .fold((0.0_f64, 0_u64), |(sum, cnt), d| (sum + d, cnt + 1))
+        };
+        #[cfg(feature = "parallel")]
+        let (total_mass_density, count) = self
+            .fluid
+            .volume
+            .par_iter()
+            .zip(&self.fluid.mass)
+            .map(|(volume, mass)| {
+                if *volume < self.parameters.rest_volume {
+                    mass / volume
+                } else {
+                    mass / self.parameters.rest_volume
+                }
+            })
+            .fold(
+                || (0.0_f64, 0_u64),
+                |(sum, cnt), mass_density| (sum + mass_density, cnt + 1),
+            )
+            .reduce(
+                || (0.0, 0),
+                |(sum_a, cnt_a), (sum_b, cnt_b)| (sum_a + sum_b, cnt_a + cnt_b),
+            );
+        if count > 0 {
+            total_mass_density / count as f64
+        } else {
+            0.0
+        }
+    }
+
+    /// Calculate average mass density error over all fluid particles
+    fn calc_average_mass_density_error(&self) -> f64 {
+        #[cfg(not(feature = "parallel"))]
+        let (total_mass_density, count) = {
+            self.fluid
+                .volume
+                .iter()
+                .map(|volume| {
+                    if *quantities < self.parameters.rest_volume {
+                        self.parameters.rest_volume / quantities
+                    } else {
+                        1.
+                    }
+                })
+                .fold((0.0_f64, 0_u64), |(sum, cnt), d| (sum + d, cnt + 1))
+        };
+        #[cfg(feature = "parallel")]
+        let (total_mass_density_error, count) = self
+            .fluid
+            .volume
+            .par_iter()
+            .map(|volume| {
+                if *volume < self.parameters.rest_volume {
+                    self.parameters.rest_volume / volume
+                } else {
+                    1.
+                }
+            })
+            .fold(
+                || (0.0_f64, 0_u64),
+                |(sum, cnt), mass_density_error| (sum + mass_density_error, cnt + 1),
+            )
+            .reduce(
+                || (0.0, 0),
+                |(sum_a, cnt_a), (sum_b, cnt_b)| (sum_a + sum_b, cnt_a + cnt_b),
+            );
+        if count > 0 {
+            100. * (total_mass_density_error / count as f64 - 1.)
+        } else {
+            0.0
+        }
+    }
+
+    /// Calculate average kinetic energy over all fluid particles
     fn calc_average_kinetic_energy(&self) -> f64 {
         #[cfg(not(feature = "parallel"))]
         let (total_energy, count) = {
@@ -350,61 +575,15 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
     //     Ok(())
     // }
 
-    /// Calculate average mass density for all fluid particles
-    fn calc_average_mass_density(&self) -> f64 {
-        #[cfg(not(feature = "parallel"))]
-        let (total_mass_density, count) = {
-            self.fluid
-                .volume
-                .iter()
-                .zip(self.fluid.mass.iter())
-                .map(|(volume, mass)| {
-                    if *volume < self.parameters.rest_volume {
-                        mass / volume
-                    } else {
-                        mass / self.parameters.rest_volume
-                    }
-                })
-                .fold((0.0_f64, 0_u64), |(sum, cnt), d| (sum + d, cnt + 1))
-        };
-        #[cfg(feature = "parallel")]
-        let (total_mass_density, count) = self
-            .fluid
-            .volume
-            .par_iter()
-            .zip(&self.fluid.mass)
-            .map(|(volume, mass)| {
-                if *volume < self.parameters.rest_volume {
-                    mass / volume
-                } else {
-                    mass / self.parameters.rest_volume
-                }
-            })
-            .fold(
-                || (0.0_f64, 0_u64),
-                |(sum, cnt), mass_density| (sum + mass_density, cnt + 1),
-            )
-            .reduce(
-                || (0.0, 0),
-                |(sum_a, cnt_a), (sum_b, cnt_b)| (sum_a + sum_b, cnt_a + cnt_b),
-            );
-        if count > 0 {
-            total_mass_density / count as f64
-        } else {
-            0.0
-        }
-    }
-
     /// Calculate non-pressure accelerations and add them to each particles acceleration
     fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
-        add_gravity(&mut self.fluid);
+        add_gravity_acceleration(&mut self.fluid);
         // add viscosity acceleration
         add_viscosity_acceleration::<K>(
             &mut self.fluid,
             &self.boundary,
             &self.fluid_neighbor_list,
-            &self.boundary_neighbor_list,
             &self.parameters,
         );
     }
@@ -423,26 +602,9 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
             &mut self.fluid,
             &self.boundary,
             &self.fluid_neighbor_list,
-            &self.boundary_neighbor_list,
             &self.parameters,
             &mut self.properties,
         );
-    }
-
-    /// Step forward in time one time increment.
-    ///
-    /// This includes calculating all parameters of the system at the next point in time.
-    pub fn step_forward_in_time(&mut self) {
-        // measure wall clock time for time step
-        let start = std::time::Instant::now();
-
-        self.integrator.integrate(&mut self.fluid, self.parameters.time_increment);
-
-        self.time_steps_propagated += 1;
-        // Update
-        self.update();
-        // measure wall clock time for time step
-        self.properties.time_step_wall_clock_time = start.elapsed().as_secs_f64();
     }
 
     /// Update particle properties and uniform grid
@@ -460,19 +622,24 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
         // truncate arrays
         self.fluid.drop_inactive();
         // update neighbors of fluid particles
-        self.neighbor_search.find_neighbors(
+        self.neighbor_search.find_samples(
             self.parameters.kernel_support_radius,
             &self.fluid.position,
-            &self.boundary.position,
+            &self.fluid.position,
             &mut self.fluid_neighbor_list,
-            &mut self.boundary_neighbor_list,
+        );
+        self.boundary.find_boundary_samples(
+            &mut self.neighbor_search,
+            self.parameters.kernel_support_radius,
+            &self.fluid.position,
         );
         // compute density
-        update_volume::<K>(
-            &mut self.fluid,
-            &self.boundary,
+        get_volume::<K>(
+            &mut self.fluid.volume,
+            &self.fluid.position,
             &self.fluid_neighbor_list,
-            &self.boundary_neighbor_list,
+            &self.fluid.position,
+            &self.boundary,
             &self.parameters,
         );
         // calculate new accelerations
@@ -498,56 +665,6 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch> Sy
         //     let _ = self.save_kinetic_energy_profile();
         // }
     }
-
-    /// Measure (physical) quantities at current time step
-    pub fn push_back_measurement(&mut self, series: &mut measurement::MeasurementSeries) {
-        // if cfg!(feature = "logging") {
-        //     debug!("{}, {}", self.properties.average_density, self.properties.rest_density);
-        //     let max_speed = self.calc_max_speed();
-        //     let cfl_coeff = max_speed*self.properties.time_increment/self.properties.rest_density_grid_spacing;
-        //     debug!("time: {}, cfl coefficient: {}, max speed: {}", self.time(), cfl_coeff, max_speed);
-        // }
-
-        let solver_info = self.pressure_solver.measurement_info();
-
-        series.push_back(measurement::Measurement {
-            time: self.time(),
-            density: self.properties.average_density,
-            kinetic_energy: self.calc_average_kinetic_energy(),
-            stiffness: solver_info.stiffness,
-            fluid_viscosity: self.parameters.fluid_viscosity,
-            boundary_viscosity: self.parameters.boundary_viscosity,
-            fluid_depth: self.properties.fluid_depth,
-            rest_density_grid_spacing: self.parameters.rest_density_grid_spacing,
-            smoothing_length: self.parameters.smoothing_length,
-            kernel_support_radius: self.parameters.kernel_support_radius,
-            rest_density: self.parameters.rest_density,
-            time_step_size: self.parameters.time_increment,
-            target_density_error: solver_info.target_density_error,
-            solver_iterations: solver_info.solver_iterations,
-            relaxation_factor: solver_info.relaxation_factor,
-            time_step_wall_clock_time: self.properties.time_step_wall_clock_time,
-            predicted_density_error: solver_info.predicted_density_error,
-        });
-    }
-
-    fn get_serializable_particles(&self) -> SerFluid3D {
-        self.fluid.clone().into()
-    }
-
-    fn get_serializable_boundary_particles(&self) -> SerBoundary3D {
-        self.boundary.clone().into()
-    }
-
-    pub fn get_time_step_info(&self) -> TimeStepInfo {
-        TimeStepInfo {
-            time: self.time() as f32,
-            time_increment: self.parameters.time_increment as f32,
-            average_density: self.properties.average_density as f32,
-            fluid: self.get_serializable_particles(),
-            boundary: self.get_serializable_boundary_particles(),
-        }
-    }
 }
 
 pub trait Outer {
@@ -570,5 +687,86 @@ impl<N: Copy + std::ops::Mul<N, Output = N> + Zero> Outer for Vector3<N> {
             self[2] * other[1],
             self[2] * other[2],
         )
+    }
+}
+
+/// Information about the system at the current time
+#[derive(Debug, Clone, Default)]
+pub struct CurrentSystemProperties {
+    average_density: f64,
+    fluid_depth: f64,
+    /// wall clock time passed calculating current time step
+    time_step_wall_clock_time: f64,
+}
+
+impl CurrentSystemProperties {
+    pub fn set_fluid_depth(&mut self, fluid_depth: f64) {
+        self.fluid_depth = fluid_depth;
+    }
+
+    fn update(&mut self, average_density: f64) {
+        self.average_density = average_density;
+    }
+}
+
+/// Simulation parameters of a to be simulated system
+#[derive(Debug, Clone)]
+pub struct SystemParameters {
+    time_increment: f64,
+    #[cfg(feature = "cfl_time_step")]
+    max_time_increment: f64,
+    #[cfg(feature = "cfl_time_step")]
+    pub cfl_number: f64,
+    /// Smooting length h
+    kernel_support_radius: f64,
+    /// disable particles below this threshold
+    disable_particles_below: f64,
+    rest_volume: f64,
+    /// Grid spacing when particles are ordered in a cubic grid at rest density
+    rest_density_grid_spacing: f64,
+    fluid_viscosity: f64,
+    boundary_viscosity: f64,
+    boundary_pressure_acceleration_weighting: f64,
+    boundary_rest_volume_weighting: f64,
+}
+
+impl SystemParameters {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        #[cfg(not(feature = "cfl_time_step"))] time_increment: f64,
+        #[cfg(feature = "cfl_time_step")] max_time_increment: f64,
+        #[cfg(feature = "cfl_time_step")] cfl_number: f64,
+        rest_density_grid_spacing: f64,
+        kernel_support_radius: f64,
+        disable_particles_below: f64,
+        fluid_viscosity: f64,
+        boundary_viscosity: f64,
+        boundary_pressure_acceleration_weighting: f64,
+        boundary_rest_volume_weighting: f64,
+    ) -> Self {
+        Self {
+            #[cfg(not(feature = "cfl_time_step"))]
+            time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            time_increment: 0.,
+            #[cfg(feature = "cfl_time_step")]
+            max_time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            cfl_number,
+            kernel_support_radius,
+            disable_particles_below,
+            rest_volume: rest_density_grid_spacing.powi(3),
+            rest_density_grid_spacing,
+            fluid_viscosity,
+            boundary_viscosity,
+            boundary_pressure_acceleration_weighting,
+            boundary_rest_volume_weighting,
+        }
+    }
+
+    #[cfg(feature = "cfl_time_step")]
+    fn set_cfl_time_step(&mut self, max_speed: f64) {
+        let cfl_time_step = self.cfl_number * self.rest_density_grid_spacing / max_speed;
+        self.time_increment = self.max_time_increment.min(cfl_time_step);
     }
 }

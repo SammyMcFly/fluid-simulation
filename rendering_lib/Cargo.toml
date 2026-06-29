@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = [] # managed by meta crate
+default = []
 
 # Features
 logging = ["dep:tracing"]
@@ -22,6 +22,9 @@ num-traits = "0.2.19"
 
 # Faster hash map for uniform grid
 rustc-hash = "2.1.1"
+
+# tobj hash map
+ahash = "0.8"
 
 # for communication between threads
 crossbeam = "0.8.4"
@@ -50,6 +53,9 @@ iced_winit = { git = "https://github.com/iced-rs/iced", rev = "7a97773f1796fa788
 tobj = { version = "4.0.3", default-features = false, features = ["async"]}
 bytemuck = { version = "1.24.0", features = [ "derive" ] }
 pollster = "0.4.0"
+
+# colormap
+colorous = "1.0.16"
 
 # optional
 ## logging

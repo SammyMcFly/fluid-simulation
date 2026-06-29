@@ -2,13 +2,16 @@
 use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use serde::Deserialize;
 
 use crate::for_each;
+use crate::setup::input::Parameters;
+use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::kernel::KernelFn;
-use crate::sample::{Fluid3D, Boundary3D, Positional};
+use crate::fluid::Fluid3D;
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
-use crate::sph::vector;
+use crate::utilities::vector;
 use crate::neighbor_search::NeighborList;
 
 pub mod sesph;
@@ -21,7 +24,18 @@ pub use sesph_with_splitting::SESPHwSplitting;
 pub use iisph::IISPH;
 pub use iisph_optimized_source_term::IISPHwOST;
 
+
+#[derive(Debug, Deserialize)]
+pub enum PressureSolverVariant {
+    SESPH,
+    SESPHwSplitting,
+    IISPH,
+    IISPHwOST,
+}
+
 pub trait PressureSolver: Send + Sync {
+    fn new(params: &Parameters) -> Self;
+
     /// Compute pressure
     ///
     /// Contract: Non-pressure accelerations (gravity, viscosity) are already
@@ -29,9 +43,8 @@ pub trait PressureSolver: Send + Sync {
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &Boundary3D,
+        boundary: &impl BoundaryHandling,
         neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
         params: &SystemParameters,
         properties: &mut CurrentSystemProperties,
     );
@@ -77,9 +90,8 @@ fn set_pred_vel_by_applying_acc(fluid: &mut Fluid3D, params: &SystemParameters, 
 fn add_pressure_acceleration<K: KernelFn>(
     custom_target: Option<&mut Vec<Vector3<f64>>>,
     fluid: &mut Fluid3D,
-    boundary: &Boundary3D,
+    boundary: &impl BoundaryHandling,
     neighbors: &NeighborList,
-    boundary_neighbors: &NeighborList,
     params: &SystemParameters,
     with_pred_positions: bool,
     overwrite: bool
@@ -99,18 +111,18 @@ fn add_pressure_acceleration<K: KernelFn>(
             volume = fluid.volume,
             pressure = fluid.pressure,
             neighbors = neighbors,
-            boundary_neighbors = boundary_neighbors
+            boundary = boundary,
         ],
         |id, target_acceleration| {
             let mut accu = Vector3::zeros();
+            let particle_pos = if with_pred_positions {
+                pos_pred[id]
+            } else {
+                pos_now[id]
+            };
             // add pressure acceleration from other moving particles
             for &neighbor in neighbors.get_neighbors(id) {
                 // select positions
-                let particle_pos = if with_pred_positions {
-                    pos_pred[id]
-                } else {
-                    pos_now[id]
-                };
                 let fluid_neighbor_pos = if with_pred_positions {
                     pos_pred[neighbor]
                 } else {
@@ -130,15 +142,9 @@ fn add_pressure_acceleration<K: KernelFn>(
                     );
             }
             // add pressure acceleration from boundary particles
-            for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
+            for &boundary_neighbor in boundary.get_neighbors(id) {
                 // select weighting
                 let weighting = params.boundary_pressure_acceleration_weighting;
-                // select position
-                let particle_pos = if with_pred_positions {
-                    pos_pred[id]
-                } else {
-                    pos_now[id]
-                };
                 // calc acceleration
                 // mirror only pressure into boundary particle, set density to rest density
                 let r_vec = vector(

@@ -1,216 +1,206 @@
 //! Module for scene building and parameter importing
 //!
 //!
-mod scenes;
+pub mod input;
 
-use serde::Deserialize;
+use std::collections::HashMap;
+#[cfg(feature = "logging")]
+use tracing::{warn}; // debug, error, info, span, trace, warn,
 
-use crate::SimulationParameters;
+use crate::integration_schemes::IntegrationScheme;
+use crate::neighbor_search::NeighborSearch;
+use crate::fluid::{Fluid3D, Len, SerFluid3D};
+use crate::setup::input::{Parameters, Procedures, Scene};
+use crate::sph::boundary_handling::BoundaryHandling;
+use crate::sph::pressure_solver::PressureSolver;
+use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary, transform_trimesh};
+use crate::sph::{CurrentSystemProperties, SystemParameters};
+use crate::sph::{System3D, SPHSystem};
+use crate::sph::kernel::*;
+use crate::integration_schemes::*;
+use crate::sph::pressure_solver::*;
+use crate::neighbor_search::*;
+use crate::sph::boundary_handling::*;
 
-use crate::sample::{Boundary3D, Fluid3D, SerFluid3D};
-use super::sph::{CurrentSystemProperties, SystemParameters};
-// use super::measure;
 
-use crate::ParticleColor;
-
-#[derive(Debug, Deserialize)]
-pub struct Setup {
-    pub parameters: Parameters,
-    pub light: Light,
-    pub scene: SceneVariant,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Parameters {
-    pub buffer_length_limit: usize,
-    #[cfg(not(feature = "cfl_time_step"))]
-    pub time_increment: f64,
-    #[cfg(feature = "cfl_time_step")]
-    pub max_time_increment: f64,
-    #[cfg(feature = "cfl_time_step")]
-    pub cfl_number: f64,
-    pub rest_density: f64,
-    pub rest_density_grid_spacing: f64,
-    pub smoothing_length: f64,
-    pub kernel_support_radius: f64,
-    pub disable_particles_below: f64,
-    pub fluid_viscosity: f64,
-    pub boundary_viscosity: f64,
-    pub boundary_pressure_acceleration_weighting: f64,
-    pub boundary_rest_volume_weighting: f64,
-    pub stiffness: f64,
-    // solver_iterations: u32,
-    pub target_density_error: f64,
-    pub relaxation_factor: f64,
-    pub min_diagonal_element: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Light {
-    pub position: [f32; 3],
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", content = "parameters")]
-pub enum SceneVariant {
-    NoLidCube(scenes::NoLidCube),
-    Spiral(scenes::Spiral),
-}
-
-impl Scene for SceneVariant {
-    fn get_boundary(&self, rest_density_grid_spacing: f64) -> Boundary3D {
-        match self {
-            Self::NoLidCube(variant) => variant.get_boundary(rest_density_grid_spacing),
-            Self::Spiral(variant) => variant.get_boundary(rest_density_grid_spacing),
-        }
-    }
-    fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Fluid3D {
-        match self {
-            Self::NoLidCube(variant) => variant.get_fluid(rest_density, rest_density_grid_spacing),
-            Self::Spiral(variant) => variant.get_fluid(rest_density, rest_density_grid_spacing),
-        }
-    }
-    fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64 {
-        match self {
-            Self::NoLidCube(variant) => variant.calc_fluid_depth(rest_density_grid_spacing),
-            Self::Spiral(variant) => variant.calc_fluid_depth(rest_density_grid_spacing),
-        }
-    }
-}
-
-trait Scene {
-    fn get_boundary(&self, rest_density_grid_spacing: f64) -> Boundary3D;
-    fn get_fluid(&self, rest_density: f64, rest_density_grid_spacing: f64) -> Fluid3D;
-    fn calc_fluid_depth(&self, rest_density_grid_spacing: f64) -> f64;
-}
-
-pub struct System3DConfig {
+pub struct System3DConstructor<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling> {
+    // pub config: Config,
     pub fluid: Fluid3D,
-    pub boundary: Boundary3D,
+    pub boundary: B,
     pub system_parameters: SystemParameters,
     pub properties: CurrentSystemProperties,
+    _kernel_fn: std::marker::PhantomData<K>,
+    pub integrator: I,
+    pub pressure_solver: P,
+    pub neighbor_search: N,
 }
 
-pub struct System3DConfigConstructor {
-    pub config: Setup,
-    build: Option<System3DConfig>,
-}
-
-impl System3DConfigConstructor {
-    fn load_config(file_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        // Read the scene config file
-        let config_file_content = std::fs::read_to_string(file_path)?;
-        // Parse the content into the Config struct
-        Ok(Self {
-            config: toml::from_str(&config_file_content)?,
-            build: None,
-        })
-    }
-
-    fn load_particles(file_path: &str) -> Result<Fluid3D, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(file_path)?;
-        let fluid: SerFluid3D = ron::from_str(&content).unwrap();
-        Ok(fluid.into())
-    }
-
-    fn get_system_parameters(&self) -> SystemParameters {
-        SystemParameters::new(
-            #[cfg(not(feature = "cfl_time_step"))]
-            self.config.parameters.time_increment,
-            #[cfg(feature = "cfl_time_step")]
-            self.config.parameters.max_time_increment,
-            #[cfg(feature = "cfl_time_step")]
-            self.config.parameters.cfl_number,
-            self.config.parameters.rest_density,
-            self.config.parameters.rest_density_grid_spacing,
-            self.config.parameters.smoothing_length,
-            self.config.parameters.kernel_support_radius,
-            self.config.parameters.disable_particles_below,
-            self.config.parameters.fluid_viscosity,
-            self.config.parameters.boundary_viscosity,
-            self.config
-                .parameters
-                .boundary_pressure_acceleration_weighting,
-            self.config.parameters.boundary_rest_volume_weighting,
-        )
-    }
-
-    fn get_system_properties(&self) -> CurrentSystemProperties {
-        let mut properties = CurrentSystemProperties::default();
-        properties.set_fluid_depth(
-            self.config
-                .scene
-                .calc_fluid_depth(self.config.parameters.rest_density_grid_spacing),
-        );
-        properties
-    }
-
-    fn build(
-        &mut self,
-        fluid: Fluid3D,
-        boundary: Boundary3D,
-        system_properties: SystemParameters,
-        properties: CurrentSystemProperties,
-    ) {
-        self.build = Some(System3DConfig {
-            fluid,
-            boundary,
-            system_parameters: system_properties,
-            properties,
-        });
-    }
-
+impl<K: KernelFn,I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling> System3DConstructor<K, I, P, N, B> {
     pub fn new(
-        config_file_path: &str,
-        particle_state_file_path: Option<&str>,
-        is_measured: bool,
-        is_recorded: bool,
-    ) -> Result<(Self, SimulationParameters), Box<dyn std::error::Error>> {
-        // load config file
-        let mut constructor = Self::load_config(config_file_path)?;
+        params: &Parameters,
+        scene: &Scene,
+        sample_state_file_path: Option<&str>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let integrator = I::default();
+        let pressure_solver: P = P::new(params);
+        let mut neighbor_search= N::new(params.kernel_support_radius);
+
+        // load triangle meshes
+        let mut meshes = MeshLibrary::default();
+        let mut index_map = HashMap::new();
+        for (i, mesh) in scene.meshes.keys().enumerate() {
+            meshes.load_obj(scene.meshes.get(mesh).unwrap());
+            index_map.insert(mesh.clone(), i);
+        }
 
         // load fluid samples
-        let fluid = if let Some(particle_state_file_path) = particle_state_file_path {
-            Self::load_particles(particle_state_file_path)?
+        let fluid_rest_densities: HashMap<u32, f64> = params
+            .fluid
+            .iter()
+            .map(|f| (f.id, f.rest_density))
+            .collect();
+        let fluid = if let Some(file_path) = sample_state_file_path {
+            let content = std::fs::read_to_string(file_path)?;
+            let fluid: SerFluid3D = ron::from_str(&content).unwrap();
+            fluid.into()
         } else {
-            constructor.config.scene.get_fluid(
-                constructor.config.parameters.rest_density,
-                constructor.config.parameters.rest_density_grid_spacing,
-            )
+            let mut fluid = Fluid3D::new();
+            for f in &scene.fluid {
+                // select mesh
+                let mesh = meshes.trimesh(MeshHandle(*index_map.get(&f.mesh).expect("Failed to get mesh")));
+                // apply transformation
+                let mesh = transform_trimesh(mesh, &f.position, &f.rotation_euler_deg, &f.scale);
+
+                fluid.add_samples(
+                    &mesh,
+                    f.fluid_id,
+                    *fluid_rest_densities
+                        .get(&f.fluid_id)
+                        .expect("Failed to access undefined fluid (check if all accessed fluid IDs are defined)"),
+                    params.rest_density_grid_spacing,
+                );
+            }
+            if fluid.is_empty() {
+                warn!("No fluid is present in simulation.");
+            };
+            fluid
         };
 
         // load boundary
-        let boundary_particles = constructor
-            .config
-            .scene
-            .get_boundary(constructor.config.parameters.rest_density_grid_spacing);
+        let mut boundary = {
+            let mut boundary = B::new();
+            for b in &scene.boundary.statics {
+                // select mesh
+                let mesh = meshes.trimesh(MeshHandle(*index_map.get(&b.mesh).expect("Failed to get mesh")));
+                // apply transformation
+                let mesh = transform_trimesh(mesh, &b.position, &b.rotation_euler_deg, &b.scale);
 
-        let sim_info = SimulationParameters {
-            particle_diameter: constructor.config.parameters.rest_density_grid_spacing as f32,
-            rest_density: constructor.config.parameters.rest_density as f32,
-            light_position: constructor.config.light.position,
-            particle_color: ParticleColor::default(),
-            boundary_particle_color: ParticleColor::FixedColor([0.; 3]),
-            buffer_length_limit: constructor.config.parameters.buffer_length_limit,
-            is_measured,
-            is_recorded,
+                boundary.add_boundary(&mesh, b.boundary_id, params.rest_density_grid_spacing);
+            }
+            for b in &scene.boundary.dynamic {
+                // select mesh
+                let mesh = meshes.trimesh(MeshHandle(*index_map.get(&b.mesh).expect("Failed to get mesh")));
+                // apply transformation
+                let mesh = transform_trimesh(mesh, &b.position, &b.rotation_euler_deg, &b.scale);
+
+                boundary.add_boundary(&mesh, b.boundary_id, params.rest_density_grid_spacing);
+            }
+            if boundary.is_empty() {
+                warn!("No boundary is present in simulation.");
+            };
+            boundary
         };
+        boundary.initialize::<K>(&mut neighbor_search, params.kernel_support_radius, params.boundary_rest_volume_weighting);
 
         // init system properties
-        let system_parameters = constructor.get_system_parameters();
-        let properties = constructor.get_system_properties();
+        let system_parameters = SystemParameters::new(
+            #[cfg(not(feature = "cfl_time_step"))]
+            params.time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            params.max_time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            params.cfl_number,
+            params.rest_density_grid_spacing,
+            params.kernel_support_radius,
+            params.disable_particles_below,
+            params.fluid_viscosity,
+            params.boundary_viscosity,
+            params.boundary_pressure_acceleration_weighting,
+            params.boundary_rest_volume_weighting,
+        );
+        let properties = CurrentSystemProperties::default();
 
-        constructor.build(
+        let constructor = Self {
             fluid,
-            boundary_particles,
+            boundary,
             system_parameters,
             properties,
-        );
+            _kernel_fn: std::marker::PhantomData,
+            integrator,
+            pressure_solver,
+            neighbor_search,
+        };
         // create simulation system
-        Ok((constructor, sim_info))
+        Ok(constructor)
+    }
+}
+
+macro_rules! create {
+    ($params:expr, $scene:expr, $state:expr, $K:ty, $I:ty, $P:ty, $N:ty, $B:ty) => {{
+        let constructor = System3DConstructor::<$K, $I, $P, $N, $B>::new($params, $scene, $state)?;
+        let system = System3D::<$K, $I, $P, $N, $B>::new_boxed(constructor);
+        Ok(system)
+    }};
+}
+
+pub fn new_boxed_system3d(
+    procs: &Procedures,
+    params: &Parameters,
+    scene: &Scene,
+    state: Option<&str>,
+) -> Result<Box<dyn SPHSystem>, Box<dyn std::error::Error + Send + Sync>> {
+    // Nest macros to build the cartesian product without writing each combination
+    macro_rules! with_boundary {
+        ($K:ty, $I:ty, $P:ty, $N:ty) => {
+            match procs.boundary_handling {
+                BoundaryHandlingVariant::StaticSampleBoundary => create!(params, scene, state, $K, $I, $P, $N, StaticSampleBoundary),
+                // BoundaryHandlingVariant::VolumeMaps           => create!(params, scene, state, $K, $I, $P, $N, VolumeMaps),
+            }
+        };
     }
 
-    pub fn finish(self) -> System3DConfig {
-        self.build.unwrap()
+    macro_rules! with_neighbor {
+        ($K:ty, $I:ty, $P:ty) => {
+            match procs.neighbor_search {
+                NeighborSearchVariant::SpatialHashing => with_boundary!($K, $I, $P, SpatialHashing),
+            }
+        };
+    }
+
+    macro_rules! with_pressure {
+        ($K:ty, $I:ty) => {
+            match procs.pressure_solver {
+                PressureSolverVariant::SESPH          => with_neighbor!($K, $I, SESPH),
+                PressureSolverVariant::SESPHwSplitting => with_neighbor!($K, $I, SESPHwSplitting),
+                PressureSolverVariant::IISPH          => with_neighbor!($K, $I, IISPH),
+                PressureSolverVariant::IISPHwOST      => with_neighbor!($K, $I, IISPHwOST),
+            }
+        };
+    }
+
+    macro_rules! with_integrator {
+        ($K:ty) => {
+            match procs.integration_scheme {
+                IntegrationSchemeVariant::ExplicitEuler => with_pressure!($K, ExplicitEuler),
+                // IntegrationSchemeVariant::ImplicitEuler => with_pressure!($K, ImplicitEuler),
+                IntegrationSchemeVariant::EulerCromer   => with_pressure!($K, EulerCromer),
+                IntegrationSchemeVariant::Verlet        => with_pressure!($K, Verlet),
+                IntegrationSchemeVariant::TakePredicted => with_pressure!($K, TakePredicted),
+            }
+        };
+    }
+
+    match procs.kernel_function {
+        KernelFnVariant::CubicBSpline3D => with_integrator!(CubicBSpline3D),
     }
 }

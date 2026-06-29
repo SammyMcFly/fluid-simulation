@@ -7,7 +7,7 @@ use tracing::debug; // error, trace, warn, debug, info,
 
 use rendering_lib::ui::UserInput;
 use rendering_lib::*;
-use simulation_lib::{SimulationParameters, TimeStepInfo};
+use simulation_lib::render_info::{BoundaryVisualization, FluidColoring, FluidVisualization, ScalarQuantity, SimulationParameters, TimeStepInfo};
 
 use crate::app::backend::commands::WorkerCommand;
 
@@ -59,7 +59,7 @@ impl Simulator for AppState {
                     if self.instances.is_active() {
                         to_worker
                             .send(WorkerCommand::SaveState {
-                                fluid: self.instances.get_info().unwrap().fluid.clone(),
+                                fluid: self.instances.get_time_step_info().unwrap().fluid.clone(),
                                 filepath: "./state.ron".to_string(),
                             })
                             .unwrap()
@@ -125,14 +125,38 @@ impl Simulator for AppState {
         }
         self.camera.reset(&self.gpu);
         self.light.set_light(&self.gpu, sim_info.light_position);
-        self.instances = instances::InstanceStore::new(&self.gpu);
+        self.instances = instances::InstanceStore::new();
         self.ui.new_simulation(sim_info);
         self.frame.reset();
     }
 
     // might panic
-    fn received_content(&mut self, info: TimeStepInfo) {
-        self.instances.push(info);
+    fn received_content(&mut self, ts_info: TimeStepInfo) {
+        if let Some(ms) = &mut self.measurement_series {
+            ms.push_back(ts_info.measurement.clone());
+        }
+        // // Debug: check what arrives
+        // match &ts_info.fluid {
+        //     FluidVisualization::Samples { positions, coloring } => {
+        //         println!("Fluid: {} positions", positions.len());
+        //         if let FluidColoring::QuantityGraded { quantity } = coloring {
+        //             let len = match quantity {
+        //                 ScalarQuantity::SpeedGraded(v) => v.len(),
+        //                 ScalarQuantity::VolumeGraded(v) => v.len(),
+        //                 _ => 0,
+        //             };
+        //             println!("Fluid coloring: {} values", len);
+        //         }
+        //     }
+        //     _ => println!("Fluid: non-sample variant"),
+        // }
+        // match &ts_info.boundary {
+        //     BoundaryVisualization::Samples { positions, .. } => {
+        //         println!("Boundary: {} positions", positions.len());
+        //     }
+        //     _ => println!("Boundary: mesh variant"),
+        // }
+        self.instances.push(ts_info);
     }
 
     fn continue_after_reset(&mut self, info: SimulationParameters) {
@@ -142,7 +166,7 @@ impl Simulator for AppState {
         }
         // self.camera.reset(&self.gpu);
         // self.light.set_light(&self.gpu, sim_info.light_position);
-        self.instances.reset(&self.gpu, true);
+        self.instances.reset(true);
         self.frame.reset();
         self.ui.new_simulation(info);
     }

@@ -6,14 +6,15 @@ use iced_wgpu::wgpu;
 use iced_winit::runtime::user_interface::UserInterface;
 use iced_winit::winit;
 use iced_winit::winit::event::{DeviceEvent, WindowEvent};
+use simulation_lib::measurement::MeasurementSeries;
+use simulation_lib::render_info::*;
 use std::sync::Arc;
 
 #[cfg(feature = "logging")]
-use tracing::debug; // error, trace, warn, debug, info,
-
-use simulation_lib::ParticleColor;
+use tracing::{debug, error}; // error, trace, warn, debug, info,
 
 pub mod camera;
+pub mod colormap;
 pub mod frame_control;
 pub mod gpu_context;
 pub mod instances;
@@ -21,14 +22,14 @@ pub mod lighting;
 pub mod model;
 pub mod pipelines;
 pub mod readback;
+pub mod scene_buffers;
 pub mod settings;
 pub mod ui;
-
-use model::VertexBufferLayout;
 
 use ui::UserInput;
 
 use crate::readback::{ReadbackAction, ReadbackController};
+use crate::scene_buffers::{BoundaryGpuData, FluidGpuData, SceneBuffers};
 
 const CAMERA_POSITION: (f32, f32, f32) = (10.0, -30.0, 40.0);
 const YAW: cgmath::Deg<f32> = cgmath::Deg(-90.0);
@@ -44,8 +45,21 @@ const LIGHT_POSITION: [f32; 3] = [2., 2., 100.];
 const LIGHT_COLOR: Option<[f32; 3]> = Some([1.; 3]);
 const LIGHT_MOVEMENT_SPEED: f32 = 5.;
 
-const PARTICLE_COLOR: ParticleColor = ParticleColor::VelocityGraded;
-const BOUNDARY_PARTICLE_COLOR: ParticleColor = ParticleColor::FixedColor([0.; 3]);
+const RADIUS: f32 = 0.4;
+
+const PARTICLE_VISUALIZATION: FluidVisualization = FluidVisualization::Samples {
+    positions: Vec::new(),
+    coloring: FluidColoring::QuantityGraded {
+        quantity: ScalarQuantity::SpeedGraded(Vec::new()),
+    },
+};
+const BOUNDARY_VISUALIZATION: BoundaryVisualization = BoundaryVisualization::Samples {
+    positions: Vec::new(),
+    coloring: BoundarySampleColoring::BoundaryId {
+        val: Vec::new(),
+        max_id: 0,
+    },
+};
 
 pub struct AppState {
     pub window: Arc<winit::window::Window>,
@@ -56,11 +70,13 @@ pub struct AppState {
     pub light: lighting::LightBundle,
     pub model: model::ModelAssets,
     pub instances: instances::InstanceStore,
+    pub scene_buffers: scene_buffers::SceneBuffers,
     pub ui: ui::UIState,
     pub messages: Vec<UserInput>,
     pub frame: frame_control::FrameControl,
     pub screenshot: readback::ReadbackController,
     pub settings: settings::Settings,
+    pub measurement_series: Option<MeasurementSeries>,
 }
 
 impl AppState {
@@ -70,9 +86,10 @@ impl AppState {
         rendering_dir: Option<String>,
         start_time: Option<f64>,
         finish_time: Option<f64>,
+        measurement_file_path: Option<String>,
         discard_past: bool,
         wait_for_timesteps: bool,
-    ) -> Result<Self, tobj::LoadError> {
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let window_arc = Arc::new(window);
 
         let size = window_arc.inner_size();
@@ -113,14 +130,12 @@ impl AppState {
         let ui = ui::UIState::new(
             window_arc.clone(),
             &gpu,
-            PARTICLE_COLOR,
-            BOUNDARY_PARTICLE_COLOR,
+            PARTICLE_VISUALIZATION,
+            BOUNDARY_VISUALIZATION,
             start_resumed,
             rendering_dir.is_some(),
             discard_past,
         );
-
-        let instances = instances::InstanceStore::new(&gpu);
 
         let frame = frame_control::FrameControl::default();
 
@@ -128,6 +143,17 @@ impl AppState {
             ReadbackController::new(&gpu, size, rendering_dir, start_time, finish_time);
 
         let settings = settings::Settings::new(wait_for_timesteps);
+
+        let measurement_series = match measurement_file_path.as_deref().map(MeasurementSeries::new)
+        {
+            Some(Ok(ms)) => Some(ms),
+            Some(Err(e)) => {
+                #[cfg(feature = "logging")]
+                error!("Failed to handle measurement file: {}", e);
+                return Err(format!("Failed to handle measurement file: {}", e).into());
+            }
+            None => None,
+        };
 
         Ok(Self {
             window: window_arc,
@@ -138,11 +164,13 @@ impl AppState {
             light,
             model,
             ui,
-            instances,
+            instances: instances::InstanceStore::new(),
+            scene_buffers: scene_buffers::SceneBuffers::empty(),
             messages: Vec::new(),
             frame,
             screenshot,
             settings,
+            measurement_series,
         })
     }
 
@@ -271,14 +299,10 @@ impl AppState {
         let staging_settings = instances::StagingSettings::new(
             self.ui.controls.get_cut().clone(),
             self.ui.controls.is_boundary_hidden(),
-            self.ui.controls.particle_color,
-            self.ui.controls.boundary_particle_color,
         );
         let mut frame_new = false;
         // get next rendered instances
         match self.instances.stage_next(
-            &self.gpu,
-            &staging_settings,
             next_action,
             self.ui.controls.is_playing_forward(),
             self.ui.controls.is_playing_looped(),
@@ -315,22 +339,37 @@ impl AppState {
                 frame_new = true;
             }
             instances::StagingResult::StoppedAtLoopEndWithNoneTaken => {
-                self.instances.update_staged(&self.gpu, &staging_settings);
+                // self.instances.update_staged(&self.gpu, &staging_settings);
                 if !self.ui.controls.is_past_discarded() || !self.settings.wait_for_timesteps {
                     self.ui.controls.playback_controls.pause();
                 }
                 self.frame.rendering_new_sim_state_now();
             }
             instances::StagingResult::NoneTaken | instances::StagingResult::NothingToStage => {
-                self.instances.update_staged(&self.gpu, &staging_settings);
+                // self.instances.update_staged(&self.gpu, &staging_settings);
                 if !self.ui.controls.is_playing() {
                     self.frame.rendering_new_sim_state_now();
                 }
             }
             instances::StagingResult::Uninitialized => (),
         }
+        if (frame_new || self.scene_buffers.needs_update(&staging_settings))
+            && let Some(info) = self.instances.get_time_step_info()
+        {
+            let cut = self.ui.controls.get_cut();
+            let boundary_hidden = self.ui.controls.is_boundary_hidden();
+            self.scene_buffers = SceneBuffers::build(
+                &self.gpu,
+                info,
+                staging_settings,
+                cut,
+                boundary_hidden,
+                RADIUS, // from SimulationParameters.particle_diameter / 2
+            );
+        }
+
         self.ui.update_time_step_info(
-            self.instances.get_info(),
+            self.instances.get_time_step_info(),
             self.instances.remaining_buffer_len(),
         );
 
@@ -404,25 +443,96 @@ impl AppState {
             });
 
             // 1. Draw light indicator (uses sphere mesh)
-            render_pass.set_vertex_buffer(1, self.instances.buffer.slice(..));
+            // render_pass.set_vertex_buffer(1, self.instances.buffer.slice(..));
             render_pass.set_pipeline(&self.pipelines.light);
             render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
             render_pass.set_bind_group(1, &self.light.bind_group, &[]);
             // Draw a single sphere mesh at the light position (shader offsets by light.position)
             for mesh in &self.model.sphere_mesh.meshes {
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass
+                    .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.num_elements, 0, 0..1);
             }
 
-            // 2. Draw sph samples as impostors
-            let particle_count = self.instances.particle_count();
-            if particle_count > 0 {
-                render_pass.set_pipeline(&self.pipelines.particle);
-                render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
-                render_pass.set_bind_group(1, &self.light.bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.instances.buffer.slice(..));
-                render_pass.draw(0..6, 0..particle_count);
+            // 2. Draw boundary
+            // let particle_count = self.instances.particle_count();
+            // if particle_count > 0 {
+            //     render_pass.set_pipeline(&self.pipelines.particle);
+            //     render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+            //     render_pass.set_bind_group(1, &self.light.bind_group, &[]);
+            //     render_pass.set_vertex_buffer(0, self.instances.buffer.slice(..));
+            //     render_pass.draw(0..6, 0..particle_count);
+            // }
+            match &self.scene_buffers.boundary {
+                BoundaryGpuData::Mesh {
+                    vertex_buffer,
+                    index_buffer,
+                    num_indices,
+                } => {
+                    render_pass.set_pipeline(&self.pipelines.mesh_opaque);
+                    render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.light.bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                }
+                BoundaryGpuData::Particles {
+                    instance_buffer,
+                    count,
+                } => {
+                    render_pass.set_pipeline(&self.pipelines.particle);
+                    render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.light.bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
+                    render_pass.draw(0..6, 0..*count);
+                }
+                BoundaryGpuData::None => {}
+            }
+            // 2. Draw fluid
+            match &self.scene_buffers.fluid {
+                FluidGpuData::Particles {
+                    instance_buffer,
+                    count,
+                } => {
+                    render_pass.set_pipeline(&self.pipelines.particle);
+                    render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.light.bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
+                    render_pass.draw(0..6, 0..*count);
+                }
+                FluidGpuData::SensorPlane {
+                    vertex_buffer,
+                    index_buffer,
+                    num_indices,
+                } => {
+                    render_pass.set_pipeline(&self.pipelines.mesh_opaque);
+                    render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.light.bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                }
+                FluidGpuData::Mesh {
+                    vertex_buffer,
+                    index_buffer,
+                    num_indices,
+                    transparent,
+                } => {
+                    // Transparent must be drawn last
+                    let pipeline = if *transparent {
+                        &self.pipelines.mesh_transparent
+                    } else {
+                        &self.pipelines.mesh_opaque
+                    };
+                    render_pass.set_pipeline(pipeline);
+                    render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.light.bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                }
+                FluidGpuData::None => {}
             }
         }
         // submit will accept anything that implements IntoIter

@@ -2,8 +2,10 @@
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use crate::for_each;
 use crate::integration_schemes::IntegrationScheme;
-use crate::sample::Fluid3D;
+use crate::fluid::Fluid3D;
 
+
+#[derive(Default)]
 pub struct EulerCromer;
 
 impl IntegrationScheme for EulerCromer {

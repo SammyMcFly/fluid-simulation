@@ -6,13 +6,15 @@ use rayon::prelude::*;
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 
 use crate::for_each;
+use crate::setup::input::Parameters;
+use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::kernel::KernelFn;
-use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
+use crate::fluid::{Fluid3D, Len};
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
-use crate::sph::vector;
+use crate::utilities::vector;
 use crate::neighbor_search::NeighborList;
 
 #[allow(dead_code)]
@@ -35,12 +37,24 @@ pub struct IISPH {
 }
 
 impl PressureSolver for IISPH {
+    fn new(params: &Parameters) -> Self {
+        Self {
+            target_density_error: params.target_density_error,
+            relaxation_factor: params.relaxation_factor,
+            min_diagonal_element: params.min_diagonal_element,
+            s_f: Vec::new(),
+            a_ff: Vec::new(),
+            pressure_acc_f: Vec::new(),
+            last_solver_iterations: u32::default(),
+            predicted_density_error: f64::default(),
+        }
+    }
+
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
     ) {
@@ -55,8 +69,7 @@ impl PressureSolver for IISPH {
                 self,
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
                 false,
             );
@@ -66,8 +79,7 @@ impl PressureSolver for IISPH {
             self.resolve_pressure_globally::<K>(
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
                 false,
                 // TerminationCondition::AfterIteration(params.solver_iterations),
@@ -80,8 +92,7 @@ impl PressureSolver for IISPH {
             None,
             fluid,
             boundary,
-            neighbors,
-            boundary_neighbors,
+            neighbor_list,
             params,
             false,
             false,
@@ -100,19 +111,6 @@ impl PressureSolver for IISPH {
 }
 
 impl IISPH {
-    pub fn new(target_density_error: f64, relaxation_factor: f64, min_diagonal_element: f64) -> Self {
-        Self {
-            target_density_error,
-            relaxation_factor,
-            min_diagonal_element,
-            s_f: Vec::new(),
-            a_ff: Vec::new(),
-            pressure_acc_f: Vec::new(),
-            last_solver_iterations: u32::default(),
-            predicted_density_error: f64::default(),
-        }
-    }
-
     pub fn resize_scratch(&mut self, len: usize) {
         self.s_f.resize(len, 0.0);
         self.a_ff.resize(len, 0.0);
@@ -123,9 +121,8 @@ impl IISPH {
     pub fn set_source_term_vde<K: KernelFn>(
         &mut self,
         fluid: &Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
     ) {
         // compute source term s_f of pressure linear equation system
@@ -135,8 +132,8 @@ impl IISPH {
                 pos_now = fluid.position,
                 vel_pred = fluid.velocity_pred,
                 volume = fluid.volume,
-                neighbors = neighbors,
-                boundary_neighbors = boundary_neighbors
+                neighbors = neighbor_list,
+                boundary = boundary
             ],
             |id, id_s_f| {
                 let mut accu = 0.;
@@ -154,7 +151,7 @@ impl IISPH {
                             ),
                         );
                 }
-                for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
+                for &boundary_neighbor in boundary.get_neighbors(id) {
                     let r_vec = vector(
                         boundary.pos_now(boundary_neighbor),
                         &pos_now[id],
@@ -180,9 +177,8 @@ impl IISPH {
     pub fn set_source_term_vp<K: KernelFn>(
         &mut self,
         fluid: &Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
         with_pred_positions: bool,
     ) {
@@ -194,8 +190,8 @@ impl IISPH {
                 pos_pred = fluid.position_pred,
                 vel_pred = fluid.velocity_pred,
                 volume = fluid.volume,
-                neighbors = neighbors,
-                boundary_neighbors = boundary_neighbors
+                neighbors = neighbor_list,
+                boundary = boundary
             ],
             |id, id_s_f| {
                 let mut accu = 1. - params.rest_volume / volume[id];
@@ -225,7 +221,7 @@ impl IISPH {
                             ),
                         );
                 }
-                for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
+                for &boundary_neighbor in boundary.get_neighbors(id) {
                     // select position
                     let particle_pos = if with_pred_positions {
                         pos_pred[id]
@@ -258,9 +254,8 @@ impl IISPH {
     fn set_diagonal_element<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
         with_pred_positions: bool,
     ) {
@@ -272,8 +267,8 @@ impl IISPH {
                 pos_pred = fluid.position_pred,
                 mass = fluid.mass,
                 volume = fluid.volume,
-                neighbors = neighbors,
-                boundary_neighbors = boundary_neighbors,
+                neighbors = neighbor_list,
+                boundary = boundary,
             ],
             |id, id_a_ff| {
                 // calc intermediate variables
@@ -313,7 +308,7 @@ impl IISPH {
                         .norm_squared();
                 }
                 let mut sum_boundary = Vector3::zeros();
-                for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
+                for &boundary_neighbor in boundary.get_neighbors(id) {
                     // select position
                     let particle_pos = if with_pred_positions {
                         pos_pred[id]
@@ -386,7 +381,9 @@ impl IISPH {
             TerminationCondition::AfterIteration(number) => solver_iteration < *number,
             TerminationCondition::TargetDensityError(tde) => {
                 let min_solver_iterations = 2;
-                solver_iteration < min_solver_iterations || predicted_density_error > *tde
+                let max_solver_iteration = u32::MAX;
+                // let max_solver_iteration = 100;
+                (solver_iteration < min_solver_iterations || predicted_density_error > *tde) && solver_iteration < max_solver_iteration
             }
         }
     }
@@ -399,9 +396,8 @@ impl IISPH {
     pub fn resolve_pressure_globally<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
         with_pred_positions: bool,
         termination_condition: TerminationCondition,
@@ -411,8 +407,7 @@ impl IISPH {
         self.set_diagonal_element::<K>(
             fluid,
             boundary,
-            neighbors,
-            boundary_neighbors,
+            neighbor_list,
             params,
             with_pred_positions,
         );
@@ -432,12 +427,12 @@ impl IISPH {
                 Some(&mut self.pressure_acc_f),
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
                 with_pred_positions,
                 true,
             );
+
             // perform self iteration for all fluid particles
             let mut pred_density_errors: Vec<f64> = vec![0.0; fluid.len()];
             for_each!(
@@ -447,8 +442,8 @@ impl IISPH {
                     pos_pred = fluid.position_pred,
                     pressure_acc_f = self.pressure_acc_f,
                     volume = fluid.volume,
-                    neighbors = neighbors,
-                    boundary_neighbors = boundary_neighbors,
+                    neighbors = neighbor_list,
+                    boundary = boundary,
                     s_f = self.s_f,
                     a_ff = self.a_ff,
                 ],
@@ -480,7 +475,7 @@ impl IISPH {
                                     params.kernel_support_radius,
                                 ));
                     }
-                    for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
+                    for &boundary_neighbor in boundary.get_neighbors(id) {
                         // select positions
                         let particle_pos = if with_pred_positions {
                             pos_pred[id]

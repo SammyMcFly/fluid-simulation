@@ -1,8 +1,8 @@
 //! Messages to front end
-use simulation_lib::{SimulationParameters, TimeStepInfo};
+use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
 
 pub enum WorkerMessage {
-    TimeIncFinished(TimeStepInfo),
+    TimeIncFinished(Box<TimeStepInfo>),
     SimulationLoaded(SimulationParameters),
     SavedScreenshot,
     SavedState,
@@ -10,5 +10,5 @@ pub enum WorkerMessage {
     FinishedResetting(SimulationParameters),
     ReachedStartTime,
     ReachedFinishTime,
-    Error(String),
+    Error(Box<dyn std::error::Error + Send + Sync>),
 }

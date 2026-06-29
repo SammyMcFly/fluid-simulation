@@ -2,8 +2,10 @@
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use crate::for_each;
 use crate::integration_schemes::IntegrationScheme;
-use crate::sample::Fluid3D;
+use crate::fluid::Fluid3D;
 
+
+#[derive(Default)]
 pub struct Verlet;
 
 impl IntegrationScheme for Verlet {
@@ -21,9 +23,11 @@ impl IntegrationScheme for Verlet {
             ],
             |id, id_pos_now, id_vel_now| {
                 // update positions
-                *id_pos_now =  2.0 * pos_prev[id]
+                *id_pos_now =  (
+                    2.0 * pos_prev[id]
                     - pos_pred[id]
-                    + dt.powi(2) * acceleration[id];
+                    + dt.powi(2) * acceleration[id]
+                ).into();
                 // update velocities
                 *id_vel_now = (*id_pos_now - pos_prev[id])
                     / dt;

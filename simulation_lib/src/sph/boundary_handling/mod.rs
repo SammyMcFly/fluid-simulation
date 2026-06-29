@@ -1,51 +1,74 @@
 /// Boundary handling module
-use gauss_quad::GaussLegendre;
-use parry3d::shape::Triangle;
-use parry3d::query::PointQuery;
-// use approx::assert_abs_diff_eq;
-use std::f64::consts::PI;
+use nalgebra::{Point3, Vector3};
+use parry3d_f64::shape::TriMesh;
+use serde::Deserialize;
+use std::slice::SliceIndex;
 
-pub trait BoundaryRepresentation {
-    fn initialize();
-    fn add_viscosity_acceleration();
-    fn add_pressure_acceleration();
+use crate::{
+    neighbor_search::NeighborSearch, render_info::BoundaryVisualization, sph::kernel::KernelFn,
+};
+
+mod static_sample_boundary;
+// mod volume_maps;
+
+pub use static_sample_boundary::StaticSampleBoundary;
+// pub use volume_maps::VolumeMaps;
+
+#[derive(Debug, Deserialize)]
+pub enum BoundaryHandlingVariant {
+    StaticSampleBoundary,
+    // VolumeMaps,
 }
 
-/// Integrates f(x, y, z) over a sphere with radius R with Gauß-Legendre quadrature.
-fn integrate_sphere_volume<F>(
-    f: F,
-    radius: f64,
-    n: usize,
-) -> f64
-where
-    F: Fn(f64, f64, f64) -> f64,
-{
-    let quad = GaussLegendre::new(n.try_into().unwrap());
+pub trait BoundaryHandling: Send + Sync {
+    fn new() -> Self;
 
-    quad.integrate(0.0, radius, |r| {
-        r.powi(2) * quad.integrate(0.0, PI, |theta| {
-            theta.sin() * quad.integrate(0.0, 2. * PI, |phi| {
-                let x = r * theta.sin() * phi.cos();
-                let y = r * theta.sin() * phi.sin();
-                let z = r * theta.cos();
-                f(x,y,z)
-            })
-        })
-    })
-}
+    fn is_empty(&self) -> bool;
 
-fn closest_point_on_triangle() {
-    let triangle = Triangle::new(
-        parry3d::math::Vec3::new(0.0, 0.0, 0.0),
-        parry3d::math::Vec3::new(1.0, 0.0, 0.0),
-        parry3d::math::Vec3::new(0.0, 1.0, 0.0),
+    fn add_boundary(
+        &mut self,
+        mesh: &TriMesh,
+        id: u32,
+        rest_density_grid_spacing: f64,
+        // boundary_params: BoundaryParameters,
     );
 
-    let point = parry3d::math::Vec3::new(0.5, 0.5, 1.0);
+    fn initialize<K: KernelFn>(
+        &mut self,
+        neighbor_search: &mut impl NeighborSearch,
+        kernel_support_radius: f64,
+        boundary_rest_volume_weighting: f64,
+    );
 
-    // Projects the point onto the triangle (closest point)
-    let closest = triangle.project_local_point(point, true);
+    fn find_boundary_samples(
+        &mut self,
+        neighbor_search: &mut impl NeighborSearch,
+        within_range: f64,
+        positions: &[Point3<f64>],
+    );
 
-    println!("Closest point: {:?}", closest.point);
-    println!("Is inside: {:?}", closest.is_inside);
+    fn get_neighbors(&self, id: usize) -> &[usize];
+
+    fn pos_now<I>(&self, id: I) -> &I::Output
+    where
+        I: SliceIndex<[Point3<f64>]>;
+
+    fn vel_now<I>(&self, id: I) -> &I::Output
+    where
+        I: SliceIndex<[Vector3<f64>]>;
+
+    fn volume<I>(&self, id: I) -> &I::Output
+    where
+        I: SliceIndex<[f64]>;
+
+    // fn density(&self, id: usize) -> &f64;
+
+    fn get_fluid_depth(&self, fluid_volume: f64) -> f64;
+
+    fn get_visualization(&self, selector: &BoundaryVisualization) -> BoundaryVisualization;
 }
+
+// #[derive(Debug, Default)]
+// struct BoundaryParameters {
+//     density: Vec<f64>,
+// }

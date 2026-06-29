@@ -21,8 +21,13 @@ use app::messages::WorkerMessage;
 struct Args {
     /// File path to input .toml file with scene info
     // #[arg(default_value_t=String::from("scene_config.toml"))]
-    config: Option<String>,
+    params: String,
+    /// File path to file, which the to be simulated scene is defined in
+    #[arg(long)]
+    scene: String,
     /// File path to file with state of all fluid particles of a system, where to start simulating from
+    ///
+    /// If this argument is set the fluid defined in --scene is ignored.
     #[arg(long)]
     state: Option<String>,
     /// File path to store measurements to (.csv file)

@@ -1,10 +1,10 @@
 //! Worker commands
 use rendering_lib::readback::ReadbackRequest;
-use simulation_lib::sample::SerFluid3D;
+use simulation_lib::render_info::FluidVisualization;
 
 pub enum WorkerCommand {
     ReadRecording(String),
     SaveScreenshot(ReadbackRequest),
-    SaveState { fluid: SerFluid3D, filepath: String },
+    SaveState { fluid: FluidVisualization, filepath: String },
     Stop,
 }

@@ -4,7 +4,9 @@
 use iced_widget::{Space, Toggler, button, column, container, row}; //text_input, slider
 use iced_winit::core::{Color, Element, Length, Theme};
 
-use simulation_lib::{ParticleColor, SimulationParameters, TimeStepInfo};
+use simulation_lib::render_info::{
+    BoundaryVisualization, FluidVisualization, SimulationParameters, TimeStepInfo,
+};
 
 use crate::ui::UserInput;
 use cut::*;
@@ -20,8 +22,8 @@ pub struct RenderControls {
     pub buffer_control: BufferControl,
     pub hide_boundary: bool,
     pub cut: cut::Cut,
-    pub particle_color: ParticleColor,
-    pub boundary_particle_color: ParticleColor,
+    pub fluid_visualization: FluidVisualization,
+    pub boundary_visualization: BoundaryVisualization,
     pub background_color: iced_winit::core::Color,
 
     pub info: info::UIInfo,
@@ -29,8 +31,8 @@ pub struct RenderControls {
 
 impl RenderControls {
     pub fn new(
-        particle_color: ParticleColor,
-        boundary_particle_color: ParticleColor,
+        fluid_visualization: FluidVisualization,
+        boundary_visualization: BoundaryVisualization,
         start_resumed: bool,
         is_rendered: bool,
         discard_past: bool,
@@ -40,8 +42,8 @@ impl RenderControls {
             buffer_control: BufferControl::new(discard_past),
             hide_boundary: false,
             cut: Cut::default(),
-            particle_color,
-            boundary_particle_color,
+            fluid_visualization,
+            boundary_visualization,
             background_color: Color::WHITE,
 
             info: info::UIInfo::new(is_rendered),
@@ -100,14 +102,14 @@ impl RenderControls {
             }
             UserInput::ToggleHideBoundary => self.hide_boundary = !self.hide_boundary,
             UserInput::ToggleCutX => {
-                self.cut.x = !self.cut.x;
+                self.cut.x_active = !self.cut.x_active;
             }
             UserInput::CutXBoundChanged(bound) => self.cut.x_bound += bound,
             UserInput::FlipCutX => {
                 self.cut.x_flip();
             }
             UserInput::ToggleCutY => {
-                self.cut.y = !self.cut.y;
+                self.cut.y_active = !self.cut.y_active;
             }
             UserInput::CutYBoundChanged(bound) => {
                 self.cut.y_bound += bound;
@@ -123,8 +125,6 @@ impl RenderControls {
     }
 
     pub fn new_simulation(&mut self, info: SimulationParameters) {
-        self.particle_color = info.particle_color;
-        self.boundary_particle_color = info.boundary_particle_color;
         self.info.update_simulation_info(info);
     }
 

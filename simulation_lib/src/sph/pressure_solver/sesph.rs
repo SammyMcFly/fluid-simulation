@@ -3,9 +3,11 @@
 use rayon::prelude::*;
 
 use crate::for_each;
+use crate::setup::input::Parameters;
+use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::kernel::KernelFn;
-use crate::sample::{Fluid3D, Boundary3D};
+use crate::fluid::Fluid3D;
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::pressure_solver::add_pressure_acceleration;
@@ -16,15 +18,20 @@ pub struct SESPH {
 }
 
 impl PressureSolver for SESPH {
+    fn new(params: &Parameters) -> Self {
+        Self {
+            stiffness: params.stiffness,
+        }
+    }
+
     // Calculate and update pressure for all particles for the current point in time.
     ///
     /// Function uses a state equation to calculate the pressure locally.
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
     ) {
@@ -51,8 +58,7 @@ impl PressureSolver for SESPH {
             None,
             fluid,
             boundary,
-            neighbors,
-            boundary_neighbors,
+            neighbor_list,
             params,
             false,
             false,
@@ -63,14 +69,6 @@ impl PressureSolver for SESPH {
         SolverMeasurementInfo {
             stiffness: self.stiffness,
             ..Default::default()
-        }
-    }
-}
-
-impl SESPH {
-    pub fn new(stiffness: f64) -> Self {
-        Self {
-            stiffness,
         }
     }
 }

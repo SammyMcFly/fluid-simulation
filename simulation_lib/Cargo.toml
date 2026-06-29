@@ -4,13 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = [] # managed by meta crate
+default = ["logging", "parallel"]
 
 # Features
 logging = ["dep:tracing"]
 parallel = ["dep:rayon"]
-pseudo_volume_boundary = []
 cfl_time_step = []
+
+
 
 # [dev-dependencies]
 # criterion ={ version = "0.5.1", features = ["html_reports"] }
@@ -28,7 +29,10 @@ cfl_time_step = []
 nalgebra = "0.35"
 
 # collision detection
-parry3d = "0.28.0"
+parry3d-f64 = "0.28"
+
+# surface reconstruction
+splashsurf_lib = "0.14.1"
 
 # numer handling
 num-traits = "0.2.19"
@@ -44,6 +48,9 @@ crossbeam = "0.8.4"
 
 # parsing file content
 serde = { version = "1.0", features = ["derive"] }
+
+# loading .obj and .mtl files (triangle meshes)
+tobj = "4.0.4"
 
 # storing struct in the RON format
 ron = "0.11"

@@ -1,5 +1,5 @@
 use core::f64;
-use simulation_lib::sample::{Boundary3D, SerBoundary3D, Len, Expandable, Positional};
+use simulation_lib::fluid::{Boundary3D, SerBoundary3D, Len, Expandable, Positional};
 use nalgebra::Vector3;
 
 fn v(x: f64, y: f64, z: f64) -> Vector3<f64> {

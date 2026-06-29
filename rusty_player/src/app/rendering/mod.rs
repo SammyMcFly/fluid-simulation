@@ -6,7 +6,7 @@ use crossbeam::channel::Sender;
 use tracing::debug; // error, trace, warn, debug, info,
 
 use rendering_lib::*;
-use simulation_lib::{SimulationParameters, TimeStepInfo};
+use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
 use ui::UserInput;
 
 use crate::app::backend::commands::WorkerCommand;
@@ -41,14 +41,14 @@ impl Player for AppState {
                     debug!("Pressed Step!");
                 }
                 UserInput::RequestReset => {
-                    self.instances.reset(&self.gpu, false);
+                    self.instances.reset(false);
                     self.frame.reset();
                 }
                 UserInput::RequestSaving => {
                     if self.instances.is_active() {
                         to_worker
                             .send(WorkerCommand::SaveState {
-                                fluid: self.instances.get_info().unwrap().fluid.clone(),
+                                fluid: self.instances.get_time_step_info().unwrap().fluid.clone(),
                                 filepath: "./state.ron".to_string(),
                             })
                             .unwrap()

@@ -2,6 +2,7 @@
 //!
 //!
 use image::{ImageBuffer, Rgba};
+use simulation_lib::render_info::FluidVisualization;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -12,10 +13,9 @@ use rendering_lib::readback::{ReadbackBuffer, ReadbackRequest};
 
 use crate::app::backend::SimulationParameters;
 
-use super::sample::SerFluid3D;
 
 /// Store the current state of all fluid particles to a file
-pub fn save_system_state(fluid: SerFluid3D, file_path: &str) -> std::io::Result<()> {
+pub fn save_system_state(fluid: FluidVisualization, file_path: &str) -> std::io::Result<()> {
     let file_path = Path::new(file_path);
     // convert to global path
     let file_path_parent = std::fs::canonicalize(

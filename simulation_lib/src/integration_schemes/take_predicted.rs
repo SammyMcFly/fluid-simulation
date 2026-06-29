@@ -1,8 +1,10 @@
 /// Integration scheme that takes the predicted position and velocity as new current position and velocity
 use crate::integration_schemes::IntegrationScheme;
-use crate::sample::Fluid3D;
+use crate::fluid::Fluid3D;
 use nalgebra::Vector3;
 
+
+#[derive(Default)]
 pub struct TakePredicted {
     position_pred: Vec<Vector3<f64>>,
     velocity_pred: Vec<Vector3<f64>>,

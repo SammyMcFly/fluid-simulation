@@ -5,9 +5,10 @@ use iced_wgpu::wgpu;
 use iced_winit::runtime::user_interface::UserInterface;
 use iced_winit::winit;
 use iced_winit::winit::event::WindowEvent;
+use simulation_lib::render_info::{
+    BoundaryVisualization, FluidVisualization, SimulationParameters, TimeStepInfo,
+};
 use std::sync::Arc;
-
-use simulation_lib::{ParticleColor, SimulationParameters, TimeStepInfo};
 
 use crate::readback::ReadbackRequest;
 
@@ -32,6 +33,9 @@ pub enum UserInput {
     ToggleCutY,
     CutYBoundChanged(f32),
     FlipCutY,
+    ToggleCutZ,
+    CutZBoundChanged(f32),
+    FlipCutZ,
     DiscardPast,
     DiscardPastToggle,
     RequestReadback(ReadbackRequest),
@@ -55,16 +59,16 @@ impl UIState {
     pub fn new(
         window: Arc<winit::window::Window>,
         gpu_context: &super::gpu_context::GpuContext,
-        particle_color: ParticleColor,
-        boundary_particle_color: ParticleColor,
+        fluid_visualization: FluidVisualization,
+        boundary_visualization: BoundaryVisualization,
         start_resumed: bool,
         is_rendered: bool,
         discard_past: bool,
     ) -> Self {
         // initialize GUI controls
         let controls = controls::RenderControls::new(
-            particle_color,
-            boundary_particle_color,
+            fluid_visualization,
+            boundary_visualization,
             start_resumed,
             is_rendered,
             discard_past,

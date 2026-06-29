@@ -1,32 +1,40 @@
 /// Module provides the necessary entities for an efficient
 /// neighbor search implementation
-use nalgebra::Vector3;
+use nalgebra::Point3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use serde::Deserialize;
 
 use crate::for_each;
 pub mod spatial_hashing;
 
 pub use spatial_hashing::SpatialHashing;
 
+
+#[derive(Debug, Deserialize)]
+pub enum NeighborSearchVariant {
+    SpatialHashing,
+}
+
 pub trait NeighborSearch: Send + Sync {
-    fn find_neighbors(
+    /// Initialize spatial hashing with given cell size.
+    fn new(within_range: f64) -> Self;
+    fn find_samples(
         &mut self,
         within_range: f64,
-        fluid_positions: &[Vector3<f64>],
-        boundary_positions: &[Vector3<f64>],
-        fluid_neighbors: &mut NeighborList,
-        boundary_neighbors: &mut NeighborList,
+        positions: &[Point3<f64>],
+        sample_positions: &[Point3<f64>],
+        neighbor_list: &mut NeighborList,
     );
 }
 
 /// Calculate the distance between two 3D points
-pub fn distance(from: &Vector3<f64>, to: &Vector3<f64>) -> f64 {
+pub fn distance(from: &Point3<f64>, to: &Point3<f64>) -> f64 {
     (to - from).norm()
 }
 
 /// Struct that stores neighbors of samples in a flat array
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NeighborList {
     /// Flat neighbor list
     data: Vec<usize>,

@@ -1,11 +1,13 @@
+use nalgebra::Point3;
 /// Acceleration module
 use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::for_each;
+use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::kernel::KernelFn;
-use crate::sample::{Fluid3D, Boundary3D, Positional};
+use crate::fluid::Fluid3D;
 use crate::sph::SystemParameters;
 use crate::sph::vector;
 use crate::neighbor_search::NeighborList;
@@ -24,21 +26,21 @@ pub fn reset_acceleration(
 }
 
 /// Add gravity acceleration to all not boundary particles
-pub fn add_gravity(
+pub fn add_gravity_acceleration(
     fluid: &mut Fluid3D,
 ) {
     for_each!(
         mut [fluid.acceleration],
-        ref [],
-        |_id, id_acceleration| {
+        ref [position = fluid.position],
+        |id, id_acceleration| {
             let strength_of_gravity = 9.81;
             // gravitate downwards
-            let accu = Vector3::new(0.0, 0.0, -strength_of_gravity);
+            *id_acceleration +=  Vector3::new(0.0, 0.0, -strength_of_gravity);
             // gravitate around point
-            // let gravitation_center = Vector3::new(0.0, 0.0, 0.0);
-            // let accu = strength_of_gravity*(gravitation_center-fluid.pos_now(id));
-
-            *id_acceleration += accu;
+            // let gravitation_center = Point3::new(0.0, 0.0, 0.0);
+            // let direction = vector(&position[id], &gravitation_center);
+            // let direction_normalized = direction/direction.norm();
+            // *id_acceleration +=  strength_of_gravity*direction_normalized;
         }
     );
 }
@@ -46,9 +48,8 @@ pub fn add_gravity(
 /// Calculate viscosity acceleration at current time and add it to respective particles
 pub fn add_viscosity_acceleration<K: KernelFn>(
     fluid: &mut Fluid3D,
-    boundary: &Boundary3D,
+    boundary: &impl BoundaryHandling,
     neighbors: &NeighborList,
-    boundary_neighbors: &NeighborList,
     params: &SystemParameters,
 ) {
     for_each!(
@@ -58,7 +59,7 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
             vel_now = fluid.velocity,
             volume = fluid.volume,
             neighbors = neighbors,
-            boundary_neighbors = boundary_neighbors
+            boundary = boundary
         ],
         |id, id_acceleration| {
             let mut accu = Vector3::zeros();
@@ -76,14 +77,14 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                         .dot(&(pos_now[id] - pos_now[neighbor]))
                     / ((pos_now[id] - pos_now[neighbor])
                         .norm_squared()
-                        + 0.01 * params.smoothing_length.powi(2))
+                        + 0.01 * params.rest_density_grid_spacing.powi(2))
                     * K::kernel_gradient(
                         &r_vec,
                         params.kernel_support_radius,
                     );
             }
-            // add viscostiy acceleration from boundary particles
-            for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
+            // add viscostiy acceleration contribution from boundary
+            for &boundary_neighbor in boundary.get_neighbors(id) {
                 let r_vec = vector(
                     boundary.pos_now(boundary_neighbor),
                     &pos_now[id],
@@ -100,7 +101,7 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                     / ((pos_now[id]
                         - *boundary.pos_now(boundary_neighbor))
                     .norm_squared()
-                        + 0.01 * params.smoothing_length.powi(2))
+                        + 0.01 * params.rest_density_grid_spacing.powi(2))
                     * K::kernel_gradient(
                         &r_vec,
                         params.kernel_support_radius,

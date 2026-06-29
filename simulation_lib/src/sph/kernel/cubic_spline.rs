@@ -1,6 +1,7 @@
 /// Cubic B-Spline kernel function module
 use super::KernelFn;
 
+
 pub struct CubicBSpline3D;
 
 impl KernelFn for CubicBSpline3D {

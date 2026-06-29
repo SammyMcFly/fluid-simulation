@@ -3,7 +3,8 @@
 use iced_widget::{column, row, text};
 use iced_winit::core::{Color, Theme};
 
-use simulation_lib::{SimulationParameters, TimeStepInfo, measurement::RecordingStatus};
+use simulation_lib::measurement::RecordingStatus;
+use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
 
 #[derive(Debug, Clone, Copy)]
 enum MRR {
@@ -99,10 +100,9 @@ impl UIInfo {
     pub fn update_time_step_info(&mut self, info: Option<&TimeStepInfo>, queue_len: usize) {
         self.queue_length = queue_len;
         if let Some(info) = info {
-            self.time = info.time;
-            self.time_increment = info.time_increment;
-            self.density_error = 100.
-                * (info.average_density / self.simulation_info.as_ref().unwrap().rest_density - 1.);
+            self.time = info.measurement.time as f32;
+            self.time_increment = info.measurement.time_step_size as f32;
+            self.density_error = info.measurement.density_error as f32;
         } else {
             self.density_error = f32::default();
         }

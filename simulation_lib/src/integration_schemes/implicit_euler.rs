@@ -1,10 +1,12 @@
 /// Implicit Euler integration scheme
 use crate::for_each;
 use crate::integration_schemes::IntegrationScheme;
-use crate::sample::{Fluid3D, Len};
+use crate::fluid::{Fluid3D, Len};
 use nalgebra::Vector3;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
+
+#[derive(Default)]
 pub struct ImplicitEuler {
     // Scratch buffers (reused each step, values don't carry over)
     pub d_l: Vec<Vector3<f64>>,
@@ -15,12 +17,7 @@ pub struct ImplicitEuler {
 
 impl ImplicitEuler {
     pub fn new() -> Self {
-        Self {
-            d_l: Vec::new(),
-            r_l: Vec::new(),
-            alpha_l: Vec::new(),
-            a_times_d_l: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Ensure scratch buffers match current particle count

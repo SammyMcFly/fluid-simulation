@@ -1,11 +1,16 @@
-# Scene configuration file
+# Configuration file
+[procedures]
+kernel_function = "CubicBSpline3D" # CubicBSpline
+integration_scheme = "EulerCromer" #
+pressure_solver = "IISPH" #
+neighbor_search = "SpatialHashing" # SpatialHashing, Octree
+boundary_handling = "StaticSampleBoundary" # StaticSampleBoundary, VolumeMaps
 
 [parameters] # General parameters
 buffer_length_limit = 1000
-rest_density = 900.0 # rest density of fluid
 rest_density_grid_spacing = 0.8 # (not hot swappable)
 kernel_support_radius = 1.6 # (not hot swappable)
-disable_particles_below = -30
+disable_particles_below = -50
 fluid_viscosity = 0.2
 boundary_viscosity = 0.2
 boundary_pressure_acceleration_weighting = 0.7 # gamma
@@ -25,29 +30,10 @@ time_increment = 0.006
 max_time_increment = 0.015
 cfl_number = 0.4
 
-[light]
-position = [ 2.0, 2.0, 100.0 ] # (not hot swappable)
+[[parameters.fluid]]
+id = 0
+rest_density = 900.0 # rest density of fluid
 
-[scene]
-type = "NoLidCube"
-
-[scene.parameters.particles]
-n_particles_x = 15
-n_particles_y = 15
-n_particles_z = 20
-x_offset = -0.0
-y_offset = -0.0
-z_offset = 0.0
-particle_spacing = 0.85
-
-[scene.parameters.boundary_particles]
-n_floor_particles_x = 30
-n_floor_particles_y = 30
-n_floor_particles_z = 1
-wall_height = 30 # wall is at the edge but above floor
-x_wall_thickness = 1
-y_wall_thickness = 1
-x_offset = -2.0
-y_offset = -2.0
-z_offset = -3.0
-particle_spacing = 0.8
+[[parameters.fluid]]
+id = 1
+rest_density = 100.0 # rest density of fluid

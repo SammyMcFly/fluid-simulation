@@ -75,6 +75,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             self.args.rendering_dir.clone(),
             self.args.start_time,
             self.args.finish_time,
+            None,
             DISCARD_PAST,
             WAIT_FOR_TIMESTEPS,
         ) {

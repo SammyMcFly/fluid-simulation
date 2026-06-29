@@ -1,9 +1,16 @@
 /// Kernel functions
 ///
 use nalgebra::Vector3;
+use serde::Deserialize;
 
 pub mod cubic_spline;
 pub use cubic_spline::CubicBSpline3D;
+
+
+#[derive(Debug, Deserialize)]
+pub enum KernelFnVariant {
+    CubicBSpline3D,
+}
 
 /// Kernel function trait according to 'Boundary Handling and Neighbor Search in Iterative Incompressible SPH' by Stefan Band
 ///

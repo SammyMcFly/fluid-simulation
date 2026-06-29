@@ -15,8 +15,8 @@ edition = "2024"
 # debug = true
 
 [dependencies]
-simulation_lib = { path = "../simulation_lib" }
-rendering_lib = { path = "../rendering_lib" }
+simulation_lib = { path = "../simulation_lib", features = ["default"]}
+rendering_lib = { path = "../rendering_lib", features = ["default"]}
 
 # linear algebra
 nalgebra = "0.34.1"

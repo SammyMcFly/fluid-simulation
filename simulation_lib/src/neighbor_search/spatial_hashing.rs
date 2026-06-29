@@ -1,5 +1,5 @@
 /// Spatial hashing neighbor search algorithm
-use nalgebra::Vector3;
+use nalgebra::{Point3, Vector3};
 use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -18,42 +18,15 @@ type UniformGridCell = Vector3<i32>;
 /// This strategy is called spacial hashing.
 #[derive(Debug, Clone)]
 pub struct SpatialHashing {
-    fluid_cells: FxHashMap<u64, Vec<usize>>,
-    boundary_cells: FxHashMap<u64, Vec<usize>>,
+    cells: FxHashMap<u64, Vec<usize>>,
     cell_size: f64,
 }
 
 impl SpatialHashing {
-    /// Initialize spatial hashing with given cell size.
-    ///
-    /// # Performance guidance
-    ///
-    /// `cell_size` should be close to the search range (`within_range`) passed to
-    /// `find_neighbors`. Specifically:
-    ///
-    /// - **`cell_size ≈ range`** → searches a 3×3×3 = 27 cell neighborhood (optimal)
-    /// - **`cell_size ≈ range / 2`** → searches a 5×5×5 = 125 cell neighborhood (fewer false positives, more overhead)
-    /// - **`cell_size >> range`** → few cells searched, but each cell contains many
-    ///   particles that fail the distance check
-    ///
-    /// A good default is `cell_size = within_range`
-    pub fn new(cell_size: f64) -> Self {
-        Self {
-            fluid_cells: FxHashMap::default(),
-            boundary_cells: FxHashMap::default(),
-            cell_size,
-        }
-    }
-
-    /// Create a spatial hashing structure with optimal cell size for the given range.
-    pub fn from_range(within_range: f64) -> Self {
-        Self::new(within_range/2.)
-    }
-
     /// Insert samples from array into target hash map
     fn populate(
         target: &mut FxHashMap<u64, Vec<usize>>,
-        fluid_positions: &[Vector3<f64>],
+        fluid_positions: &[Point3<f64>],
         cell_size: f64,
     ) {
         (0..fluid_positions.len()).for_each(|id| {
@@ -64,7 +37,7 @@ impl SpatialHashing {
     }
 
     /// Given a sample's position, calculate its grid cell
-    fn get_cell(position: &Vector3<f64>, cell_size: f64) -> UniformGridCell {
+    fn get_cell(position: &Point3<f64>, cell_size: f64) -> UniformGridCell {
         UniformGridCell::new(
             (position.x / cell_size).floor() as i32,
             (position.y / cell_size).floor() as i32,
@@ -101,8 +74,8 @@ impl SpatialHashing {
     /// specific position.
     fn get_particles_in_range(
         source_cells: &FxHashMap<u64, Vec<usize>>,
-        position: &Vector3<f64>,
-        other_positions: &[Vector3<f64>],
+        position: &Point3<f64>,
+        sample_positions: &[Point3<f64>],
         cell_size: f64,
         range: f64,
     ) -> Vec<usize> {
@@ -118,7 +91,7 @@ impl SpatialHashing {
                     if let Some(neighbors) = source_cells.get(&hash) {
                         for &neighbor in neighbors {
                             // Distance check
-                            if distance(&other_positions[neighbor], position) < range
+                            if distance(&sample_positions[neighbor], position) < range
                             {
                                 particles_in_kernel_range.push(neighbor);
                             }
@@ -132,56 +105,58 @@ impl SpatialHashing {
 }
 
 impl NeighborSearch for SpatialHashing {
+    /// Initialize spatial hashing with given cell size.
+    fn new(within_range: f64) -> Self {
+        // # Performance guidance
+        //
+        // `cell_size` should be close to the search range (`within_range`) passed to
+        // `find_neighbors`. Specifically:
+        //
+        // - **`cell_size ≈ within_range`** → searches a 3×3×3 = 27 cell neighborhood (optimal)
+        // - **`cell_size ≈ within_range / 2`** → searches a 5×5×5 = 125 cell neighborhood (fewer false positives, more overhead)
+        // - **`cell_size >> within_range`** → few cells searched, but each cell contains many
+        //   particles that fail the distance check
+        //
+        // A good default is `cell_size = within_range`
+        Self {
+            cells: FxHashMap::default(),
+            cell_size: within_range,
+        }
+    }
+
     /// Perform neighbor search for all fluid particles
     ///
     /// Adds fluid neighbors and boundary neighbors as neighbors
-    fn find_neighbors(
+    fn find_samples(
         &mut self,
         within_range: f64,
-        fluid_positions: &[Vector3<f64>],
-        boundary_positions: &[Vector3<f64>],
-        fluid_neighbors: &mut super::NeighborList,
-        boundary_neighbors: &mut super::NeighborList,
+        positions: &[Point3<f64>],
+        sample_positions: &[Point3<f64>],
+        neighbor_list: &mut super::NeighborList,
     ) {
-        fluid_neighbors.resize(fluid_positions.len());
-        boundary_neighbors.resize(fluid_positions.len());
-        fluid_neighbors.clear();
-        boundary_neighbors.clear();
+        neighbor_list.resize(positions.len());
+        neighbor_list.clear();
 
         // Build grid from fluid positions
-        self.fluid_cells.clear();
-        Self::populate(&mut self.fluid_cells, fluid_positions, self.cell_size);
-
-        // Build grid from boundary positions
-        self.boundary_cells.clear();
-        Self::populate(&mut self.boundary_cells, boundary_positions, self.cell_size);
+        self.cells.clear();
+        Self::populate(&mut self.cells, sample_positions, self.cell_size);
 
         for_each!(
-            mut [fluid_neighbors.neighbors_mut(), boundary_neighbors.neighbors_mut()],
-            ref [fluid_pos = fluid_positions, boundary_pos = boundary_positions],
-            |id, id_neighbors, id_boundary_neighbors| {
+            mut [neighbor_list.neighbors_mut()],
+            ref [pos = positions, neighbor_pos = sample_positions],
+            |id, id_neighbors| {
                 // update neighbors
                 let neighbors = Self::get_particles_in_range(
-                    &self.fluid_cells,
-                    &fluid_pos[id],
-                    fluid_pos,
+                    &self.cells,
+                    &pos[id],
+                    neighbor_pos,
                     self.cell_size,
                     within_range,
                 );
                 *id_neighbors = neighbors;
-                // update boundary neighbors
-                let boundary_neighbors = Self::get_particles_in_range(
-                    &self.boundary_cells,
-                    &fluid_pos[id],
-                    boundary_pos,
-                    self.cell_size,
-                    within_range,
-                );
-                *id_boundary_neighbors = boundary_neighbors;
             }
         );
-        fluid_neighbors.flatten();
-        boundary_neighbors.flatten();
+        neighbor_list.flatten();
     }
 }
 
@@ -193,8 +168,8 @@ mod tests {
 
     // ─── Helper functions ───────────────────────────────────────────────
 
-    fn pos(x: f64, y: f64, z: f64) -> Vector3<f64> {
-        Vector3::new(x, y, z)
+    fn pos(x: f64, y: f64, z: f64) -> Point3<f64> {
+        Point3::new(x, y, z)
     }
 
     /// Collect neighbors of particle `id` as a sorted Vec for order-independent comparison

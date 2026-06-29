@@ -12,7 +12,7 @@ use iced_winit::winit::event_loop::EventLoopProxy;
 use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
 use rendering_lib::readback::{ReadbackBuffer, ReadbackRequest};
-use simulation_lib::{SimulationParameters, TimeStepInfo, sample::SerFluid3D};
+use simulation_lib::render_info::{FluidVisualization, SimulationParameters, TimeStepInfo};
 
 pub mod commands;
 
@@ -73,7 +73,7 @@ fn read_recording(file_path: &str) -> std::io::Result<(SimulationParameters, Vec
 }
 
 /// Store the current state of all fluid particles to a file
-pub fn save_system_state(fluid: SerFluid3D, file_path: &str) -> std::io::Result<()> {
+pub fn save_system_state(fluid: FluidVisualization, file_path: &str) -> std::io::Result<()> {
     let file_path = Path::new(file_path);
     // convert to global path
     let file_path_parent = std::fs::canonicalize(
@@ -204,7 +204,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                             }
                             Err(e) => {
                                 info!("Failed reading recording!");
-                                let _ = to_ui.send_event(WorkerMessage::Error(e.to_string()));
+                                let _ = to_ui.send_event(WorkerMessage::Error(e.to_string().into()));
                             }
                         }
                     }
@@ -217,7 +217,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                             WorkerMessage::SavedState
                         } else {
                             error!("Failed to save state!");
-                            WorkerMessage::Error("Failed to save state!".to_string())
+                            WorkerMessage::Error("Failed to save state!".to_string().into())
                         };
                         let _ = to_ui.send_event(save_message);
                     }
@@ -249,7 +249,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: EventLoopProxy<Worke
                                 let _ = to_ui.send_event(WorkerMessage::SavedScreenshot);
                             }
                             Err(e) => {
-                                let _ = to_ui.send_event(WorkerMessage::Error(e.to_string()));
+                                let _ = to_ui.send_event(WorkerMessage::Error(e.to_string().into()));
                             }
                         }
                     }

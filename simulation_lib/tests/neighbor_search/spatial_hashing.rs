@@ -25,7 +25,7 @@ fn find_neighbors_empty_positions() {
     let mut fluid_nbrs = NeighborList::new(0);
     let mut boundary_nbrs = NeighborList::new(0);
 
-    sh.find_neighbors(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
     // Should not panic
 }
 
@@ -37,7 +37,7 @@ fn find_neighbors_single_particle_no_boundary() {
     let mut fluid_nbrs = NeighborList::new(1);
     let mut boundary_nbrs = NeighborList::new(1);
 
-    sh.find_neighbors(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     // Finds itself
     assert_eq!(fluid_nbrs.get_neighbors(0), &[0]);
@@ -52,7 +52,7 @@ fn find_neighbors_two_close_particles() {
     let mut fluid_nbrs = NeighborList::new(2);
     let mut boundary_nbrs = NeighborList::new(2);
 
-    sh.find_neighbors(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     assert!(sorted_neighbors(&fluid_nbrs, 0).contains(&1));
     assert!(sorted_neighbors(&fluid_nbrs, 1).contains(&0));
@@ -66,7 +66,7 @@ fn find_neighbors_two_far_particles() {
     let mut fluid_nbrs = NeighborList::new(2);
     let mut boundary_nbrs = NeighborList::new(2);
 
-    sh.find_neighbors(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     // Each only finds itself
     assert_eq!(fluid_nbrs.get_neighbors(0), &[0]);
@@ -81,7 +81,7 @@ fn find_neighbors_boundary_particles_found() {
     let mut fluid_nbrs = NeighborList::new(1);
     let mut boundary_nbrs = NeighborList::new(1);
 
-    sh.find_neighbors(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     // Boundary particle 0 is close, particle 1 is far
     let b_nbrs = sorted_neighbors(&boundary_nbrs, 0);
@@ -101,7 +101,7 @@ fn find_neighbors_symmetry() {
     let mut fluid_nbrs = NeighborList::new(3);
     let mut boundary_nbrs = NeighborList::new(3);
 
-    sh.find_neighbors(1.5, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(1.5, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     // If i is neighbor of j, then j is neighbor of i
     for i in 0..3 {
@@ -130,7 +130,7 @@ fn find_neighbors_cluster() {
     let mut fluid_nbrs = NeighborList::new(4);
     let mut boundary_nbrs = NeighborList::new(4);
 
-    sh.find_neighbors(1.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(1.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     // Every particle should be neighbor of every other
     for i in 0..4 {
@@ -160,7 +160,7 @@ fn find_neighbors_two_separate_clusters() {
     let mut fluid_nbrs = NeighborList::new(4);
     let mut boundary_nbrs = NeighborList::new(4);
 
-    sh.find_neighbors(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     // Cluster A particles are neighbors of each other
     assert!(sorted_neighbors(&fluid_nbrs, 0).contains(&1));
@@ -184,11 +184,11 @@ fn find_neighbors_respects_range_parameter() {
     let mut boundary_nbrs = NeighborList::new(2);
 
     // Range = 1.0 → distance 1.5 is out of range
-    sh.find_neighbors(1.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(1.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
     assert!(!fluid_nbrs.get_neighbors(0).contains(&1));
 
     // Range = 2.0 → distance 1.5 is within range
-    sh.find_neighbors(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
     assert!(fluid_nbrs.get_neighbors(0).contains(&1));
 }
 
@@ -201,7 +201,7 @@ fn find_neighbors_diagonal_3d() {
     let mut fluid_nbrs = NeighborList::new(2);
     let mut boundary_nbrs = NeighborList::new(2);
 
-    sh.find_neighbors(1.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(1.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     assert!(fluid_nbrs.get_neighbors(0).contains(&1));
     assert!(fluid_nbrs.get_neighbors(1).contains(&0));
@@ -216,7 +216,7 @@ fn find_neighbors_across_cell_boundary() {
     let mut fluid_nbrs = NeighborList::new(2);
     let mut boundary_nbrs = NeighborList::new(2);
 
-    sh.find_neighbors(1.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(1.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
 
     // Distance = 0.2, should be neighbors
     assert!(fluid_nbrs.get_neighbors(0).contains(&1));
@@ -232,12 +232,12 @@ fn find_neighbors_called_multiple_times() {
 
     // First call: close particles
     let fluid_pos_1 = vec![pos(0.0, 0.0, 0.0), pos(0.5, 0.0, 0.0)];
-    sh.find_neighbors(2.0, &fluid_pos_1, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos_1, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
     assert!(fluid_nbrs.get_neighbors(0).contains(&1));
 
     // Second call: particles moved apart
     let fluid_pos_2 = vec![pos(0.0, 0.0, 0.0), pos(100.0, 0.0, 0.0)];
-    sh.find_neighbors(2.0, &fluid_pos_2, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos_2, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
     assert!(!fluid_nbrs.get_neighbors(0).contains(&1));
 }
 
@@ -250,10 +250,10 @@ fn find_neighbors_large_cell_size() {
     let mut boundary_nbrs = NeighborList::new(2);
 
     // Range < distance → not neighbors even though in same cell
-    sh.find_neighbors(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(2.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
     assert!(!fluid_nbrs.get_neighbors(0).contains(&1));
 
     // Range > distance → neighbors
-    sh.find_neighbors(6.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
+    sh.find_samples(6.0, &fluid_pos, &boundary_pos, &mut fluid_nbrs, &mut boundary_nbrs);
     assert!(fluid_nbrs.get_neighbors(0).contains(&1));
 }

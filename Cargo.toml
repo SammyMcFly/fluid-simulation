@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "meta",
     "rendering_lib",
     "rusty_fluid_solver",
     "rusty_player",

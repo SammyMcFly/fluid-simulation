@@ -4,34 +4,34 @@ use nalgebra::Matrix3;
 use rayon::prelude::*;
 
 use crate::for_each;
+use crate::setup::input::Parameters;
+use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::kernel::KernelFn;
-use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
-use crate::sph::{SystemParameters, vector, Outer};
+use crate::fluid::{Fluid3D, Len};
+use crate::sph::{SystemParameters, Outer};
 use crate::sph::CurrentSystemProperties;
 use crate::sph::pressure_solver::iisph::{IISPH, TerminationCondition};
 use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
 use crate::neighbor_search::NeighborList;
+use crate::utilities::vector;
 
 pub struct IISPHwOST {
     inner: IISPH,
 }
 
-impl IISPHwOST {
-    pub fn new(target_density_error: f64, relaxation_factor: f64, min_diagonal_element: f64) -> Self {
+impl PressureSolver for IISPHwOST {
+    fn new(params: &Parameters) -> Self {
         Self {
-            inner: IISPH::new(target_density_error, relaxation_factor, min_diagonal_element),
+            inner: IISPH::new(params),
         }
     }
-}
 
-impl PressureSolver for IISPHwOST {
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
     ) {
@@ -45,8 +45,7 @@ impl PressureSolver for IISPHwOST {
             self.inner.set_source_term_vde::<K>(
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
             );
             // self.set_source_term_vp(false);
@@ -54,8 +53,7 @@ impl PressureSolver for IISPHwOST {
             self.inner.resolve_pressure_globally::<K>(
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
                 false,
                 TerminationCondition::AfterIteration(3),
@@ -67,8 +65,7 @@ impl PressureSolver for IISPHwOST {
                 None,
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
                 false,
                 true,
@@ -97,8 +94,7 @@ impl PressureSolver for IISPHwOST {
             self.inner.set_source_term_vp::<K>(
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
                 false,
             );
@@ -106,8 +102,7 @@ impl PressureSolver for IISPHwOST {
             self.inner.resolve_pressure_globally::<K>(
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
                 false,
                 TerminationCondition::TargetDensityError(self.inner.target_density_error),
@@ -118,8 +113,7 @@ impl PressureSolver for IISPHwOST {
                 None,
                 fluid,
                 boundary,
-                neighbors,
-                boundary_neighbors,
+                neighbor_list,
                 params,
                 false,
                 true,
@@ -134,8 +128,8 @@ impl PressureSolver for IISPHwOST {
                     vel_pred = fluid.velocity_pred,
                     acceleration = fluid.acceleration,
                     volume = fluid.volume,
-                    neighbors = neighbors,
-                    boundary_neighbors = boundary_neighbors,
+                    neighbors = neighbor_list,
+                    boundary = boundary,
                     // s_f = self.s_f,
                     // a_ff = self.a_ff,
                 ],
@@ -158,7 +152,7 @@ impl PressureSolver for IISPHwOST {
                                 ),
                             );
                     }
-                    for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
+                    for &boundary_neighbor in boundary.get_neighbors(id) {
                         let r_vec = vector(
                             boundary.pos_now(boundary_neighbor),
                             &pos_now[id],

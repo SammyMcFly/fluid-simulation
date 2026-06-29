@@ -3,13 +3,15 @@
 use rayon::prelude::*;
 
 use crate::for_each;
+use crate::setup::input::Parameters;
+use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::kernel::KernelFn;
-use crate::sample::{Fluid3D, Boundary3D, Len, Positional};
+use crate::fluid::{Fluid3D, Len};
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
-use crate::sph::vector;
+use crate::utilities::vector;
 use crate::neighbor_search::NeighborList;
 
 pub struct SESPHwSplitting {
@@ -18,12 +20,18 @@ pub struct SESPHwSplitting {
 }
 
 impl PressureSolver for SESPHwSplitting {
+    fn new(params: &Parameters) -> Self {
+        Self {
+            stiffness: params.stiffness,
+            density_pred: Vec::new(),
+        }
+    }
+
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
     ) {
@@ -33,8 +41,7 @@ impl PressureSolver for SESPHwSplitting {
         self.calc_predicted_density::<K>(
             fluid,
             boundary,
-            neighbors,
-            boundary_neighbors,
+            neighbor_list,
             params,
         );
         // compute pressure
@@ -62,8 +69,7 @@ impl PressureSolver for SESPHwSplitting {
             None,
             fluid,
             boundary,
-            neighbors,
-            boundary_neighbors,
+            neighbor_list,
             params,
             false,
             false,
@@ -79,13 +85,6 @@ impl PressureSolver for SESPHwSplitting {
 }
 
 impl SESPHwSplitting {
-    pub fn new(stiffness: f64) -> Self {
-        Self {
-            stiffness,
-            density_pred: Vec::new(),
-        }
-    }
-
     pub fn resize_scratch(&mut self, len: usize) {
         self.density_pred.resize(len, 0.0);
     }
@@ -93,9 +92,8 @@ impl SESPHwSplitting {
     fn calc_predicted_density<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &Boundary3D,
-        neighbors: &NeighborList,
-        boundary_neighbors: &NeighborList,
+        boundary: &impl BoundaryHandling,
+        neighbor_list: &NeighborList,
         params: &SystemParameters,
     ) {
         for_each!(
@@ -104,8 +102,8 @@ impl SESPHwSplitting {
                 pos_now = fluid.position,
                 vel_pred = fluid.velocity_pred,
                 mass = fluid.mass,
-                neighbors = neighbors,
-                boundary_neighbors = boundary_neighbors,
+                neighbors = neighbor_list,
+                boundary = boundary,
             ],
             |id, density_pred| {
                 // reset density
@@ -128,13 +126,13 @@ impl SESPHwSplitting {
                             ));
                 }
                 // add density for every boundary neighbor (mirror mass of moving sample onto boundary sample)
-                for &boundary_neighbor in boundary_neighbors.get_neighbors(id) {
+                for &boundary_neighbor in boundary.get_neighbors(id) {
                     let r_vec = vector(
                         boundary.pos_now(boundary_neighbor),
                         &pos_now[id],
                     );
                     accu += *boundary.volume(boundary_neighbor)
-                        * params.rest_density
+                        * mass[id]/params.rest_volume
                         * K::kernel_function(
                             &r_vec,
                             params.kernel_support_radius,

@@ -7,6 +7,9 @@ use iced_winit::winit;
 use iced_winit::winit::event::{DeviceEvent, WindowEvent};
 use iced_winit::winit::event_loop::EventLoop;
 
+use rendering_lib::ui::controls::cut::Cut;
+use simulation_lib::measurement::Measurement;
+use simulation_lib::render_info::*;
 use tracing::{error, info}; // error, trace, warn, debug, info,
 
 use rendering_lib::AppState;
@@ -45,19 +48,58 @@ impl StateApplication {
         }));
 
         // send commands to backend depending on user input (args)
-        if args.config.is_some() {
-            to_worker
-                .send(WorkerCommand::Simulate {
-                    config: args.config.as_ref().unwrap().clone(),
-                    // config: args.config,
-                    state: args.state.clone(),
-                    measure: args.measurement_file.clone(),
-                    start_time: args.start_time,
-                    finish_time: args.finish_time,
-                    recording_file: args.recording_file.clone(),
-                })
-                .unwrap();
-        }
+        to_worker
+            .send(WorkerCommand::Simulate {
+                params_file_path: args.params.clone(),
+                scene_file_path: args.scene.clone(),
+                state_file_path: args.state.clone(),
+                measurement_file_path: args.measurement_file.clone(),
+                start_time: args.start_time,
+                finish_time: args.finish_time,
+                recording_file: args.recording_file.clone(),
+                with_info: Box::new(TimeStepInfo {
+                    measurement: Measurement::default(),
+                    fluid: FluidVisualization::SensorPlane {
+                        planes: Cut {
+                            x_active: false,
+                            x_bound: 0.0,
+                            x_inverse: false,
+                            x_inv: 0.0,
+                            y_active: true,
+                            y_bound: 15.0,
+                            y_inverse: false,
+                            y_inv: 0.0,
+                            z_active: false,
+                            z_bound: 0.0,
+                            z_inverse: false,
+                            z_inv: 0.0,
+                        }
+                        .sensor_plane_samples(
+                            0.1,
+                            [-10.0, 0.0, -15.0],
+                            [30.0, 20.0, 20.0],
+                            &ScalarQuantity::PressureGraded(vec![]),
+                        ),
+                    },
+                    // fluid: FluidVisualization::Samples {
+                    //     positions: Vec::new(),
+                    //     coloring: FluidColoring::QuantityGraded {
+                    //         quantity: ScalarQuantity::SpeedGraded(Vec::new()),
+                    //     },
+                    // },
+                    // fluid: FluidVisualization::Samples {
+                    //     positions: Vec::new(),
+                    //     coloring:  FluidColoring::FluidId { val: vec![], max_id: 0 },
+                    // },
+                    // fluid: FluidVisualization::TriangleMesh { mesh: RenderMesh::default() },
+                    boundary: BoundaryVisualization::Samples {
+                        positions: Vec::new(),
+                        coloring: BoundarySampleColoring::Uniform,
+                    },
+                    // boundary: BoundaryVisualization::TriangleMesh { mesh: RenderMesh::default(), coloring: BoundaryMeshColoring::Original },
+                }),
+            })
+            .unwrap();
 
         Self {
             state: Option::default(),
@@ -84,6 +126,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
             self.args.rendering_dir.clone(),
             self.args.start_time,
             self.args.finish_time,
+            self.args.measurement_file.clone(),
             DISCARD_PAST,
             WAIT_FOR_TIMESTEPS,
         ) {
@@ -140,7 +183,7 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
     ) {
         match event {
             WorkerMessage::TimeIncFinished(ts_info) => {
-                self.state.as_mut().unwrap().received_content(ts_info);
+                self.state.as_mut().unwrap().received_content(*ts_info);
             }
             WorkerMessage::SimulationLoaded(sim_info) => {
                 self.state
@@ -218,6 +261,15 @@ impl winit::application::ApplicationHandler<WorkerMessage> for StateApplication 
     // fn suspended(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {}
 
     fn exiting(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        if let Some(state) = &self.state {
+            if let Some(ms) = &state.measurement_series {
+                self.to_worker
+                    .send(WorkerCommand::SaveMeasurement {
+                        measurement_series: ms.clone(),
+                    })
+                    .unwrap();
+            }
+        }
         self.to_worker.send(WorkerCommand::Stop).unwrap();
         self.worker_handle
             .take()

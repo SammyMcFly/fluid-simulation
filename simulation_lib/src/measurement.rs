@@ -1,7 +1,8 @@
 //! Record states or measurements of the simulation system
 //!
 //!
-use serde::Serialize;
+use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
@@ -35,11 +36,13 @@ impl RecordingStatus {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Encode, Decode)]
 pub struct Measurement {
     pub time: f64,
-    // Average density relative to rest density
+    // Average density
     pub density: f64,
+    // Average density relative to rest density in percent
+    pub density_error: f64,
     // Average kinetic energy
     pub kinetic_energy: f64,
     pub stiffness: f64,
@@ -49,12 +52,8 @@ pub struct Measurement {
     pub fluid_depth: f64,
     /// Grid spacing when particles are ordered in a cubic grid at rest density
     pub rest_density_grid_spacing: f64,
-    /// Smoothing lenght h
-    pub smoothing_length: f64,
     /// Kernel support radius
     pub kernel_support_radius: f64,
-    /// Rest density of the fluid
-    pub rest_density: f64,
     pub time_step_size: f64,
     pub target_density_error: f64,
     pub solver_iterations: u32,
@@ -135,7 +134,7 @@ impl MeasurementSeries {
     // pub fn len(&self) -> usize {
     //     self.queue.len()
     // }
-    pub fn save(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         if self.queue.is_empty() {
             #[cfg(feature = "logging")]
             warn!("Saving empty measurement series!");

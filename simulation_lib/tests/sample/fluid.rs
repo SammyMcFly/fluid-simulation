@@ -1,5 +1,5 @@
 use core::f64;
-use simulation_lib::sample::{Fluid3D, SerFluid3D, Len, Expandable, Positional};
+use simulation_lib::fluid::{Fluid3D, SerFluid3D, Len, Positional};
 use nalgebra::Vector3;
 
 fn v(x: f64, y: f64, z: f64) -> Vector3<f64> {
@@ -283,19 +283,7 @@ fn fluid_roundtrip_conversion() {
     }
 }
 
-// ─── SerFluid3D ─────────────────────────────────────────────────────
-
-#[test]
-fn ser_fluid_vel_now() {
-    let ser = SerFluid3D {
-        position: vec![[0.0; 3]],
-        velocity: vec![[1.0, 2.0, 3.0]],
-        mass: 1.0,
-    };
-    assert_eq!(ser.vel_now(0), [1.0, 2.0, 3.0]);
-}
-
-    // ─── Edge cases ─────────────────────────────────────────────────────
+// ─── Edge cases ─────────────────────────────────────────────────────
 
 #[test]
 fn fluid_disable_all() {
