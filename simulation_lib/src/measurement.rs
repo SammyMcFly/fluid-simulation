@@ -62,7 +62,7 @@ pub struct Measurement {
     pub predicted_density_error: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MeasurementSeries {
     /// Container for intermediate storage of measurements
     queue: VecDeque<Measurement>,
