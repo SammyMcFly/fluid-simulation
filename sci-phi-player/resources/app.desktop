@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Sci P Hi
+Comment=SPH fluid simulation program
+Type=Application
+Icon=com.github.SammyMcFly.Sci-PHi
+Exec=sci-p-hi %F
+Terminal=false
+StartupNotify=true
+Categories=COSMIC
+Keywords=COSMIC
+MimeType=

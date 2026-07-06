@@ -1,4 +1,4 @@
-# Rusty Fluid Solver
+# Sci-PHi
 
 A physics-based **Smoothed Particle Hydrodynamics (SPH)** fluid simulation framework written in Rust, featuring real-time 3D visualization, recording, and playback.
 
@@ -8,25 +8,25 @@ This workspace implements a 3D SPH fluid solver with an interactive wgpu-based r
 
 ## Workspace Crates
 
-| Crate | Type | Description |
-|-------|------|-------------|
-| `meta` | lib | Synchronous feature management |
-| `simulation_lib` | lib | SPH kernels, integration schemes, pressure solvers, neighbor search, scene setup |
-| `rendering_lib` | lib | wgpu-based 3D renderer with camera, lighting, UI overlay, and screenshot export |
-| `rusty_fluid_solver` | bin | Main application — runs SPH simulation with real-time visualization |
-| `rusty_player` | bin | Playback application for recorded simulation data |
-
+```
+├── sci-phi/                # Main simulation binary (this crate)
+├── sci-phi-backend/        # backend library with worker function and communication API 
+├── sci-phi-player/         # Playback-only binary
+├── sci-phi-player-backend/ # backend library for `sci-phi-player`
+├── rendering_lib/          # 3D rendering library (FluidRenderer, FluidViewport, etc.)
+└── simulation_lib/         # SPH simulation library
+```
 ## Related Tools
 
 | Tool | Description |
 |------|-------------|
-| [`rusty_measurement_runner`](https://github.com/SammyMcFly/fluid-simulation-automation) | Automates parameter sweeps by executing `rusty_fluid_solver` across predefined combinations of simulation parameters |
+| [`rusty_measurement_runner`](https://github.com/SammyMcFly/fluid-simulation-automation) | Automates parameter sweeps by executing `sci-phi` across predefined combinations of simulation parameters |
 | [`rusty_plotter`](https://github.com/SammyMcFly/fluid-simulation-plotting) | Visualizes `.csv` measurement outputs as 2D/3D plots for analysis and comparison |
 
 ### Workflow
 
 ```
-rusty_fluid_solver ──► .csv measurement files ──► rusty_plotter ──► plots (.png / .svg)
+     sci-phi ──► .csv measurement files ──► rusty_plotter ──► plots (.png / .svg)
         ▲
         │
 rusty_measurement_runner (automates parameter sweeps)
@@ -67,29 +67,48 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
   - Accept predicted state (`TakePredicted`) — used by `IISPHwOST`
   <!-- - Implicit Euler with conjugate gradient (WIP) -->
 - **Viscosity** — artificial viscosity for fluid–fluid and fluid–boundary interactions
-- **Boundary Handling** — static boundary particles with volume computation to allow irregular sampling
+- **Boundary Handling**  (trait: `BoundaryHandling`)
+  - static sample boundary with (rest) volume computation to allow irregular sampling
+  - volume maps (WIP)
 - **Adaptive Time Stepping** via CFL condition (feature: `cfl_time_step`)
 
 ### Rendering
 
 - Real-time 3D particle visualization via **wgpu**
-- Instanced sphere rendering with Phong lighting
-
-- Interactive camera (orbit, pan, zoom)
-- Cross-section cut planes for interior inspection
-
-- On-screen simulation info and playback controls
-- Frame export to `.png` for offline video creation
+- libcosmic UI
+- Instanced billboard-sphere rendering with Phong lighting
+- Interactive camera (orbit, pan, zoom) with smooth per-frame
+  updates (~60 Hz `CameraTick`) and one-click camera reset
+- Configurable fluid visualization options:
+  - Samples with color mapping by scalar fields (e.g. velocity/pressure/density)
+  - Reconstructed surface
+  - Sensor plane for scalar field visualization
+- Configurable boundary visualization options:
+  - Triangle mesh
+  - Samples in case of static sample boundary
+- Cross-section axis-aligned cut planes on all three axes for interior
+  inspection
+- Simulation info (time step, particle count, …)
+  and playback controls (play/pause, step forward/back)
+- Screenshots to `.png` at any time from the top bar
+- Offline rendering mode: writes a `.png` per frame to a
+  user-supplied `rendering_dir`, with optional
+  `exit_when_finished` for batch/CI runs (assemble into
+  video with e.g. `ffmpeg`)
+<!--- Persistent view/visualization settings via the COSMIC
+  config system (per `APP_ID`)-->
+- Multi-threaded architecture: rendering on the UI thread,
+  simulation on a worker thread communicating over
+  `crossbeam` channels
 
 ### Performance
 
 - **Neighbor Search** algorithms (trait: `NeighborSearch`) for O(n·k) neighbor search
   (k = average neighbors per particle; optimal when `cell_size ≈ search_range`)
-  - Spatial Hashing with Uniform Grid
+  - Spatial Hashing with Uniform Grid with `rustc_hash::FxHashMap` for fast grid lookups
  <!--  - Octree -->
 - **Parallelization** with Rayon (feature: `parallel`)
 - **Structure-of-Arrays (SoA)** particle layout for cache-efficient iteration
-- `rustc_hash::FxHashMap` for fast grid lookups
 
 - Dedicated worker thread keeps UI responsive
 
@@ -98,7 +117,7 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 - Full simulation state serialization via `serde` + `bincode`
 - Record time step data to binary files
 
-- Replay recordings with `rusty_player`: play forward/backward, make incremental time steps
+- Replay recordings with `sci-phi-player`: play forward/backward, make incremental time steps
 - Measurement export to `.csv`
 
 ## Feature Flags
@@ -109,7 +128,7 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 | `cfl_time_step` | Adaptive time stepping based on CFL condition |
 | `logging` | Enable `tracing`-based structured logging |
 
-**Note:** Pressure solver and integration scheme are selected at compile time via type parameters on `System3D<K, I, P>`, not feature flags.
+**Note:** Pressure solver and integration scheme are selected at run time via parameter file.
 
 ## Getting Started
 
@@ -128,19 +147,19 @@ cargo build --release
 
 ### Build with specific features
 
-cargo build --release -p rusty_fluid_solver --features "parallel,cfl_time_step"
+cargo build --release -p sci-phi --features "parallel,cfl_time_step"
 ```
 
 ### Run the Simulation
 
 ```bash
-cargo run --release -p rusty_fluid_solver -- scene_config.toml
+cargo run --release -p sci-phi -- params.toml --scene scene.toml
 ```
 
 ### Run the Player
 
 ```bash
-cargo run --release -p rusty_player -- recording.bin
+cargo run --release -p sci-phi-player -- recording.bin
 ```
 
 ### Testing
@@ -163,31 +182,12 @@ cargo test -- --nocapture
 
 cargo test neighbor_search
 
-## CLI Reference
-
-### rusty_fluid_solver
-
-```bash
-cargo run --release -p rusty_fluid_solver -- [OPTIONS] [CONFIG]
 ```
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `config` | | Path to a `.toml` scene configuration file |
-| `--state <FILE>` | | Resume from a saved particle state file |
-| `--measurement-file <FILE>` | `-m` | Export measurements to `.csv` |
-| `--recording-file <FILE>` | | Record time steps to binary file |
-| `--rendering-dir <DIR>` | | Export rendered frames as `.png` |
-| `--start-time <T>` | `-s` | Begin measurement/recording/rendering at time T |
-| `--finish-time <T>` | `-f` | End measurement/recording/rendering at time T |
-| `--resume` | `-r` | Start simulation immediately (unpaused) |
-| `--exit` | `-e` | Exit automatically when finish time is reached |
-| `--log <LEVEL>` | `-l` | Log level: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `OFF` |
-
-### rusty_player
+<!--### sci-phi-player
 
 ```bash
-cargo run --release -p rusty_player -- [OPTIONS] [RECORDING]
+cargo run --release -p sci-phi-player -- [OPTIONS] [RECORDING]
 ```
 
 | Option | Short | Description |
@@ -197,46 +197,28 @@ cargo run --release -p rusty_player -- [OPTIONS] [RECORDING]
 | `--rendering-dir <DIR>` | | Export rendered frames as `.png` |
 | `--start-time <T>` | `-s` | Begin playback at time T |
 | `--finish-time <T>` | `-f` | Pause playback at time T |
-| `--log <LEVEL>` | `-l` | Log level (default: `INFO`) |
+| `--log <LEVEL>` | `-l` | Log level (default: `INFO`) |-->
 
-## Examples
-
-```bash
-
-### Basic simulation with default scene
-
-cargo run --release -p rusty_fluid_solver -- rusty_fluid_solver/scene_config.toml --resume
-
-### Record a simulation segment
-
-cargo run --release -p rusty_fluid_solver -- rusty_fluid_solver/scene_config.toml \
-    --recording-file output/sim.bin \
-    --start-time 0.5 --finish-time 3.0 --resume --exit
-
-### Export measurements
-
-cargo run --release -p rusty_fluid_solver -- rusty_fluid_solver/scene_config.toml \
-    --measurement-file output/data.csv --resume
-
-### Replay a recording and export frames
-
-cargo run --release -p rusty_player -- output/sim.bin \
-    --rendering-dir output/frames/ --resume
-```
 
 ## Dependencies
 
 | Crate | Purpose |
 |-------|---------|
 | `nalgebra` | Linear algebra (Vector3, Matrix3) |
-| `serde` / `bincode` / `toml` | Serialization and configuration |
+| `cgmath` | Linear algebra for graphics |
+| `libcosmic` | UI framework with wgpu reexport for rendering |
+| `clap` | CLI argument parsing |
+| `crossbeam` | Thread communication channels |
+| `serde` / `bincode` / `toml` / `tobj` / `ron` / `csv` / `image` | Serialization and file I/O |
 | `rayon` | Data parallelism |
 | `rustc_hash` | Fast hashing for spatial grid |
-| `crossbeam` | Thread communication channels |
-| `clap` | CLI argument parsing |
-| `wgpu` | GPU rendering backend |
-| `winit` / `iced_winit` | Windowing, event loop, and UI |
+| `parry3d-f64` | Triangle mesh handling |
+| `splashsurf_lib` | Surface reconstruction |
+| `gauss-quad` | Gaussian quadrature for numerical integration |
 | `tracing` / `tracing-subscriber` | Structured logging |
+| `rfd` | Native file dialogs |
+| `i18n-embed` / `i18n-embed-fl` | Localization |
+ 
 
 <!-- ## License
 

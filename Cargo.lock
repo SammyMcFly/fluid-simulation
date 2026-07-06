@@ -4964,7 +4964,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
-name = "rendering_libcosmic"
+name = "rendering_lib"
 version = "0.1.0"
 dependencies = [
  "ahash",
@@ -5280,7 +5280,7 @@ dependencies = [
  "num-traits",
  "open",
  "pollster",
- "rendering_libcosmic",
+ "rendering_lib",
  "rfd 0.15.4",
  "ron 0.12.2",
  "rust-embed",

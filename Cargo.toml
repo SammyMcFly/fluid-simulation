@@ -1,8 +1,10 @@
 [workspace]
 members = [
-    "rendering_libcosmic",
+    "rendering_lib",
     "sci-phi",
-    "simulation_backend",
+    "sci-phi-backend",
+    "sci-phi-player",
+    "sci-phi-player-backend",
     "simulation_lib",
 ]
 resolver = "3"
