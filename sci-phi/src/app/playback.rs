@@ -106,6 +106,7 @@ impl FrameControl {
 
 // ─── Staging Result ───────────────────────────────────────────
 
+#[derive(Debug)]
 pub enum StagingResult {
     Initialized,
     SteppedInTime {

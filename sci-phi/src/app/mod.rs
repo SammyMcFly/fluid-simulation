@@ -551,13 +551,14 @@ impl cosmic::Application for AppModel {
                 if self
                     .instances
                     .finished_loop(self.playback.is_playing_forward())
-                    && self.rendering.as_ref().is_some_and(|r| r.active)
+                    && !self.rendering.as_ref().is_some_and(|r| r.active)
                 {
                     self.instances.allow_looping_once(self.playback.is_looped());
                 }
             }
             Message::Pause => {
                 self.playback.pause();
+                self.instances.reset_allow_looping_once();
             }
             Message::StepForward => {
                 self.frame.step_forward();
@@ -973,13 +974,13 @@ impl cosmic::Application for AppModel {
                 self.frame.count_discarded_time_steps(discarded, true);
             }
             Message::ToggleLoop => {
-                if self.rendering.as_ref().map_or(true, |r| !r.active) {
+                if self.rendering.as_ref().is_none_or(|r| !r.active) {
                     self.sim_settings.play_looped = !self.sim_settings.play_looped;
                     self.playback.play_looped = self.sim_settings.play_looped;
                 }
             }
             Message::ToggleInvertTime => {
-                if self.rendering.as_ref().map_or(true, |r| !r.active) {
+                if self.rendering.as_ref().is_none_or(|r| !r.active) {
                     self.sim_settings.invert_time = !self.sim_settings.invert_time;
                     self.playback.direction = if self.sim_settings.invert_time {
                         playback::PlaybackDirection::Backward
@@ -1262,7 +1263,7 @@ impl AppModel {
                     "camera-photo-symbolic",
                     "Screenshot",
                     Message::TakeScreenshot,
-                    simulation_present && !self.rendering.as_ref().map_or(false, |s| s.active),
+                    simulation_present && !self.rendering.as_ref().is_some_and(|s| s.active),
                 ),
                 icon_button(
                     "document-save-symbolic",
@@ -1312,7 +1313,7 @@ impl AppModel {
                 Message::StepBackward,
                 simulation_present
                     && !self.playback.is_playing()
-                    && !self.rendering.as_ref().map_or(false, |s| s.active),
+                    && !self.rendering.as_ref().is_some_and(|s| s.active),
             ),
             icon_button(
                 play_pause_icon,
