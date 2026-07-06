@@ -66,9 +66,14 @@ pub struct Inspector {
 }
 
 impl Inspector {
-    pub fn new(is_measurement_saved: bool, is_recorded: bool, is_rendered_to_file: bool) -> Self {
+    pub fn new(
+        show: bool,
+        is_measurement_saved: bool,
+        is_recorded: bool,
+        is_rendered_to_file: bool,
+    ) -> Self {
         Self {
-            show: false,
+            show,
             tabs: widget::segmented_button::Model::builder()
                 .insert(|b| b.text(fl!("ts_info")).data(InspectorTab::Info).activate())
                 .insert(|b| b.text(fl!("logs")).data(InspectorTab::Logs))

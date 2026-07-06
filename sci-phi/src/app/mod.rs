@@ -270,6 +270,7 @@ impl cosmic::Application for AppModel {
             plot_settings: PlottingSettings::default(),
             about,
             inspector: inspector::Inspector::new(
+                true,
                 args.measurement_file.is_some(),
                 args.recording_file.is_some(),
                 args.rendering_dir.is_some(),
