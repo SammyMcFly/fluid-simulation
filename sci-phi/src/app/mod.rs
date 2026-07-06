@@ -34,6 +34,7 @@ use simulation_lib::measurement::{MeasurementSeries, RecordingStatus};
 use simulation_lib::render_info::{
     FluidSampleColoring, FluidVisualization, ScalarQuantity, TimeStepInfo,
 };
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
@@ -497,10 +498,12 @@ impl cosmic::Application for AppModel {
 
                 // Open native file dialog asynchronously
                 return cosmic::task::future(async move {
+                    let title = fl!("file-dialog", "save-state");
+                    let filter = fl!("file-dialog", "filter-ron");
                     let dialog = rfd::AsyncFileDialog::new()
-                        .set_title("Save Screenshot")
-                        .add_filter("PNG Image", &["png"])
-                        .set_file_name("screenshot.png")
+                        .set_title(title)
+                        .add_filter(filter, &["ron"])
+                        .set_file_name("state.ron")
                         .save_file()
                         .await;
 
@@ -531,10 +534,12 @@ impl cosmic::Application for AppModel {
 
                     // Open native file dialog asynchronously
                     return cosmic::task::future(async move {
+                        let title = fl!("file-dialog", "save-screenshot");
+                        let filter = fl!("file-dialog", "filter-png");
                         let dialog = rfd::AsyncFileDialog::new()
-                            .set_title("Save State")
-                            .add_filter("RON File", &["ron"])
-                            .set_file_name("state.ron")
+                            .set_title(title)
+                            .add_filter(filter, &["png"])
+                            .set_file_name("screenshot.png")
                             .save_file()
                             .await;
 
@@ -1018,77 +1023,48 @@ impl cosmic::Application for AppModel {
     fn dialog(&self) -> Option<Element<Self::Message>> {
         let dialog_page = self.dialog_page.as_ref()?;
 
+        // Hilfs-Closure, damit's kompakt bleibt.
+        let args = |what: &str| {
+            let mut m = HashMap::new();
+            m.insert("what", what.to_string());
+            m
+        };
+
+        let what = if (self.inspector.info.is_measurement_saved || self.inspector.info.is_recorded)
+            && self.inspector.info.is_rendered_to_file
+        {
+            fl!("dialog", "what-recording-and-rendering")
+        } else if self.inspector.info.is_measurement_saved || self.inspector.info.is_recorded {
+            fl!("dialog", "what-recording")
+        } else {
+            fl!("dialog", "what-rendering")
+        };
+
         let (title, body, action) = match dialog_page {
-            PendingAction::Close => {
-                let fill_in = if (self.inspector.info.is_measurement_saved
-                    || self.inspector.info.is_recorded)
-                    && self.inspector.info.is_rendered_to_file
-                {
-                    "recording and rendering?"
-                } else if self.inspector.info.is_measurement_saved
-                    || self.inspector.info.is_recorded
-                {
-                    "recording?"
-                } else {
-                    "rendering?"
-                };
-                (
-                    format!("Stop {}?", fill_in),
-                    format!(
-                        "Closing the window will stop the current {}. Continue?",
-                        fill_in
-                    ),
-                    "Stop & close",
-                )
-            }
-            PendingAction::Reload => {
-                let fill_in = if (self.inspector.info.is_measurement_saved
-                    || self.inspector.info.is_recorded)
-                    && self.inspector.info.is_rendered_to_file
-                {
-                    "recording and rendering?"
-                } else if self.inspector.info.is_measurement_saved
-                    || self.inspector.info.is_recorded
-                {
-                    "recording?"
-                } else {
-                    "rendering?"
-                };
-                (
-                    format!("Stop {}?", fill_in),
-                    format!("Reloading will stop the current {}. Continue?", fill_in),
-                    "Stop & continue",
-                )
-            }
-            PendingAction::ReloadWithCurrentVisualization => {
-                let fill_in = if (self.inspector.info.is_measurement_saved
-                    || self.inspector.info.is_recorded)
-                    && self.inspector.info.is_rendered_to_file
-                {
-                    "recording and rendering?"
-                } else if self.inspector.info.is_measurement_saved
-                    || self.inspector.info.is_recorded
-                {
-                    "recording?"
-                } else {
-                    "rendering?"
-                };
-                (
-                    format!("Stop {}?", fill_in),
-                    format!(
-                        "Changing the visualization will stop the current {}. Continue?",
-                        fill_in
-                    ),
-                    "Stop & continue",
-                )
-            }
+            PendingAction::Close => (
+                fl!("dialog", "title-stop", args(&what)),
+                fl!("dialog", "body-close", args(&what)),
+                fl!("dialog", "stop-close"),
+            ),
+            PendingAction::Reload => (
+                fl!("dialog", "title-stop", args(&what)),
+                fl!("dialog", "body-reload", args(&what)),
+                fl!("dialog", "stop-continue"),
+            ),
+            PendingAction::ReloadWithCurrentVisualization => (
+                fl!("dialog", "title-stop", args(&what)),
+                fl!("dialog", "body-visualization", args(&what)),
+                fl!("dialog", "stop-continue"),
+            ),
         };
 
         let dialog = widget::dialog()
             .title(title)
             .body(body)
             .primary_action(widget::button::destructive(action).on_press(Message::DialogConfirm))
-            .secondary_action(widget::button::standard("Cancel").on_press(Message::DialogCancel));
+            .secondary_action(
+                widget::button::standard(fl!("dialog", "cancel")).on_press(Message::DialogCancel),
+            );
 
         Some(dialog.into())
     }
@@ -1293,32 +1269,44 @@ impl AppModel {
     }
     fn top_bar(&self, page: Page) -> cosmic::Element<'_, Message> {
         let spacing = theme::active().cosmic().spacing;
-
         let simulation_present = self.instances.is_active();
+
+        // Localized tooltip strings — kept alive for the borrows below.
+        let s_reload = fl!("tooltip", "reload-simulation");
+        let s_camera = fl!("tooltip", "reset-camera");
+        let s_screen = fl!("tooltip", "screenshot");
+        let s_state = fl!("tooltip", "save-state");
+        let s_plot = fl!("tooltip", "save-plot");
+        let s_back = fl!("tooltip", "step-back");
+        let s_fwd = fl!("tooltip", "step-forward");
+        let s_pause = fl!("tooltip", "pause");
+        let s_play = fl!("tooltip", "play");
+        let s_inspect = fl!("tooltip", "inspector");
+        let s_settings = fl!("tooltip", "settings");
 
         let left = match page {
             Page::Simulation => row![
                 icon_button(
                     "view-refresh-symbolic",
-                    "Reload Simulation",
+                    s_reload,
                     Message::Reload,
                     simulation_present,
                 ),
                 icon_button(
                     "view-restore-symbolic",
-                    "Reset Camera",
+                    s_camera,
                     Message::ResetCamera,
                     simulation_present,
                 ),
                 icon_button(
                     "camera-photo-symbolic",
-                    "Screenshot",
+                    s_screen,
                     Message::TakeScreenshot,
                     simulation_present && !self.rendering.as_ref().is_some_and(|s| s.active),
                 ),
                 icon_button(
                     "document-save-symbolic",
-                    "Save Simulation State",
+                    s_state,
                     Message::SaveCurrentState,
                     simulation_present,
                 ),
@@ -1327,13 +1315,13 @@ impl AppModel {
             Page::Measurements => row![
                 icon_button(
                     "view-refresh-symbolic",
-                    "Reload Simulation",
+                    s_reload,
                     Message::Reload,
                     simulation_present,
                 ),
                 icon_button(
                     "document-save-symbolic",
-                    "Save Plot",
+                    s_plot,
                     Message::TakeScreenshot,
                     simulation_present,
                 ),
@@ -1347,9 +1335,9 @@ impl AppModel {
             "media-playback-start-symbolic"
         };
         let play_pause_label = if self.playback.is_playing() {
-            "Pause"
+            s_pause
         } else {
-            "Play"
+            s_play
         };
         let play_pause_message = if self.playback.is_playing() {
             Message::Pause
@@ -1360,7 +1348,7 @@ impl AppModel {
         let center = row![
             icon_button(
                 "media-skip-backward-symbolic",
-                "Step Back",
+                s_back,
                 Message::StepBackward,
                 simulation_present
                     && !self.playback.is_playing()
@@ -1374,7 +1362,7 @@ impl AppModel {
             ),
             icon_button(
                 "media-skip-forward-symbolic",
-                "Step Forward",
+                s_fwd,
                 Message::StepForward,
                 simulation_present && !self.playback.is_playing(),
             ),
@@ -1388,13 +1376,13 @@ impl AppModel {
         let right = row![
             icon_button(
                 "dialog-information-symbolic",
-                "Inspector",
+                s_inspect,
                 Message::ToggleInspector,
                 true,
             ),
             icon_button(
                 "emblem-system-symbolic",
-                "Settings",
+                s_settings,
                 Message::ToggleContextPage(context_drawer),
                 true,
             ),
@@ -1456,7 +1444,7 @@ impl Drop for AppModel {
 /// Helper function: create icon button with tooltip
 fn icon_button<'a>(
     icon_name: &'a str,
-    label: &'a str,
+    tooltip: impl Into<Cow<'static, str>>,
     message: Message,
     is_active: bool,
 ) -> cosmic::Element<'a, Message> {
@@ -1469,7 +1457,14 @@ fn icon_button<'a>(
         btn = btn.on_press(message);
     }
 
-    widget::tooltip(btn, label, widget::tooltip::Position::Bottom).into()
+    let tooltip: Cow<'static, str> = tooltip.into();
+
+    widget::tooltip(
+        btn,
+        widget::text(tooltip.into_owned()),
+        widget::tooltip::Position::Bottom,
+    )
+    .into()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
