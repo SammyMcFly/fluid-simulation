@@ -3,7 +3,8 @@ use simulation_lib::measurement::{MeasurementSeries, RecordingStatus};
 use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
 use simulation_lib::setup::input::{Parameters, Procedures, Scene};
 use simulation_lib::setup::new_boxed_system3d;
-use simulation_lib::sph::SPHSystem;
+use simulation_lib::sph::{Checkpoint, SPHSystem};
+use std::rc::Rc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
@@ -24,16 +25,21 @@ use crate::recording::{save_screenshot_into_directory, save_screenshot_to_file};
 struct Simulation {
     // initial_system: sph::System3D,
     system: Box<dyn SPHSystem>,
+    checkpoints: Vec<Rc<Checkpoint>>,
     parameters: SimulationParameters,
     render_preset: TimeStepInfo,
     measurement_series: Option<MeasurementSeries>,
-    state_appender: Option<recording::StateAppender>,
+    state_appender: Option<recording::TSInfoAppender>,
     recording_status: RecordingStatus,
     start_time: Option<f64>,
     finish_time: Option<f64>,
+
+    state_saver_system: Box<dyn SPHSystem>,
 }
 
 impl Simulation {
+    const N: u64 = 25;
+
     /// Try to load simulation and return initial state
     fn load(
         simulation_load_info: &SimulationLoadInfo,
@@ -48,6 +54,15 @@ impl Simulation {
             &scene,
             simulation_load_info.state_file_path.as_deref(),
         )?;
+
+        let state_saver_system = new_boxed_system3d(
+            &procedures,
+            &params,
+            &scene,
+            simulation_load_info.state_file_path.as_deref(),
+        )?;
+
+        let checkpoints = vec![Rc::new(Checkpoint::from_sph_system(&*initial_system))];
 
         let sim_info = SimulationParameters::new(
             &params,
@@ -74,7 +89,7 @@ impl Simulation {
         let state_appender = match simulation_load_info
             .recording_file_path
             .as_deref()
-            .map(|file_path| recording::StateAppender::new(file_path, &sim_info))
+            .map(|file_path| recording::TSInfoAppender::new(file_path, &sim_info))
         {
             Some(Ok(ms)) => Some(ms),
             Some(Err(e)) => {
@@ -90,6 +105,7 @@ impl Simulation {
         };
         let mut sim: Simulation = Self {
             system: initial_system,
+            checkpoints,
             parameters: sim_info,
             render_preset: simulation_load_info.with_info.clone(),
             measurement_series,
@@ -97,10 +113,32 @@ impl Simulation {
             recording_status,
             start_time: simulation_load_info.start_time,
             finish_time: simulation_load_info.finish_time,
+            state_saver_system,
         };
         info!("Loaded new simulation!");
 
         Ok((sim.get_time_step_info(), sim))
+    }
+    fn continue_from_checkpoint(
+        &mut self,
+        with_info: TimeStepInfo,
+    ) -> Result<TimeStepInfo, Box<dyn std::error::Error + Send + Sync>> {
+        self.render_preset = with_info.clone();
+        self.measurement_series = None;
+        self.state_appender = None;
+        self.start_time = None;
+        self.finish_time = None;
+        if self.recording_status.is_active() {
+            warn!("Recording was interrupted!");
+        }
+        self.recording_status = RecordingStatus::None;
+
+        let last_checkpoint =
+            self.checkpoints[usize::try_from(with_info.time_step_number / Self::N)
+                .expect("Value too large for usize")]
+            .clone();
+        self.system.continue_from_checkpoint(last_checkpoint);
+        Ok(self.get_time_step_info())
     }
     fn get_next_time_step(&mut self) -> TimeStepInfo {
         self.system.step_forward_in_time();
@@ -109,6 +147,15 @@ impl Simulation {
     fn get_time_step_info(&mut self) -> TimeStepInfo {
         let time_step_info = TimeStepInfo::from_system(&mut *self.system, &self.render_preset);
         self.record(&time_step_info);
+
+        if time_step_info.time_step_number.is_multiple_of(Self::N) {
+            let idx = usize::try_from(time_step_info.time_step_number / Self::N)
+                .expect("Value too large for usize");
+            if idx == self.checkpoints.len() {
+                self.checkpoints
+                    .push(Rc::new(Checkpoint::from_sph_system(&*self.system)));
+            }
+        }
         time_step_info
     }
     fn time(&self) -> f64 {
@@ -172,6 +219,26 @@ impl Simulation {
         }
         Ok(())
     }
+    fn save_state(
+        &mut self,
+        time_step_number: u64,
+        file_path: &std::path::PathBuf,
+    ) -> Result<(), String> {
+        let last_checkpoint = self.checkpoints
+            [usize::try_from(time_step_number / Self::N).expect("Value too large for usize")]
+        .clone();
+        self.state_saver_system
+            .continue_from_checkpoint(last_checkpoint);
+        let mut step = self.state_saver_system.time_steps_propagated();
+        while step < time_step_number {
+            self.state_saver_system.step_forward_in_time();
+            step += 1;
+        }
+        match recording::save_system_state(self.system.get_serialized_fluid(), file_path) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("{}", e)),
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -221,6 +288,24 @@ impl SimulationController {
                 self.simulation = Some(sim);
                 Ok(initial_state)
             }
+            Err(e) => Err(e),
+        }
+    }
+    /// Return to last checkpoint and continue simulation
+    fn continue_from_checkpoint(
+        &mut self,
+        time_step_info: TimeStepInfo,
+    ) -> Result<TimeStepInfo, Box<dyn std::error::Error + Send + Sync>> {
+        self.simulation_load_info.as_mut().unwrap().with_info = time_step_info;
+        self.timesteps_to_compute = 0;
+        match self.simulation.as_mut().unwrap().continue_from_checkpoint(
+            self.simulation_load_info
+                .as_mut()
+                .unwrap()
+                .with_info
+                .clone(),
+        ) {
+            Ok(initial_state) => Ok(initial_state),
             Err(e) => Err(e),
         }
     }
@@ -337,15 +422,22 @@ pub fn worker_loop(
                 WorkerCommand::AddTimeStepsToCompute(num) => {
                     simulation_controller.compute_more_timesteps(num);
                 }
-                WorkerCommand::SaveState { fluid, file_path } => {
-                    let msg = if recording::save_system_state(fluid, &file_path).is_ok() {
-                        info!("Successfully saved state: {}", file_path.display());
-                        WorkerMessage::SavedState
-                    } else {
-                        error!("Failed to save state!");
-                        WorkerMessage::Error("Failed to save state!".into())
-                    };
-                    let _ = to_ui.send(msg);
+                WorkerCommand::SaveState {
+                    time_step_number,
+                    file_path,
+                } => {
+                    if let Some(simulation) = &mut simulation_controller.simulation {
+                        match simulation.save_state(time_step_number, &file_path) {
+                            Ok(_) => {
+                                info!("Successfully saved state: {}", file_path.display());
+                                let _ = to_ui.send(WorkerMessage::SavedState);
+                            }
+                            Err(e) => {
+                                error!("Failed to save state: {}", e);
+                                let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
+                            }
+                        }
+                    }
                 }
                 WorkerCommand::WriteRendering {
                     data,
@@ -385,11 +477,12 @@ pub fn worker_loop(
                     }
                 }
                 WorkerCommand::Reload => {
-                    info!("Reset simulation!");
-                    if let Some(load_info) = &simulation_controller.simulation_load_info {
-                        match simulation_controller.load_simulation(load_info.clone()) {
+                    info!("Reloading simulation!");
+                    if simulation_controller.simulation_load_info.is_some() {
+                        let load_info = simulation_controller.simulation_load_info.clone().unwrap();
+                        match simulation_controller.load_simulation(load_info) {
                             Ok(initial_state) => {
-                                let _ = to_ui.send(WorkerMessage::FinishedResetting(
+                                let _ = to_ui.send(WorkerMessage::FinishedReloading(
                                     simulation_controller
                                         .simulation
                                         .as_ref()
@@ -397,6 +490,22 @@ pub fn worker_loop(
                                         .parameters
                                         .clone(),
                                 ));
+                                let _ = to_ui
+                                    .send(WorkerMessage::TimeStepReady(Box::new(initial_state)));
+                            }
+                            Err(e) => {
+                                let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
+                            }
+                        }
+                        simulation_controller.compute();
+                    }
+                }
+                WorkerCommand::ContinueFromTimeStep { with_info } => {
+                    info!("Continuing simulation from closest checkpoint!");
+                    if simulation_controller.simulation_load_info.is_some() {
+                        match simulation_controller.continue_from_checkpoint(*with_info) {
+                            Ok(initial_state) => {
+                                let _ = to_ui.send(WorkerMessage::ContinuedFromCheckpoint);
                                 let _ = to_ui
                                     .send(WorkerMessage::TimeStepReady(Box::new(initial_state)));
                             }

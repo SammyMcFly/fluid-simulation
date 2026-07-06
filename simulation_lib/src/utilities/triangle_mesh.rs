@@ -1,18 +1,21 @@
+use bincode::{Decode, Encode};
 /// Triangle mesh library
 ///
 use gauss_quad::GaussLegendre;
+use nalgebra::{Isometry3, Matrix4, Point3, Rotation3, UnitQuaternion, Vector3};
 use parry3d_f64::math::Vec3;
-use parry3d_f64::shape::Triangle;
-use nalgebra::{Isometry3, Point3, UnitQuaternion, Vector3, Rotation3, Matrix4};
-use parry3d_f64::shape::{TriMesh, TriMeshFlags};
 use parry3d_f64::query::PointQuery;
+use parry3d_f64::shape::Triangle;
+use parry3d_f64::shape::{TriMesh, TriMeshFlags};
 use serde::{Deserialize, Serialize};
-use bincode::{Decode, Encode};
 
 // ─── Handle ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MeshHandle(pub usize);
+pub struct MeshHandle {
+    pub idx: usize,
+    pub mesh_id: u32,
+}
 
 // ─── Raw loaded geometry ──────────────────────────────────────
 
@@ -25,7 +28,19 @@ pub struct LoadedMesh {
 // ─── Render vertex (for wgpu) ─────────────────────────────────
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+)]
 pub struct RenderVertex {
     pub position: [f64; 3],
     pub normal: [f64; 3],
@@ -41,7 +56,8 @@ impl RenderMesh {
     pub fn extend(&mut self, other: Self) {
         let offset = self.vertices.len() as u32;
         self.vertices.extend(other.vertices);
-        self.indices.extend(other.indices.into_iter().map(|i| i + offset));
+        self.indices
+            .extend(other.indices.into_iter().map(|i| i + offset));
     }
 }
 
@@ -62,9 +78,9 @@ pub struct MeshLibrary {
 }
 
 impl MeshLibrary {
-    pub fn load_obj(&mut self, path: &str) -> MeshHandle {
-        let (models, _) = tobj::load_obj(path, &tobj::GPU_LOAD_OPTIONS)
-            .expect("Failed to load OBJ");
+    pub fn load_obj(&mut self, path: &str) {
+        let (models, _) =
+            tobj::load_obj(path, &tobj::GPU_LOAD_OPTIONS).expect("Failed to load OBJ");
 
         let mut positions: Vec<Point3<f64>> = Vec::new();
         let mut indices: Vec<[u32; 3]> = Vec::new();
@@ -85,49 +101,56 @@ impl MeshLibrary {
             }
         }
 
-        let handle = MeshHandle(self.meshes.len());
         self.meshes.push(MeshAsset {
             raw: LoadedMesh { positions, indices },
             trimesh: None,
             render: None,
         });
-        handle
     }
 
     /// Get or build parry3d_f64 TriMesh with ORIENTED flag
     /// (angle-weighted pseudo normals for signed distance)
     pub fn trimesh(&mut self, handle: MeshHandle) -> &TriMesh {
-        let asset = &mut self.meshes[handle.0];
+        let asset = &mut self.meshes[handle.idx];
         if asset.trimesh.is_none() {
-            asset.trimesh = Some(TriMesh::with_flags(
-                asset.raw.positions.iter()
-                    .map(|p| Vec3::new(p.x, p.y, p.z))
-                    .collect(),
-                asset.raw.indices.clone(),
-                TriMeshFlags::ORIENTED
-                    | TriMeshFlags::MERGE_DUPLICATE_VERTICES
-                    | TriMeshFlags::FIX_INTERNAL_EDGES,
-            ).expect("nnn"));
+            asset.trimesh = Some(
+                TriMesh::with_flags(
+                    asset
+                        .raw
+                        .positions
+                        .iter()
+                        .map(|p| Vec3::new(p.x, p.y, p.z))
+                        .collect(),
+                    asset.raw.indices.clone(),
+                    TriMeshFlags::ORIENTED
+                        | TriMeshFlags::MERGE_DUPLICATE_VERTICES
+                        | TriMeshFlags::FIX_INTERNAL_EDGES,
+                )
+                .expect("nnn"),
+            );
         }
         asset.trimesh.as_ref().unwrap()
     }
 
     /// Get or build render mesh with angle-weighted smooth normals
     pub fn render_mesh(&mut self, handle: MeshHandle) -> &RenderMesh {
-        let asset = &mut self.meshes[handle.0];
+        let asset = &mut self.meshes[handle.idx];
         if asset.render.is_none() {
-            asset.render = Some(asset.raw.clone().into());
+            asset.render = Some(RenderMesh::from_loaded_mesh(
+                asset.raw.clone(),
+                handle.mesh_id,
+            ));
         }
         asset.render.as_ref().unwrap()
     }
 
     pub fn get_raw(&self, handle: MeshHandle) -> &LoadedMesh {
-        &self.meshes[handle.0].raw
+        &self.meshes[handle.idx].raw
     }
 }
 
-impl From<LoadedMesh> for RenderMesh {
-    fn from(trimesh: LoadedMesh) -> Self {
+impl RenderMesh {
+    pub fn from_loaded_mesh(trimesh: LoadedMesh, boundary_id: u32) -> Self {
         let mut normals = vec![Vector3::<f64>::zeros(); trimesh.positions.len()];
 
         for tri in &trimesh.indices {
@@ -151,9 +174,21 @@ impl From<LoadedMesh> for RenderMesh {
             let face_normal = face_normal / area;
 
             // Interior angle at each vertex
-            let angle0 = e01.normalize().dot(&e02.normalize()).clamp(-1.0, 1.0).acos();
-            let angle1 = e10.normalize().dot(&e12.normalize()).clamp(-1.0, 1.0).acos();
-            let angle2 = e20.normalize().dot(&e21.normalize()).clamp(-1.0, 1.0).acos();
+            let angle0 = e01
+                .normalize()
+                .dot(&e02.normalize())
+                .clamp(-1.0, 1.0)
+                .acos();
+            let angle1 = e10
+                .normalize()
+                .dot(&e12.normalize())
+                .clamp(-1.0, 1.0)
+                .acos();
+            let angle2 = e20
+                .normalize()
+                .dot(&e21.normalize())
+                .clamp(-1.0, 1.0)
+                .acos();
 
             normals[i0] += face_normal * angle0;
             normals[i1] += face_normal * angle1;
@@ -168,7 +203,8 @@ impl From<LoadedMesh> for RenderMesh {
             }
         }
 
-        let vertices: Vec<RenderVertex> = trimesh.positions
+        let vertices: Vec<RenderVertex> = trimesh
+            .positions
             .iter()
             .zip(normals.iter())
             .map(|(p, n)| RenderVertex {
@@ -181,11 +217,13 @@ impl From<LoadedMesh> for RenderMesh {
 
         RenderMesh { vertices, indices }
     }
-}
 
-impl From<&parry3d_f64::shape::TriMesh> for RenderMesh {
-    fn from(trimesh: &parry3d_f64::shape::TriMesh) -> Self {
-        let vertices: Vec<Point3<f64>> = trimesh.vertices().iter().map(|v| Point3::new(v.x, v.y, v.z)).collect();
+    pub fn from_trimesh(trimesh: &parry3d_f64::shape::TriMesh, boundary_id: u32) -> Self {
+        let vertices: Vec<Point3<f64>> = trimesh
+            .vertices()
+            .iter()
+            .map(|v| Point3::new(v.x, v.y, v.z))
+            .collect();
         let triangles = trimesh.indices();
 
         // Flatten triangle indices
@@ -218,9 +256,21 @@ impl From<&parry3d_f64::shape::TriMesh> for RenderMesh {
             let face_normal = face_normal / area;
 
             // Interior angle at each vertex
-            let angle0 = e01.normalize().dot(&e02.normalize()).clamp(-1.0, 1.0).acos();
-            let angle1 = e10.normalize().dot(&e12.normalize()).clamp(-1.0, 1.0).acos();
-            let angle2 = e20.normalize().dot(&e21.normalize()).clamp(-1.0, 1.0).acos();
+            let angle0 = e01
+                .normalize()
+                .dot(&e02.normalize())
+                .clamp(-1.0, 1.0)
+                .acos();
+            let angle1 = e10
+                .normalize()
+                .dot(&e12.normalize())
+                .clamp(-1.0, 1.0)
+                .acos();
+            let angle2 = e20
+                .normalize()
+                .dot(&e21.normalize())
+                .clamp(-1.0, 1.0)
+                .acos();
 
             normals[i0] += face_normal * angle0;
             normals[i1] += face_normal * angle1;
@@ -260,9 +310,8 @@ pub fn build_transform(
     rotation_euler_deg: &[f64; 3],
     scale: &[f64; 3],
 ) -> Matrix4<f64> {
-    let translation = Matrix4::new_translation(&Vector3::new(
-        position[0], position[1], position[2],
-    ));
+    let translation =
+        Matrix4::new_translation(&Vector3::new(position[0], position[1], position[2]));
 
     // Convert degrees to radians
     let rx = rotation_euler_deg[0].to_radians();
@@ -272,9 +321,7 @@ pub fn build_transform(
     // Euler angles (intrinsic XYZ convention — adjust if needed)
     let rotation = Rotation3::from_euler_angles(rx, ry, rz).to_homogeneous();
 
-    let scale = Matrix4::new_nonuniform_scaling(&Vector3::new(
-        scale[0], scale[1], scale[2],
-    ));
+    let scale = Matrix4::new_nonuniform_scaling(&Vector3::new(scale[0], scale[1], scale[2]));
 
     // Order: scale first, then rotate, then translate
     translation * rotation * scale

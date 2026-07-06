@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 /// # Core SPH simulation
 ///
 /// Contains the simulated system, the information of the individual samples
@@ -24,37 +26,43 @@ use crate::render_info::{BoundaryVisualization, ScalarQuantity};
 use crate::setup;
 use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::non_pressure_accelerations::*;
-use crate::sph::quantities::{get_density, get_density_error, get_kinetic_energy, get_pressure, get_speed};
-use crate::utilities::vector;
+use crate::sph::quantities::{
+    get_density, get_density_error, get_kinetic_energy, get_pressure, get_speed,
+};
 use crate::utilities::triangle_mesh::RenderMesh;
+use crate::utilities::vector;
 use kernel::KernelFn;
 use pressure_solver::PressureSolver;
 use quantities::get_volume;
 
-
 pub trait SPHSystem {
     fn time(&self) -> f64;
+    fn time_steps_propagated(&self) -> u64;
 
     /// Step forward in time one time increment.
     ///
     /// This includes calculating all parameters of the system at the next point in time.
     fn step_forward_in_time(&mut self);
 
+    fn continue_from_checkpoint(&mut self, checkpoint: Rc<Checkpoint>);
+
     /// Measure (physical) quantities at current time step
     fn take_measurement(&self) -> Measurement;
 
     fn get_fluid_ids(&self) -> Vec<u32>;
     fn get_fluid_pos(&self) -> Vec<[f32; 3]>;
-    fn get_quantity_of_fluid_samples(&self, quantity: &ScalarQuantity) -> ScalarQuantity;
+    fn get_serialized_fluid(&self) -> SerFluid3D;
+    fn get_quantity_of_fluid_samples(&self, quantity: &ScalarQuantity) -> Vec<f32>;
     fn get_quantity_at_positions(
         &mut self,
         quantity: &ScalarQuantity,
         positions: &[[f32; 3]],
-    ) -> ScalarQuantity;
+    ) -> Vec<f32>;
 
-    fn get_fluid_surface(&self) -> RenderMesh;
+    fn get_fluid_surface(&self) -> Vec<(u32, RenderMesh)>;
 
-    fn get_boundary_visualization(&self, selector: &BoundaryVisualization) -> BoundaryVisualization;
+    fn get_boundary_visualization(&self, selector: &BoundaryVisualization)
+    -> BoundaryVisualization;
 }
 
 ///  3D implementation of a physical system to be simulated
@@ -66,7 +74,7 @@ pub struct System3D<
     N: NeighborSearch,
     B: BoundaryHandling,
 > {
-    /// Time
+    /// Time step number
     time_steps_propagated: u64,
     /// Properties of the system
     parameters: SystemParameters,
@@ -92,7 +100,14 @@ impl<
 > SPHSystem for System3D<K, I, P, N, B>
 {
     fn time(&self) -> f64 {
-        (self.time_steps_propagated as f64) * self.parameters.time_increment
+        #[cfg(not(feature = "cfl_time_step"))]
+        return (self.time_steps_propagated as f64) * self.parameters.time_increment;
+        #[cfg(feature = "cfl_time_step")]
+        return self.parameters.current_time;
+    }
+
+    fn time_steps_propagated(&self) -> u64 {
+        self.time_steps_propagated
     }
 
     /// Step forward in time one time increment.
@@ -110,6 +125,13 @@ impl<
         self.update();
         // measure wall clock time for time step
         self.properties.time_step_wall_clock_time = start.elapsed().as_secs_f64();
+    }
+
+    fn continue_from_checkpoint(&mut self, checkpoint: Rc<Checkpoint>) {
+        self.time_steps_propagated = checkpoint.get_time_steps_propagated();
+        self.fluid = checkpoint.get_fluid().clone().into();
+        // self.boundary = checkpoint.get_boundary().clone();
+        self.update();
     }
 
     /// Measure (physical) quantities at current time step
@@ -152,10 +174,6 @@ impl<
         }
     }
 
-    // fn get_boundary_visualization(&self, selector: &FluidVisualization) -> BoundaryVisualization {
-
-    // }
-
     fn get_fluid_ids(&self) -> Vec<u32> {
         self.fluid.fluid_id.clone()
     }
@@ -168,50 +186,46 @@ impl<
             .collect()
     }
 
-    fn get_quantity_of_fluid_samples(&self, quantity: &ScalarQuantity) -> ScalarQuantity {
+    fn get_serialized_fluid(&self) -> SerFluid3D {
+        self.fluid.clone().into()
+    }
+
+    fn get_quantity_of_fluid_samples(&self, quantity: &ScalarQuantity) -> Vec<f32> {
         match quantity {
-            ScalarQuantity::SpeedGraded(_) => ScalarQuantity::SpeedGraded(
-                self.fluid
-                    .velocity
-                    .iter()
-                    .map(|vel| vel.norm() as f32)
-                    .collect(),
-            ),
-            ScalarQuantity::VolumeGraded(_) => ScalarQuantity::VolumeGraded(
-                self.fluid.volume.iter().map(|vol| *vol as f32).collect(),
-            ),
-            ScalarQuantity::DensityGraded(_) => ScalarQuantity::DensityGraded(
-                self.fluid
-                    .volume
-                    .iter()
-                    .zip(&self.fluid.mass)
-                    .map(|(vol, mass)| (*mass / *vol) as f32)
-                    .collect(),
-            ),
-            ScalarQuantity::DensityErrorGraded(_) => ScalarQuantity::DensityErrorGraded(
-                self.fluid
-                    .volume
-                    .iter()
-                    .map(|vol| {
-                        if *vol < self.parameters.rest_volume {
-                            (100. * (self.parameters.rest_volume / *vol - 1.)) as f32
-                        } else {
-                            0.
-                        }
-                    })
-                    .collect(),
-            ),
-            ScalarQuantity::PressureGraded(_) => ScalarQuantity::PressureGraded(
-                self.fluid.pressure.iter().map(|p| *p as f32).collect(),
-            ),
-            ScalarQuantity::KineticEnergyGraded(_) => ScalarQuantity::KineticEnergyGraded(
-                self.fluid
-                    .velocity
-                    .iter()
-                    .zip(&self.fluid.mass)
-                    .map(|(vel, mass)| (0.5 * *mass * vel.norm_squared()) as f32)
-                    .collect(),
-            ),
+            ScalarQuantity::Speed => self
+                .fluid
+                .velocity
+                .iter()
+                .map(|vel| vel.norm() as f32)
+                .collect(),
+            ScalarQuantity::Volume => self.fluid.volume.iter().map(|vol| *vol as f32).collect(),
+            ScalarQuantity::Density => self
+                .fluid
+                .volume
+                .iter()
+                .zip(&self.fluid.mass)
+                .map(|(vol, mass)| (*mass / *vol) as f32)
+                .collect(),
+            ScalarQuantity::DensityError => self
+                .fluid
+                .volume
+                .iter()
+                .map(|vol| {
+                    if *vol < self.parameters.rest_volume {
+                        (100. * (self.parameters.rest_volume / *vol - 1.)) as f32
+                    } else {
+                        0.
+                    }
+                })
+                .collect(),
+            ScalarQuantity::Pressure => self.fluid.pressure.iter().map(|p| *p as f32).collect(),
+            ScalarQuantity::KineticEnergy => self
+                .fluid
+                .velocity
+                .iter()
+                .zip(&self.fluid.mass)
+                .map(|(vel, mass)| (0.5 * *mass * vel.norm_squared()) as f32)
+                .collect(),
         }
     }
 
@@ -219,7 +233,7 @@ impl<
         &mut self,
         quantity: &ScalarQuantity,
         positions: &[[f32; 3]],
-    ) -> ScalarQuantity {
+    ) -> Vec<f32> {
         let mut neighbor_list = NeighborList::new(positions.len());
         let positions: &Vec<Point3<f64>> = &positions
             .iter()
@@ -238,7 +252,7 @@ impl<
         );
         let mut q = vec![0.; positions.len()];
         match quantity {
-            ScalarQuantity::SpeedGraded(_) => {
+            ScalarQuantity::Speed => {
                 get_speed::<K>(
                     &mut q,
                     positions,
@@ -249,9 +263,9 @@ impl<
                     &self.boundary,
                     &self.parameters,
                 );
-                ScalarQuantity::SpeedGraded(q.iter().map(|speed| *speed as f32).collect())
+                q.iter().map(|speed| *speed as f32).collect()
             }
-            ScalarQuantity::VolumeGraded(_) => {
+            ScalarQuantity::Volume => {
                 get_volume::<K>(
                     &mut q,
                     positions,
@@ -260,9 +274,9 @@ impl<
                     &self.boundary,
                     &self.parameters,
                 );
-                ScalarQuantity::VolumeGraded(q.iter().map(|vol| *vol as f32).collect())
+                q.iter().map(|vol| *vol as f32).collect()
             }
-            ScalarQuantity::DensityGraded(_) => {
+            ScalarQuantity::Density => {
                 get_density::<K>(
                     &mut q,
                     positions,
@@ -272,9 +286,9 @@ impl<
                     // &self.boundary,
                     &self.parameters,
                 );
-                ScalarQuantity::DensityGraded(q.iter().map(|speed| *speed as f32).collect())
-            },
-            ScalarQuantity::DensityErrorGraded(_) => {
+                q.iter().map(|speed| *speed as f32).collect()
+            }
+            ScalarQuantity::DensityError => {
                 get_density_error::<K>(
                     &mut q,
                     positions,
@@ -284,9 +298,9 @@ impl<
                     // &self.boundary,
                     &self.parameters,
                 );
-                ScalarQuantity::DensityGraded(q.iter().map(|speed| *speed as f32).collect())
-            },
-            ScalarQuantity::PressureGraded(_) => {
+                q.iter().map(|speed| *speed as f32).collect()
+            }
+            ScalarQuantity::Pressure => {
                 get_pressure::<K>(
                     &mut q,
                     positions,
@@ -297,9 +311,9 @@ impl<
                     // &self.boundary,
                     &self.parameters,
                 );
-                ScalarQuantity::PressureGraded(q.iter().map(|speed| *speed as f32).collect())
-            },
-            ScalarQuantity::KineticEnergyGraded(_) => {
+                q.iter().map(|speed| *speed as f32).collect()
+            }
+            ScalarQuantity::KineticEnergy => {
                 get_kinetic_energy::<K>(
                     &mut q,
                     positions,
@@ -311,13 +325,17 @@ impl<
                     // &self.boundary,
                     &self.parameters,
                 );
-                ScalarQuantity::KineticEnergyGraded(q.iter().map(|speed| *speed as f32).collect())
+                q.iter().map(|speed| *speed as f32).collect()
             }
         }
     }
 
-    fn get_fluid_surface(&self) -> RenderMesh {
-        self.fluid.reconstruct_surface()
+    fn get_fluid_surface(&self) -> Vec<(u32, RenderMesh)> {
+        self.fluid.reconstruct_surfaces(
+            self.parameters.rest_density_grid_spacing,
+            self.parameters.rest_volume,
+            self.parameters.kernel_support_radius,
+        )
     }
 
     fn get_boundary_visualization(
@@ -344,7 +362,7 @@ impl<
             boundary: constructor.boundary,
             time_steps_propagated: 0,
             parameters: constructor.system_parameters,
-            properties: constructor.properties,
+            properties: CurrentSystemProperties::default(),
             _kernel_fn: std::marker::PhantomData,
             integrator: constructor.integrator,
             pressure_solver: constructor.pressure_solver,
@@ -355,7 +373,6 @@ impl<
         system.update();
         Box::new(system) as Box<dyn SPHSystem>
     }
-
 
     pub fn time(&self) -> f64 {
         (self.time_steps_propagated as f64) * self.parameters.time_increment
@@ -390,8 +407,8 @@ impl<
                 .iter()
                 .zip(self.fluid.mass.iter())
                 .map(|(volume, mass)| {
-                    if *quantities < self.parameters.rest_volume {
-                        mass / quantities
+                    if *volume < self.parameters.rest_volume {
+                        mass / volume
                     } else {
                         mass / self.parameters.rest_volume
                     }
@@ -647,6 +664,10 @@ impl<
         // update properties
         self.properties.update(self.calc_average_mass_density());
         // set new cfl time step conditionally
+        #[cfg(feature = "cfl_time_step")]
+        {
+            self.parameters.current_time += self.parameters.time_increment;
+        }
         #[cfg(any(feature = "logging", feature = "cfl_time_step"))]
         let max_speed = self.calc_max_speed();
         #[cfg(feature = "cfl_time_step")]
@@ -714,6 +735,8 @@ impl CurrentSystemProperties {
 pub struct SystemParameters {
     time_increment: f64,
     #[cfg(feature = "cfl_time_step")]
+    current_time: f64,
+    #[cfg(feature = "cfl_time_step")]
     max_time_increment: f64,
     #[cfg(feature = "cfl_time_step")]
     pub cfl_number: f64,
@@ -750,6 +773,8 @@ impl SystemParameters {
             #[cfg(feature = "cfl_time_step")]
             time_increment: 0.,
             #[cfg(feature = "cfl_time_step")]
+            current_time: 0.,
+            #[cfg(feature = "cfl_time_step")]
             max_time_increment,
             #[cfg(feature = "cfl_time_step")]
             cfl_number,
@@ -769,4 +794,34 @@ impl SystemParameters {
         let cfl_time_step = self.cfl_number * self.rest_density_grid_spacing / max_speed;
         self.time_increment = self.max_time_increment.min(cfl_time_step);
     }
+}
+
+// pub struct Checkpointy<B: BoundaryHandling> {
+pub struct Checkpoint {
+    time_steps_propagated: u64,
+    fluid: SerFluid3D,
+    // boundary: B,
+}
+
+// impl<B: BoundaryHandling> Checkpointy<B> {
+impl Checkpoint {
+    pub fn from_sph_system(system: &dyn SPHSystem) -> Self {
+        Self {
+            time_steps_propagated: system.time_steps_propagated(),
+            fluid: system.get_serialized_fluid(),
+            // boundary: self.boundary.get_checkpoint_data(),
+        }
+    }
+
+    pub fn get_time_steps_propagated(&self) -> u64 {
+        self.time_steps_propagated
+    }
+
+    pub fn get_fluid(&self) -> &SerFluid3D {
+        &self.fluid
+    }
+
+    // pub fn get_boundary(&self) -> &dyn BoundaryHandling {
+    //     &self.boundary
+    // }
 }

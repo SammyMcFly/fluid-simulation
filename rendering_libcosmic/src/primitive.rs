@@ -18,7 +18,7 @@ use crate::model::ColoredMeshVertex;
 use crate::pipeline::PendingScreenshot;
 use crate::pipeline::PendingScreenshotTarget;
 use crate::pipeline::ScreenshotState;
-use crate::pipeline::{BillboardInstance, DepthTexture, FluidRenderer};
+use crate::pipeline::{BillboardInstance, DepthTexture, SimulationRenderer};
 
 // ─── CPU-side scene data ──────────────────────────────────────
 
@@ -91,7 +91,7 @@ pub struct ScreenshotRequest {
 
 /// The per-frame primitive. Carries all data needed for one render.
 #[derive(Debug, Clone)]
-pub struct FluidFrame {
+pub struct SimulationFrame {
     pub camera_uniform: CameraUniform,
     pub light_uniform: LightUniform,
     pub scene: SceneData,
@@ -103,12 +103,12 @@ pub struct FluidFrame {
     pub screenshot_consumed: Arc<AtomicBool>,
 }
 
-impl shader::Primitive for FluidFrame {
-    type Pipeline = FluidRenderer;
+impl shader::Primitive for SimulationFrame {
+    type Pipeline = SimulationRenderer;
 
     fn prepare(
         &self,
-        pipeline: &mut FluidRenderer,
+        pipeline: &mut SimulationRenderer,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _bounds: &Rectangle,
@@ -231,13 +231,17 @@ impl shader::Primitive for FluidFrame {
         }
     }
 
-    fn draw(&self, _pipeline: &FluidRenderer, _render_pass: &mut wgpu::RenderPass<'_>) -> bool {
+    fn draw(
+        &self,
+        _pipeline: &SimulationRenderer,
+        _render_pass: &mut wgpu::RenderPass<'_>,
+    ) -> bool {
         false // Call render instead
     }
 
     fn render(
         &self,
-        pipeline: &FluidRenderer,
+        pipeline: &SimulationRenderer,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         clip_bounds: &Rectangle<u32>,
@@ -392,8 +396,8 @@ impl shader::Primitive for FluidFrame {
 
 // ─── Upload helpers ───────────────────────────────────────────
 
-impl FluidFrame {
-    fn upload_scene(&self, pipeline: &mut FluidRenderer, device: &wgpu::Device) {
+impl SimulationFrame {
+    fn upload_scene(&self, pipeline: &mut SimulationRenderer, device: &wgpu::Device) {
         // Reset
         pipeline.scene = Default::default();
 
@@ -496,7 +500,7 @@ impl FluidFrame {
 
     fn setup_offscreen(
         &self,
-        pipeline: &mut FluidRenderer,
+        pipeline: &mut SimulationRenderer,
         device: &wgpu::Device,
         width: u32,
         height: u32,
@@ -548,7 +552,7 @@ impl FluidFrame {
         pipeline.screenshot_height = height;
     }
 
-    fn draw_scene<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, pipeline: &'a FluidRenderer) {
+    fn draw_scene<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, pipeline: &'a SimulationRenderer) {
         // Light indicator
         pass.set_pipeline(&pipeline.light_pipeline);
         pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
@@ -603,9 +607,9 @@ impl FluidFrame {
             &pipeline.scene.sensor_plane_index_buffer,
         ) {
             if pipeline.scene.sensor_plane_index_count > 0 {
-                pass.set_pipeline(&pipeline.mesh_opaque_pipeline);
+                pass.set_pipeline(&pipeline.mesh_unlit_pipeline);
                 pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
+                // no light_bind_group – pipeline layout has only Camera
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..pipeline.scene.sensor_plane_index_count, 0, 0..1);

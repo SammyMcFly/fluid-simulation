@@ -27,9 +27,9 @@ pub mod viewport;
 // ─── Public re-exports for convenience ────────────────────────
 
 // The three shader widget types
-pub use pipeline::FluidRenderer;
-pub use primitive::FluidFrame;
-pub use viewport::FluidViewport;
+pub use pipeline::SimulationRenderer;
+pub use primitive::SimulationFrame;
+pub use viewport::SimulationViewport;
 
 // State types used by the application
 pub use camera::CameraState;

@@ -5,37 +5,43 @@ pub mod input;
 
 use std::collections::HashMap;
 #[cfg(feature = "logging")]
-use tracing::{warn}; // debug, error, info, span, trace, warn,
+use tracing::warn; // debug, error, info, span, trace, warn,
 
-use crate::integration_schemes::IntegrationScheme;
-use crate::neighbor_search::NeighborSearch;
 use crate::fluid::{Fluid3D, Len, SerFluid3D};
+use crate::integration_schemes::IntegrationScheme;
+use crate::integration_schemes::*;
+use crate::neighbor_search::NeighborSearch;
+use crate::neighbor_search::*;
 use crate::setup::input::{Parameters, Procedures, Scene};
 use crate::sph::boundary_handling::BoundaryHandling;
-use crate::sph::pressure_solver::PressureSolver;
-use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary, transform_trimesh};
-use crate::sph::{CurrentSystemProperties, SystemParameters};
-use crate::sph::{System3D, SPHSystem};
-use crate::sph::kernel::*;
-use crate::integration_schemes::*;
-use crate::sph::pressure_solver::*;
-use crate::neighbor_search::*;
 use crate::sph::boundary_handling::*;
+use crate::sph::kernel::*;
+use crate::sph::pressure_solver::PressureSolver;
+use crate::sph::pressure_solver::*;
+use crate::sph::{CurrentSystemProperties, SystemParameters};
+use crate::sph::{SPHSystem, System3D};
+use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary, transform_trimesh};
 
-
-pub struct System3DConstructor<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling> {
+pub struct System3DConstructor<
+    K: KernelFn,
+    I: IntegrationScheme,
+    P: PressureSolver,
+    N: NeighborSearch,
+    B: BoundaryHandling,
+> {
     // pub config: Config,
     pub fluid: Fluid3D,
     pub boundary: B,
     pub system_parameters: SystemParameters,
-    pub properties: CurrentSystemProperties,
     _kernel_fn: std::marker::PhantomData<K>,
     pub integrator: I,
     pub pressure_solver: P,
     pub neighbor_search: N,
 }
 
-impl<K: KernelFn,I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling> System3DConstructor<K, I, P, N, B> {
+impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling>
+    System3DConstructor<K, I, P, N, B>
+{
     pub fn new(
         params: &Parameters,
         scene: &Scene,
@@ -43,7 +49,7 @@ impl<K: KernelFn,I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: 
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let integrator = I::default();
         let pressure_solver: P = P::new(params);
-        let mut neighbor_search= N::new(params.kernel_support_radius);
+        let mut neighbor_search = N::new(params.kernel_support_radius);
 
         // load triangle meshes
         let mut meshes = MeshLibrary::default();
@@ -67,7 +73,10 @@ impl<K: KernelFn,I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: 
             let mut fluid = Fluid3D::new();
             for f in &scene.fluid {
                 // select mesh
-                let mesh = meshes.trimesh(MeshHandle(*index_map.get(&f.mesh).expect("Failed to get mesh")));
+                let mesh = meshes.trimesh(MeshHandle {
+                    idx: *index_map.get(&f.mesh).expect("Failed to get mesh"),
+                    mesh_id: f.fluid_id,
+                });
                 // apply transformation
                 let mesh = transform_trimesh(mesh, &f.position, &f.rotation_euler_deg, &f.scale);
 
@@ -91,7 +100,10 @@ impl<K: KernelFn,I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: 
             let mut boundary = B::new();
             for b in &scene.boundary.statics {
                 // select mesh
-                let mesh = meshes.trimesh(MeshHandle(*index_map.get(&b.mesh).expect("Failed to get mesh")));
+                let mesh = meshes.trimesh(MeshHandle {
+                    idx: *index_map.get(&b.mesh).expect("Failed to get mesh"),
+                    mesh_id: b.boundary_id,
+                });
                 // apply transformation
                 let mesh = transform_trimesh(mesh, &b.position, &b.rotation_euler_deg, &b.scale);
 
@@ -99,7 +111,10 @@ impl<K: KernelFn,I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: 
             }
             for b in &scene.boundary.dynamic {
                 // select mesh
-                let mesh = meshes.trimesh(MeshHandle(*index_map.get(&b.mesh).expect("Failed to get mesh")));
+                let mesh = meshes.trimesh(MeshHandle {
+                    idx: *index_map.get(&b.mesh).expect("Failed to get mesh"),
+                    mesh_id: b.boundary_id,
+                });
                 // apply transformation
                 let mesh = transform_trimesh(mesh, &b.position, &b.rotation_euler_deg, &b.scale);
 
@@ -110,7 +125,11 @@ impl<K: KernelFn,I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: 
             };
             boundary
         };
-        boundary.initialize::<K>(&mut neighbor_search, params.kernel_support_radius, params.boundary_rest_volume_weighting);
+        boundary.initialize::<K>(
+            &mut neighbor_search,
+            params.kernel_support_radius,
+            params.boundary_rest_volume_weighting,
+        );
 
         // init system properties
         let system_parameters = SystemParameters::new(
@@ -128,13 +147,11 @@ impl<K: KernelFn,I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: 
             params.boundary_pressure_acceleration_weighting,
             params.boundary_rest_volume_weighting,
         );
-        let properties = CurrentSystemProperties::default();
 
         let constructor = Self {
             fluid,
             boundary,
             system_parameters,
-            properties,
             _kernel_fn: std::marker::PhantomData,
             integrator,
             pressure_solver,
@@ -180,10 +197,10 @@ pub fn new_boxed_system3d(
     macro_rules! with_pressure {
         ($K:ty, $I:ty) => {
             match procs.pressure_solver {
-                PressureSolverVariant::SESPH          => with_neighbor!($K, $I, SESPH),
+                PressureSolverVariant::SESPH => with_neighbor!($K, $I, SESPH),
                 PressureSolverVariant::SESPHwSplitting => with_neighbor!($K, $I, SESPHwSplitting),
-                PressureSolverVariant::IISPH          => with_neighbor!($K, $I, IISPH),
-                PressureSolverVariant::IISPHwOST      => with_neighbor!($K, $I, IISPHwOST),
+                PressureSolverVariant::IISPH => with_neighbor!($K, $I, IISPH),
+                PressureSolverVariant::IISPHwOST => with_neighbor!($K, $I, IISPHwOST),
             }
         };
     }
@@ -193,8 +210,8 @@ pub fn new_boxed_system3d(
             match procs.integration_scheme {
                 IntegrationSchemeVariant::ExplicitEuler => with_pressure!($K, ExplicitEuler),
                 // IntegrationSchemeVariant::ImplicitEuler => with_pressure!($K, ImplicitEuler),
-                IntegrationSchemeVariant::EulerCromer   => with_pressure!($K, EulerCromer),
-                IntegrationSchemeVariant::Verlet        => with_pressure!($K, Verlet),
+                IntegrationSchemeVariant::EulerCromer => with_pressure!($K, EulerCromer),
+                IntegrationSchemeVariant::Verlet => with_pressure!($K, Verlet),
                 IntegrationSchemeVariant::TakePredicted => with_pressure!($K, TakePredicted),
             }
         };

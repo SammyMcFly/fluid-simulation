@@ -11,14 +11,15 @@ use crate::fluid::Len;
 use crate::fluid::Positional;
 use crate::neighbor_search::NeighborList;
 use crate::neighbor_search::NeighborSearch;
+use crate::render_info::BoundaryMeshColoring;
 use crate::render_info::BoundarySampleColoring;
 use crate::render_info::BoundaryVisualization;
 use crate::sph::boundary_handling::BoundaryHandling;
 // use crate::sph::boundary_handling::BoundaryParameters;
 use crate::sph::kernel::KernelFn;
-use crate::utilities::vector;
 use crate::utilities::sampling::sample_mesh_surface_grid;
-use crate::utilities::triangle_mesh::{RenderMesh};
+use crate::utilities::triangle_mesh::RenderMesh;
+use crate::utilities::vector;
 
 #[derive(Debug, Default)]
 pub struct StaticSampleBoundary {
@@ -46,7 +47,8 @@ impl BoundaryHandling for StaticSampleBoundary {
         rest_density_grid_spacing: f64,
         // boundary_params: BoundaryParameters,
     ) {
-        self.boundary.add_boundary(boundary, boundary_id, rest_density_grid_spacing);
+        self.boundary
+            .add_boundary(boundary, boundary_id, rest_density_grid_spacing);
         self.boundary_neighbor_list.resize(self.boundary.len());
     }
 
@@ -113,8 +115,16 @@ impl BoundaryHandling for StaticSampleBoundary {
     fn get_visualization(&self, selector: &BoundaryVisualization) -> BoundaryVisualization {
         match selector {
             BoundaryVisualization::TriangleMesh { coloring, .. } => {
+                let coloring = match coloring {
+                    BoundaryMeshColoring::Original => BoundaryMeshColoring::Original,
+                    BoundaryMeshColoring::Uniform => BoundaryMeshColoring::Uniform,
+                    BoundaryMeshColoring::BoundaryId { .. } => BoundaryMeshColoring::BoundaryId {
+                        id: self.boundary.render_mesh_id.clone(),
+                        max_id: *self.boundary.render_mesh_id.iter().max().unwrap_or(&0),
+                    },
+                };
                 BoundaryVisualization::TriangleMesh {
-                    mesh: self.boundary.render_mesh.clone(),
+                    meshes: self.boundary.render_mesh.clone(),
                     coloring: coloring.clone(),
                 }
             }
@@ -123,7 +133,7 @@ impl BoundaryHandling for StaticSampleBoundary {
                     BoundarySampleColoring::Uniform => BoundarySampleColoring::Uniform,
                     BoundarySampleColoring::BoundaryId { .. } => {
                         BoundarySampleColoring::BoundaryId {
-                            val: self.boundary.boundary_id.clone(),
+                            id: self.boundary.boundary_id.clone(),
                             max_id: *self.boundary.boundary_id.iter().max().unwrap_or(&0),
                         }
                     }
@@ -190,7 +200,8 @@ pub struct Boundary3D {
     velocity: Vec<Vector3<f64>>,
     /// volume (necessary for sph fluid)
     volume: Vec<f64>,
-    pub render_mesh: RenderMesh,
+    pub render_mesh: Vec<RenderMesh>,
+    pub render_mesh_id: Vec<u32>,
 }
 
 impl Len for Boundary3D {
@@ -209,7 +220,12 @@ impl Positional for Boundary3D {
 }
 
 impl Boundary3D {
-    pub fn add_boundary(&mut self, boundary: &TriMesh, boundary_id: u32, rest_density_grid_spacing: f64) {
+    pub fn add_boundary(
+        &mut self,
+        boundary: &TriMesh,
+        boundary_id: u32,
+        rest_density_grid_spacing: f64,
+    ) {
         let position = sample_mesh_surface_grid(boundary, rest_density_grid_spacing);
         let len = position.len();
         let boundary = Self {
@@ -217,7 +233,8 @@ impl Boundary3D {
             position,
             velocity: vec![Vector3::zeros(); len],
             volume: vec![0.; len],
-            render_mesh: RenderMesh::from(boundary),
+            render_mesh: vec![RenderMesh::from_trimesh(boundary, boundary_id)],
+            render_mesh_id: vec![boundary_id],
         };
         self.extend(boundary);
     }
@@ -228,6 +245,7 @@ impl Boundary3D {
         self.velocity.extend(other.velocity);
         self.volume.extend(other.volume);
         self.render_mesh.extend(other.render_mesh);
+        self.render_mesh_id.extend(other.render_mesh_id);
     }
 
     pub fn vel_now<I>(&self, id: I) -> &I::Output
@@ -266,6 +284,7 @@ impl From<SerBoundary3D> for Boundary3D {
                 .collect(),
             volume: vec![0.; len],
             render_mesh: ser_boundary.render_mesh,
+            render_mesh_id: ser_boundary.render_mesh_id,
         }
     }
 }
@@ -276,7 +295,8 @@ pub struct SerBoundary3D {
     pub boundary_id: Vec<u32>,
     pub position: Vec<[f64; 3]>,
     pub velocity: Vec<[f64; 3]>,
-    render_mesh: RenderMesh,
+    render_mesh: Vec<RenderMesh>,
+    render_mesh_id: Vec<u32>,
 }
 
 impl From<Boundary3D> for SerBoundary3D {
@@ -286,6 +306,7 @@ impl From<Boundary3D> for SerBoundary3D {
             position: boundary.position.iter().map(|pos| (*pos).into()).collect(),
             velocity: boundary.velocity.iter().map(|vel| (*vel).into()).collect(),
             render_mesh: boundary.render_mesh,
+            render_mesh_id: boundary.render_mesh_id,
         }
     }
 }

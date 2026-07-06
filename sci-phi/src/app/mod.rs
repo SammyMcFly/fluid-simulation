@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: MPL-2.0
 mod inspector;
+mod pages;
 mod playback;
-mod plotting;
-mod simulation;
 
+use crate::app::pages::simulation::{
+    BoundaryVisOption, FluidVisOption, QuantityOption, SensorField,
+};
+use crate::app::pages::{ContextPage, Page};
+use crate::app::playback::InsertionResult;
 use crate::config::Config;
 use crate::fl;
+use pages::plotting::PlottingSettings;
+use pages::simulation::SimulationSettings;
 use playback::{FrameControl, InstanceStore, PlaybackControls, StagingResult};
-use plotting::PlottingSettings;
+use rendering_libcosmic::colormap::Colormap;
 use rendering_libcosmic::primitive::{ScreenshotRequest, ScreenshotTarget};
-use simulation::SimulationSettings;
 
 use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
@@ -20,14 +25,14 @@ use cosmic::widget::segmented_button::Entity;
 use cosmic::widget::{self, about::About, icon, menu, nav_bar, row};
 use cosmic::{prelude::*, theme};
 use rendering_libcosmic::{
-    CameraState, FluidViewport, LightState, ViewportEvent, build_scene_data,
+    CameraState, LightState, SimulationViewport, ViewportEvent, build_scene_data,
 };
 use simulation_backend::commands::WorkerCommand;
 use simulation_backend::messages::WorkerMessage;
 use simulation_backend::worker_loop;
 use simulation_lib::measurement::{MeasurementSeries, RecordingStatus};
 use simulation_lib::render_info::{
-    FluidColoring, FluidVisualization, ScalarQuantity, TimeStepInfo,
+    FluidSampleColoring, FluidVisualization, ScalarQuantity, TimeStepInfo,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -41,22 +46,25 @@ const APP_ICON: &[u8] = include_bytes!("../../resources/icons/hicolor/scalable/a
 pub struct AppModel {
     /// Application state which is managed by the COSMIC runtime.
     core: cosmic::Core,
+    /// Contains items assigned to the nav bar panel.
+    nav: nav_bar::Model,
+    /// Viewport for the fluid simulation.
+    simulation_page: SimulationViewport,
+    /// Plotting
+    plotting_page: pages::plotting::PlottingViewport,
     /// Display a context drawer with the designated page if defined.
     context_page: ContextPage,
     /// The simulation setting context page.
     sim_settings: SimulationSettings,
+    render_template: TimeStepInfo,
     /// The plotting settings context page.
     plot_settings: PlottingSettings,
     /// The about page for this app.
     about: About,
-    /// Contains items assigned to the nav bar panel.
-    nav: nav_bar::Model,
-    /// Viewport for the fluid simulation.
-    viewport: FluidViewport,
-    /// Plotting
-    plotting: plotting::PlottingViewport,
     /// Inspector: info and logs
     inspector: inspector::Inspector,
+    // in AppModel
+    dialog_page: Option<PendingAction>,
     /// Key bindings for the application's menu bar.
     key_binds: HashMap<menu::KeyBind, MenuAction>,
     /// Configuration data that persists between application runs.
@@ -86,11 +94,13 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     LaunchUrl(String),
     UpdateConfig(Config),
-    Reset,
+    DialogConfirm,
+    DialogCancel,
+    Reload,
     ResetCamera,
     TakeScreenshot,
     /// File dialog returned a path for single screenshot
-    ScreenshotPathChosen(PathBuf, bool),
+    ScreenshotPathChosen(PathBuf, bool), // true = unpause after file saved, false = do not unpause after file saved
     SaveCurrentState,
     /// File dialog returned a path for saving the current state
     StatePathChosen(PathBuf, bool),
@@ -104,6 +114,17 @@ pub enum Message {
     Viewport(ViewportEvent),
     // Camera tick (from subscription)
     CameraTick,
+    SetFluidVisualization(usize),
+    SetFluidQuantity(usize),
+    SensorPlaneInput(SensorField, String),
+    SensorPlaneStep(SensorField, bool), // true = +, false = −
+    ApplySensorPlaneConfig,
+    SetColormap(usize),
+    ColorMappingMaxInput(String),
+    ColorMappingMaxStep(f32, bool), // true = +, false = −
+    ApplyColorMappingMax,
+    SetBoundaryVisualization(usize),
+    ToggleHideBoundary,
     ToggleCutX,
     ToggleCutZ,
     ToggleCutY,
@@ -116,13 +137,11 @@ pub enum Message {
     CutXBoundInput(String),
     CutYBoundInput(String),
     CutZBoundInput(String),
-    ToggleHideBoundary,
+    ToggleCutBoundary,
     ToggleDiscardPast,
     DiscardNow,
     ToggleLoop,
     ToggleInvertTime,
-    // // Worker messages
-    // WorkerMessage(WorkerMessage),
 }
 
 // Enable conversion from ViewportEvent → Message
@@ -199,7 +218,7 @@ impl cosmic::Application for AppModel {
         let (from_worker_tx, from_worker_rx) = crossbeam::channel::unbounded::<WorkerMessage>();
 
         let viewport =
-            FluidViewport::new(camera, light, [0.15, 0.15, 0.15, 1.0], to_worker_tx.clone());
+            SimulationViewport::new(camera, light, [0.15, 0.15, 0.15, 1.0], to_worker_tx.clone());
 
         // Start worker thread
         let worker_handle = std::thread::spawn(move || {
@@ -207,47 +226,18 @@ impl cosmic::Application for AppModel {
         });
 
         // Send initial simulation command
-        let with_info = Box::new(TimeStepInfo {
+        let with_info = TimeStepInfo {
+            time_step_number: 0,
             measurement: simulation_lib::measurement::Measurement::default(),
-            // fluid: simulation_lib::render_info::FluidVisualization::SensorPlane {
-            //     planes: rendering_libcosmic::cut::Cut {
-            //         x_active: false,
-            //         x_bound: 0.0,
-            //         x_inverse: false,
-            //         x_inv: 0.0,
-            //         y_active: true,
-            //         y_bound: 15.0,
-            //         y_inverse: false,
-            //         y_inv: 0.0,
-            //         z_active: false,
-            //         z_bound: 0.0,
-            //         z_inverse: false,
-            //         z_inv: 0.0,
-            //     }
-            //     .sensor_plane_samples(
-            //         0.1,
-            //         [-10.0, 0.0, -15.0],
-            //         [30.0, 20.0, 20.0],
-            //         &simulation_lib::render_info::ScalarQuantity::PressureGraded(vec![]),
-            //     ),
-            // },
             fluid: FluidVisualization::Samples {
-                positions: Vec::new(),
-                coloring: FluidColoring::QuantityGraded {
-                    quantity: ScalarQuantity::SpeedGraded(Vec::new()),
+                positions: vec![],
+                coloring: FluidSampleColoring::QuantityGraded {
+                    data: vec![],
+                    quantity: ScalarQuantity::Speed,
                 },
             },
-            // fluid: FluidVisualization::Samples {
-            //     positions: Vec::new(),
-            //     coloring:  FluidColoring::FluidId { val: vec![], max_id: 0 },
-            // },
-            // fluid: FluidVisualization::TriangleMesh { mesh: RenderMesh::default() },
-            boundary: simulation_lib::render_info::BoundaryVisualization::Samples {
-                positions: Vec::new(),
-                coloring: simulation_lib::render_info::BoundarySampleColoring::Uniform,
-            },
-            // boundary: BoundaryVisualization::TriangleMesh { mesh: RenderMesh::default(), coloring: BoundaryMeshColoring::Original },
-        });
+            boundary: pages::simulation::BoundaryVisOption::MeshOriginal.to_template(),
+        };
 
         to_worker_tx
             .send(WorkerCommand::Simulate {
@@ -259,7 +249,7 @@ impl cosmic::Application for AppModel {
                 finish_time: args.finish_time,
                 recording_file: args.recording_file.as_ref().map(std::path::PathBuf::from),
                 rendering_dir: args.rendering_dir.as_ref().map(std::path::PathBuf::from),
-                with_info,
+                with_info: Box::new(with_info.clone()),
             })
             .unwrap();
 
@@ -271,18 +261,20 @@ impl cosmic::Application for AppModel {
         // Construct the app model with the runtime's core.
         let mut app = AppModel {
             core,
+            nav,
+            simulation_page: viewport,
+            plotting_page: pages::plotting::PlottingViewport::default(),
             context_page: ContextPage::default(),
-            sim_settings: SimulationSettings::default(),
+            sim_settings: SimulationSettings::from(&with_info),
+            render_template: with_info,
             plot_settings: PlottingSettings::default(),
             about,
-            nav,
-            viewport,
-            plotting: plotting::PlottingViewport::default(),
             inspector: inspector::Inspector::new(
                 args.measurement_file.is_some(),
                 args.recording_file.is_some(),
                 args.rendering_dir.is_some(),
             ),
+            dialog_page: None,
             key_binds: HashMap::new(),
             // Optional configuration file for an application.
             config: cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
@@ -387,7 +379,7 @@ impl cosmic::Application for AppModel {
         let content: Element<_> = match self.nav.active_data::<Page>().unwrap() {
             Page::Simulation => {
                 let top_bar = self.top_bar(Page::Simulation);
-                let shader_widget = iced_widget::Shader::new(&self.viewport)
+                let shader_widget = iced_widget::Shader::new(&self.simulation_page)
                     .width(Length::Fill)
                     .height(Length::Fill);
 
@@ -450,7 +442,6 @@ impl cosmic::Application for AppModel {
             Message::InspectorTabSelected(tab) => {
                 self.inspector.activate(tab);
             }
-
             Message::ToggleContextPage(context_page) => {
                 if self.context_page == context_page {
                     // Close the context drawer if the toggled context page is the same.
@@ -461,23 +452,29 @@ impl cosmic::Application for AppModel {
                     self.core.window.show_context = true;
                 }
             }
-
             Message::UpdateConfig(config) => {
                 self.config = config;
             }
-
+            Message::DialogConfirm => {
+                if let Some(action) = self.dialog_page.take() {
+                    // recording is stopped by the action itself; advance status if you track it
+                    return self.perform(action);
+                }
+            }
+            Message::DialogCancel => {
+                self.dialog_page = None;
+            }
             Message::LaunchUrl(url) => match open::that_detached(&url) {
                 Ok(()) => {}
                 Err(err) => {
                     error!("failed to open {url:?}: {err}");
                 }
             },
-
-            Message::Reset => {
-                let _ = self.to_worker.send(WorkerCommand::Reload);
+            Message::Reload => {
+                return self.request_action(PendingAction::Reload);
             }
             Message::ResetCamera => {
-                self.viewport.reset_camera();
+                self.simulation_page.reset_camera();
             }
             Message::TakeScreenshot => {
                 let was_playing = self.playback.is_playing();
@@ -502,7 +499,7 @@ impl cosmic::Application for AppModel {
                 .map(cosmic::Action::App);
             }
             Message::ScreenshotPathChosen(path, unpause) => {
-                self.viewport.request_screenshot(ScreenshotRequest {
+                self.simulation_page.request_screenshot(ScreenshotRequest {
                     target: ScreenshotTarget::SingleFile { path },
                 });
                 if unpause {
@@ -537,9 +534,9 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::StatePathChosen(path, unpause) => {
-                if let Some(info) = self.instances.get_time_step_info() {
+                if let Some(info) = self.instances.get_current_time_step_info() {
                     let _ = self.to_worker.send(WorkerCommand::SaveState {
-                        fluid: info.fluid.clone(),
+                        time_step_number: info.time_step_number,
                         file_path: path,
                     });
                 }
@@ -569,16 +566,22 @@ impl cosmic::Application for AppModel {
             }
             Message::Viewport(event) => match event {
                 ViewportEvent::CameraRotated { dx, dy } => {
-                    self.viewport.camera.controller.process_mouse_motion(dx, dy);
+                    self.simulation_page
+                        .camera
+                        .controller
+                        .process_mouse_motion(dx, dy);
                 }
                 ViewportEvent::CameraScrolled { delta } => {
-                    self.viewport.camera.controller.process_scroll(delta);
+                    self.simulation_page.camera.controller.process_scroll(delta);
                 }
                 ViewportEvent::CameraKey { key, pressed } => {
-                    self.viewport.camera.controller.process_key(key, pressed);
+                    self.simulation_page
+                        .camera
+                        .controller
+                        .process_key(key, pressed);
                 }
                 ViewportEvent::Resized { width, height } => {
-                    self.viewport.camera.resize(width, height);
+                    self.simulation_page.camera.resize(width, height);
                 }
                 ViewportEvent::RequestRedraw => {}
             },
@@ -586,16 +589,16 @@ impl cosmic::Application for AppModel {
             Message::CameraTick => {
                 // Clear screenshot request (was consumed by this frame's draw())
                 // Only clear screenshot request once the pipeline has consumed it
-                if self.viewport.is_screenshot_done() {
-                    self.viewport.screenshot_request = None;
+                if self.simulation_page.is_screenshot_done() {
+                    self.simulation_page.screenshot_request = None;
                 }
 
                 // 1. Camera + Light tick
                 let now = std::time::Instant::now();
                 let dt = (now - self.last_tick).as_secs_f32();
                 self.last_tick = now;
-                self.viewport.camera.tick(dt);
-                self.viewport.light.tick(dt);
+                self.simulation_page.camera.tick(dt);
+                self.simulation_page.light.tick(dt);
 
                 // 2. Poll worker channel (drain all available messages)
                 let mut task: Option<Task<cosmic::Action<Message>>> = None;
@@ -610,7 +613,7 @@ impl cosmic::Application for AppModel {
                 let rendering_blocked = if let Some(ref rendering) = self.rendering {
                     rendering.active
                         && rendering.awaiting_capture
-                        && !self.viewport.is_screenshot_done()
+                        && !self.simulation_page.is_screenshot_done()
                 } else {
                     false
                 };
@@ -619,7 +622,7 @@ impl cosmic::Application for AppModel {
                 if let Some(ref mut rendering) = self.rendering {
                     if rendering.active
                         && rendering.awaiting_capture
-                        && self.viewport.is_screenshot_done()
+                        && self.simulation_page.is_screenshot_done()
                     {
                         rendering.awaiting_capture = false;
                         rendering.frame_counter += 1;
@@ -655,21 +658,21 @@ impl cosmic::Application for AppModel {
                                 self.frame.stepped_in_time(direction);
                             }
                             self.frame
-                                .count_discarded_timesteps(discarded, self.playback.discard_past);
+                                .count_discarded_time_steps(discarded, self.playback.discard_past);
                             self.frame.set_time_increment(self.instances.get_time_inc());
                             frame_new = true;
                         }
                         StagingResult::SomeTaken { discarded } => {
                             self.frame.rendering_new_sim_state_now();
                             self.frame
-                                .count_discarded_timesteps(discarded, self.playback.discard_past);
+                                .count_discarded_time_steps(discarded, self.playback.discard_past);
                             self.frame.set_time_increment(self.instances.get_time_inc());
                             frame_new = true;
                         }
                         StagingResult::StoppedAtLoopEndWithSomeTaken { discarded } => {
                             self.frame.rendering_new_sim_state_now();
                             self.frame
-                                .count_discarded_timesteps(discarded, self.playback.discard_past);
+                                .count_discarded_time_steps(discarded, self.playback.discard_past);
                             if !self.sim_settings.discard_past
                                 || !self.sim_settings.wait_for_timesteps
                             {
@@ -701,7 +704,7 @@ impl cosmic::Application for AppModel {
 
                     // In rendering mode: request screenshot for every new frame
                     if let Some(ref mut rendering) = self.rendering
-                        && let Some(ts_info) = self.instances.get_time_step_info()
+                        && let Some(ts_info) = self.instances.get_current_time_step_info()
                         && !rendering.finished_once
                     {
                         if !rendering.active && self.playback.is_playing_forward() {
@@ -719,7 +722,7 @@ impl cosmic::Application for AppModel {
                             }
                         }
                         if rendering.active && !rendering.awaiting_capture {
-                            self.viewport.request_screenshot(ScreenshotRequest {
+                            self.simulation_page.request_screenshot(ScreenshotRequest {
                                 target: ScreenshotTarget::RenderingFrame {
                                     frame_index: rendering.frame_counter,
                                 },
@@ -749,7 +752,7 @@ impl cosmic::Application for AppModel {
                 }
 
                 self.inspector.update_info(
-                    self.instances.get_time_step_info(),
+                    self.instances.get_current_time_step_info(),
                     self.instances.remaining_buffer_len(),
                 );
 
@@ -766,17 +769,117 @@ impl cosmic::Application for AppModel {
                     return t;
                 }
             }
+            Message::SetFluidVisualization(idx) => {
+                if let Some(&opt) = FluidVisOption::ALL.get(idx)
+                    && self.sim_settings.fluid_vis != opt
+                {
+                    self.sim_settings.fluid_vis = opt;
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                }
+            }
+            Message::SetFluidQuantity(idx) => {
+                if let Some(&q) = QuantityOption::ALL.get(idx)
+                    && self.sim_settings.fluid_quantity != q
+                {
+                    self.sim_settings.fluid_quantity = q;
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                }
+            }
+            Message::SensorPlaneInput(field, value) => {
+                let cfg = &mut self.sim_settings.sensor_plane;
+                match field {
+                    SensorField::Min(i) => cfg.min[i] = value,
+                    SensorField::Max(i) => cfg.max[i] = value,
+                    SensorField::Dx => cfg.dx = value,
+                }
+            }
+            Message::SensorPlaneStep(field, inc) => {
+                self.step_sensor_field(field, inc);
+            }
+            Message::ApplySensorPlaneConfig => {
+                if self.sim_settings.sensor_plane.changed() {
+                    self.sim_settings.sensor_plane.clamp_min_max();
+                    self.sim_settings.sensor_plane.min_prev =
+                        self.sim_settings.sensor_plane.min.clone();
+                    self.sim_settings.sensor_plane.max_prev =
+                        self.sim_settings.sensor_plane.max.clone();
+                    self.sim_settings.sensor_plane.dx_prev =
+                        self.sim_settings.sensor_plane.dx.clone();
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                }
+            }
+            Message::SetColormap(idx) => {
+                if let Some(&cmap) = Colormap::ALL.get(idx) {
+                    self.sim_settings.colormap = cmap;
+                    self.rebuild_scene();
+                }
+            }
+            Message::ColorMappingMaxInput(s) => {
+                self.sim_settings.color_mapping_max_input = s;
+            }
+            Message::ColorMappingMaxStep(step, increment) => {
+                if increment {
+                    self.sim_settings.color_mapping_max += step;
+                } else {
+                    self.sim_settings.color_mapping_max -= step;
+                }
+                self.sim_settings.color_mapping_max_input =
+                    self.sim_settings.color_mapping_max.to_string();
+                self.rebuild_scene();
+            }
+            Message::ApplyColorMappingMax => {
+                if let Ok(v) = self
+                    .sim_settings
+                    .color_mapping_max_input
+                    .trim()
+                    .parse::<f32>()
+                {
+                    // strikt positiv, 0 ist Untergrenze → max muss > 0 sein
+                    self.sim_settings.color_mapping_max = v.max(1e-6);
+                    self.sim_settings.color_mapping_max_input =
+                        self.sim_settings.color_mapping_max.to_string();
+                    self.rebuild_scene();
+                } else {
+                    // reset if parse fails
+                    self.sim_settings.color_mapping_max_input =
+                        self.sim_settings.color_mapping_max.to_string();
+                }
+            }
+            Message::SetBoundaryVisualization(idx) => {
+                if let Some(&opt) = BoundaryVisOption::ALL.get(idx)
+                    && self.sim_settings.boundary_vis != opt
+                {
+                    self.sim_settings.boundary_vis = opt;
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                }
+            }
+            Message::ToggleHideBoundary => {
+                self.sim_settings.boundary_hidden = !self.sim_settings.boundary_hidden;
+                self.rebuild_scene();
+            }
             Message::ToggleCutX => {
                 self.sim_settings.cut.x_active = !self.sim_settings.cut.x_active;
-                self.rebuild_scene();
+                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                } else {
+                    self.rebuild_scene();
+                }
             }
             Message::ToggleCutY => {
                 self.sim_settings.cut.y_active = !self.sim_settings.cut.y_active;
-                self.rebuild_scene();
+                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                } else {
+                    self.rebuild_scene();
+                }
             }
             Message::ToggleCutZ => {
                 self.sim_settings.cut.z_active = !self.sim_settings.cut.z_active;
-                self.rebuild_scene();
+                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                } else {
+                    self.rebuild_scene();
+                }
             }
             Message::FlipCutX => {
                 self.sim_settings.cut.x_flip();
@@ -793,22 +896,34 @@ impl cosmic::Application for AppModel {
             Message::CutXBoundChanged(delta) => {
                 self.sim_settings.cut.x_bound += delta;
                 self.sim_settings.cut_x_input = format!("{:.1}", self.sim_settings.cut.x_bound);
+                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                }
                 self.rebuild_scene();
             }
             Message::CutYBoundChanged(delta) => {
                 self.sim_settings.cut.y_bound += delta;
                 self.sim_settings.cut_y_input = format!("{:.1}", self.sim_settings.cut.y_bound);
+                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                }
                 self.rebuild_scene();
             }
             Message::CutZBoundChanged(delta) => {
                 self.sim_settings.cut.z_bound += delta;
                 self.sim_settings.cut_z_input = format!("{:.1}", self.sim_settings.cut.z_bound);
+                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                }
                 self.rebuild_scene();
             }
             Message::CutXBoundInput(value) => {
                 self.sim_settings.cut_x_input = value.clone();
                 if let Ok(v) = value.parse::<f32>() {
                     self.sim_settings.cut.x_bound = v;
+                    if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                        return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                    }
                     self.rebuild_scene();
                 }
             }
@@ -816,6 +931,9 @@ impl cosmic::Application for AppModel {
                 self.sim_settings.cut_y_input = value.clone();
                 if let Ok(v) = value.parse::<f32>() {
                     self.sim_settings.cut.y_bound = v;
+                    if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                        return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                    }
                     self.rebuild_scene();
                 }
             }
@@ -823,14 +941,17 @@ impl cosmic::Application for AppModel {
                 self.sim_settings.cut_z_input = value.clone();
                 if let Ok(v) = value.parse::<f32>() {
                     self.sim_settings.cut.z_bound = v;
+                    if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                        return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                    }
                     self.rebuild_scene();
                 }
             }
-
-            Message::ToggleHideBoundary => {
-                self.sim_settings.boundary_hidden = !self.sim_settings.boundary_hidden;
+            Message::ToggleCutBoundary => {
+                self.sim_settings.cut_boundary = !self.sim_settings.cut_boundary;
                 self.rebuild_scene();
             }
+
             Message::ToggleDiscardPast => {
                 self.sim_settings.discard_past = !self.sim_settings.discard_past;
                 self.playback.discard_past = self.sim_settings.discard_past;
@@ -848,7 +969,7 @@ impl cosmic::Application for AppModel {
             }
             Message::DiscardNow => {
                 let discarded = self.instances.discard_past();
-                self.frame.count_discarded_timesteps(discarded, true);
+                self.frame.count_discarded_time_steps(discarded, true);
             }
             Message::ToggleLoop => {
                 if self.rendering.as_ref().map_or(true, |r| !r.active) {
@@ -865,53 +986,7 @@ impl cosmic::Application for AppModel {
                         playback::PlaybackDirection::Forward
                     };
                 }
-            } // Message::WorkerMessage(worker_msg) => {
-              //     match worker_msg {
-              //         WorkerMessage::TimeStepReady(ts_info) => {
-              //             self.instances.push(*ts_info);
-
-              //             // Request more timesteps if discarding past
-              //             let discarded = self.frame.get_and_reset_time_steps_discarded();
-              //             if discarded > 0 {
-              //                 let _ = self
-              //                     .to_worker
-              //                     .send(WorkerCommand::AddTimeStepsToCompute(discarded));
-              //             }
-              //         }
-              //         WorkerMessage::SimulationLoaded(sim_info) => {
-              //             self.viewport.light.set_position(sim_info.light_position);
-              //             self.viewport.reset_camera();
-              //             self.instances = InstanceStore::default();
-              //             self.frame = FrameControl::default();
-
-              //             // Request buffer fill
-              //             let _ = self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
-              //                 sim_info.buffer_length_limit,
-              //             ));
-              //         }
-              //         WorkerMessage::FinishedResetting(sim_info) => {
-              //             self.instances.reset(true);
-              //             self.frame.reset();
-
-              //             let _ = self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
-              //                 sim_info.buffer_length_limit,
-              //             ));
-              //         }
-              //         WorkerMessage::ReachedStartTime => {
-              //             // Update UI status if needed
-              //         }
-              //         WorkerMessage::ReachedFinishTime => {
-              //             self.playback.pause();
-              //         }
-              //         WorkerMessage::SavedState => {
-              //             // Show notification or update status
-              //         }
-              //         WorkerMessage::Error(e) => {
-              //             error!("Backend error: {e}");
-              //             // Could show in inspector logs tab
-              //         }
-              //     }
-              // }
+            }
         }
         Task::none()
     }
@@ -922,6 +997,62 @@ impl cosmic::Application for AppModel {
         self.nav.activate(id);
 
         self.update_title()
+    }
+
+    fn dialog(&self) -> Option<Element<Self::Message>> {
+        let dialog_page = self.dialog_page.as_ref()?;
+
+        let (title, body) = match dialog_page {
+            PendingAction::Reload => {
+                let fill_in = if (self.inspector.info.is_measurement_saved
+                    || self.inspector.info.is_recorded)
+                    && self.inspector.info.is_rendered_to_file
+                {
+                    "recording and rendering?"
+                } else if self.inspector.info.is_measurement_saved
+                    || self.inspector.info.is_recorded
+                {
+                    "recording?"
+                } else {
+                    "rendering?"
+                };
+                (
+                    format!("Stop {}?", fill_in),
+                    format!("Reloading will stop the current {}. Continue?", fill_in),
+                )
+            }
+            PendingAction::ReloadWithCurrentVisualization => {
+                let fill_in = if (self.inspector.info.is_measurement_saved
+                    || self.inspector.info.is_recorded)
+                    && self.inspector.info.is_rendered_to_file
+                {
+                    "recording and rendering?"
+                } else if self.inspector.info.is_measurement_saved
+                    || self.inspector.info.is_recorded
+                {
+                    "recording?"
+                } else {
+                    "rendering?"
+                };
+                (
+                    format!("Stop {}?", fill_in),
+                    format!(
+                        "Changing the visualization will stop the current {}. Continue?",
+                        fill_in
+                    ),
+                )
+            }
+        };
+
+        let dialog = widget::dialog()
+            .title(title)
+            .body(body)
+            .primary_action(
+                widget::button::destructive("Stop & continue").on_press(Message::DialogConfirm),
+            )
+            .secondary_action(widget::button::standard("Cancel").on_press(Message::DialogCancel));
+
+        Some(dialog.into())
     }
 }
 
@@ -936,13 +1067,25 @@ impl AppModel {
                 self.plotting_measurement_series
                     .push_back(ts_info.measurement.clone());
 
-                self.instances.push(*ts_info);
+                match self.instances.insert(*ts_info) {
+                    InsertionResult::TooOld => {
+                        self.frame.count_discarded_time_steps(1, true);
+                    }
+                    InsertionResult::ReplacedCurrent => {
+                        self.rebuild_scene();
+                    }
+                    _ => {}
+                }
                 None
             }
             WorkerMessage::SimulationLoaded(sim_info) => {
-                self.viewport.light.set_position(sim_info.light_position);
-                self.viewport.reset_camera();
+                self.simulation_page
+                    .light
+                    .set_position(sim_info.light_position);
+                self.simulation_page.reset_camera();
                 self.instances = InstanceStore::default();
+                self.instances
+                    .set_length_limit(sim_info.buffer_length_limit);
                 self.frame = FrameControl::default();
 
                 // Request buffer fill
@@ -951,12 +1094,20 @@ impl AppModel {
                 ));
                 None
             }
-            WorkerMessage::FinishedResetting(sim_info) => {
+            WorkerMessage::FinishedReloading(sim_info) => {
                 self.instances.reset(true);
+                self.instances
+                    .set_length_limit(sim_info.buffer_length_limit);
                 self.frame.reset();
 
                 let _ = self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
                     sim_info.buffer_length_limit,
+                ));
+                None
+            }
+            WorkerMessage::ContinuedFromCheckpoint => {
+                let _ = self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
+                    self.instances.buffer_length_limit(),
                 ));
                 None
             }
@@ -993,6 +1144,85 @@ impl AppModel {
             }
         }
     }
+
+    fn request_action(&mut self, action: PendingAction) -> Task<cosmic::Action<Message>> {
+        if self.is_recording() {
+            self.dialog_page = Some(action);
+            Task::none()
+        } else {
+            self.perform(action)
+        }
+    }
+
+    fn is_recording(&self) -> bool {
+        // "in progress" = started but not finished. Adjust to your real variants.
+        !matches!(
+            self.inspector.info.recording_status,
+            RecordingStatus::None | RecordingStatus::NotStarted
+        ) && !self.inspector.info.recording_status.is_finished()
+    }
+
+    fn perform(&mut self, action: PendingAction) -> Task<cosmic::Action<Message>> {
+        match action {
+            PendingAction::ReloadWithCurrentVisualization => {
+                self.reload_with_current_visualization()
+            }
+            PendingAction::Reload => self.reload(),
+        }
+    }
+
+    fn reload(&mut self) -> Task<cosmic::Action<Message>> {
+        let _ = self.to_worker.send(WorkerCommand::Reload);
+        cosmic::Task::none()
+    }
+
+    fn reload_with_current_visualization(&mut self) -> Task<cosmic::Action<Message>> {
+        // Stop rendering
+        if let Some(rendering) = &self.rendering
+            && rendering.active
+        {
+            warn!("Rendering interrupted");
+        }
+        self.rendering = None;
+        // discard future instances
+        self.instances.discard_future();
+        // continue from first time step in instance buffer
+        let with_info = TimeStepInfo {
+            time_step_number: self
+                .instances
+                .get_first_time_step_info()
+                .map(|i| i.time_step_number)
+                .unwrap_or(0),
+            measurement: self.render_template.measurement.clone(),
+            fluid: self.sim_settings.build_fluid_template(),
+            boundary: self.sim_settings.boundary_vis.to_template(),
+        };
+        self.render_template = with_info.clone();
+        let _ = self.to_worker.send(WorkerCommand::ContinueFromTimeStep {
+            with_info: Box::new(with_info),
+        });
+        cosmic::Task::none()
+    }
+
+    fn step_sensor_field(&mut self, field: SensorField, inc: bool) {
+        let cfg = &mut self.sim_settings.sensor_plane;
+        let step = match field {
+            SensorField::Dx => cfg.dx_step,
+            _ => cfg.step,
+        };
+        let buf = match field {
+            SensorField::Min(i) => &mut cfg.min[i],
+            SensorField::Max(i) => &mut cfg.max[i],
+            SensorField::Dx => &mut cfg.dx,
+        };
+        let mut v: f32 = buf.parse().unwrap_or(0.);
+        v += if inc { step } else { -step };
+        if matches!(field, SensorField::Dx) {
+            v = v.max(step);
+        }
+        *buf = format!("{v:.3}");
+    }
+
     /// Updates the header and window titles.
     pub fn update_title(&mut self) -> Task<cosmic::Action<Message>> {
         let mut window_title = fl!("app-title");
@@ -1018,7 +1248,7 @@ impl AppModel {
                 icon_button(
                     "view-refresh-symbolic",
                     "Reload Simulation",
-                    Message::Reset,
+                    Message::Reload,
                     simulation_present,
                 ),
                 icon_button(
@@ -1045,7 +1275,7 @@ impl AppModel {
                 icon_button(
                     "view-refresh-symbolic",
                     "Reload Simulation",
-                    Message::Reset,
+                    Message::Reload,
                     simulation_present,
                 ),
                 icon_button(
@@ -1132,16 +1362,19 @@ impl AppModel {
     }
 
     fn rebuild_scene(&mut self) {
-        if let Some(info) = self.instances.get_time_step_info() {
+        if let Some(info) = self.instances.get_current_time_step_info() {
             self.sim_settings
                 .set_radius(0.5 * (info.measurement.rest_density_grid_spacing as f32));
             let scene = build_scene_data(
                 info,
                 &self.sim_settings.cut,
+                self.sim_settings.cut_boundary,
                 self.sim_settings.boundary_hidden,
                 self.sim_settings.particle_radius,
+                self.sim_settings.color_mapping_max,
+                self.sim_settings.colormap,
             );
-            self.viewport.set_scene(scene);
+            self.simulation_page.set_scene(scene);
         }
     }
 }
@@ -1186,21 +1419,6 @@ fn icon_button<'a>(
     widget::tooltip(btn, label, widget::tooltip::Position::Bottom).into()
 }
 
-/// The page to display in the application.
-pub enum Page {
-    Simulation,
-    Measurements,
-}
-
-/// The context page to display in the context drawer.
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-pub enum ContextPage {
-    SimulationSettings,
-    PlottingSettings,
-    #[default]
-    About,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
     About,
@@ -1214,6 +1432,12 @@ impl menu::action::MenuAction for MenuAction {
             MenuAction::About => Message::ToggleContextPage(ContextPage::About),
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum PendingAction {
+    ReloadWithCurrentVisualization,
+    Reload,
 }
 
 /// Tracks the state of CLI rendering mode

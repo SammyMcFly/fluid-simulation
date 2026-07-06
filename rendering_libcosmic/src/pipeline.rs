@@ -126,7 +126,7 @@ pub enum PendingScreenshotTarget {
 
 // ─── FluidRenderer ────────────────────────────────────────────
 
-pub struct FluidRenderer {
+pub struct SimulationRenderer {
     // Camera
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group_layout: wgpu::BindGroupLayout,
@@ -139,6 +139,7 @@ pub struct FluidRenderer {
     pub particle_pipeline: wgpu::RenderPipeline,
     pub mesh_opaque_pipeline: wgpu::RenderPipeline,
     pub mesh_transparent_pipeline: wgpu::RenderPipeline,
+    pub mesh_unlit_pipeline: wgpu::RenderPipeline,
     pub light_pipeline: wgpu::RenderPipeline,
     /// The texture format used by all pipelines (matches swapchain)
     pub surface_format: wgpu::TextureFormat,
@@ -160,7 +161,7 @@ pub struct FluidRenderer {
     pub screenshot_state: Mutex<ScreenshotState>,
 }
 
-impl shader::Pipeline for FluidRenderer {
+impl shader::Pipeline for SimulationRenderer {
     fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         // ─── Bind Group Layouts ───────────────────────────────
 
@@ -254,6 +255,8 @@ impl shader::Pipeline for FluidRenderer {
             &light_bind_group_layout,
             true,
         );
+        let mesh_unlit_pipeline =
+            Self::create_unlit_mesh_pipeline(device, format, &camera_bind_group_layout);
 
         // ─── Light Pipeline ───────────────────────────────────
 
@@ -278,6 +281,7 @@ impl shader::Pipeline for FluidRenderer {
             particle_pipeline,
             mesh_opaque_pipeline,
             mesh_transparent_pipeline,
+            mesh_unlit_pipeline,
             light_pipeline,
             surface_format: format,
             depth_texture: None,
@@ -299,7 +303,7 @@ impl shader::Pipeline for FluidRenderer {
 
 // ─── Pipeline Creation Helpers ────────────────────────────────
 
-impl FluidRenderer {
+impl SimulationRenderer {
     fn create_particle_pipeline(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -427,6 +431,60 @@ impl FluidRenderer {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DepthTexture::FORMAT,
                 depth_write_enabled: !transparent,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+
+    fn create_unlit_mesh_pipeline(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        camera_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Mesh Unlit"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh_unlit.wgsl").into()),
+        });
+
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Mesh Unlit Pipeline Layout"),
+            bind_group_layouts: &[camera_bgl], // kein Light-BGL
+            immediate_size: 0,
+        });
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Mesh Unlit Pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[ColoredMeshVertex::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, // double-sided (Ebene)
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DepthTexture::FORMAT,
+                depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),

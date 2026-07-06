@@ -36,6 +36,7 @@ impl Default for Cut {
 }
 
 impl Cut {
+    /// Returns `true` if the given position is inside the cut plane.
     pub fn cut(&self, position: &[f32; 3]) -> bool {
         let x_ok = !self.x_active || self.x_inv * (position[0] - self.x_bound) >= 0.;
         let y_ok = !self.y_active || self.y_inv * (position[1] - self.y_bound) >= 0.;
@@ -66,7 +67,6 @@ impl Cut {
         dx: f32,
         interval_min: [f32; 3],
         interval_max: [f32; 3],
-        quantity: &ScalarQuantity,
     ) -> Vec<SensorPlaneData> {
         let mut planes = Vec::new();
 
@@ -95,7 +95,7 @@ impl Cut {
             if rows >= 2 && cols >= 2 {
                 planes.push(SensorPlaneData {
                     positions,
-                    quantity: quantity.clone(),
+                    data: Vec::new(),
                     rows,
                     cols,
                 });
@@ -127,7 +127,7 @@ impl Cut {
             if rows >= 2 && cols >= 2 {
                 planes.push(SensorPlaneData {
                     positions,
-                    quantity: quantity.clone(),
+                    data: Vec::new(),
                     rows,
                     cols,
                 });
@@ -159,7 +159,7 @@ impl Cut {
             if rows >= 2 && cols >= 2 {
                 planes.push(SensorPlaneData {
                     positions,
-                    quantity: quantity.clone(),
+                    data: Vec::new(),
                     rows,
                     cols,
                 });

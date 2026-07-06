@@ -56,6 +56,7 @@ impl From<SimulationParameters> for Vec<u8> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct TimeStepInfo {
+    pub time_step_number: u64,
     /// measurement at this point in time
     pub measurement: Measurement,
     /// fluid
@@ -67,6 +68,7 @@ pub struct TimeStepInfo {
 impl TimeStepInfo {
     pub fn from_system(system: &mut dyn SPHSystem, selector: &Self) -> Self {
         Self {
+            time_step_number: system.time_steps_propagated(),
             measurement: system.take_measurement(),
             fluid: FluidVisualization::from_system(system, &selector.fluid),
             boundary: BoundaryVisualization::from_system(system, &selector.boundary),
@@ -92,13 +94,16 @@ impl From<TimeStepInfo> for Vec<u8> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum FluidVisualization {
     TriangleMesh {
-        mesh: RenderMesh,
+        meshes: Vec<(u32, RenderMesh)>,
+        max_fluid_id: u32,
+        coloring: FluidMeshColoring,
     },
     Samples {
         positions: Vec<[f32; 3]>,
-        coloring: FluidColoring,
+        coloring: FluidSampleColoring,
     },
     SensorPlane {
+        quantity: ScalarQuantity,
         planes: Vec<SensorPlaneData>,
     },
 }
@@ -106,49 +111,68 @@ pub enum FluidVisualization {
 impl FluidVisualization {
     fn from_system(system: &mut dyn SPHSystem, selector: &Self) -> Self {
         match selector {
-            Self::TriangleMesh { .. } => Self::TriangleMesh {
-                mesh: system.get_fluid_surface(),
+            Self::TriangleMesh { coloring, .. } => Self::TriangleMesh {
+                meshes: system.get_fluid_surface(),
+                max_fluid_id: system.get_fluid_ids().into_iter().max().unwrap_or(0),
+                coloring: coloring.clone(),
             },
             Self::Samples { coloring, .. } => Self::Samples {
                 positions: system.get_fluid_pos(),
-                coloring: FluidColoring::from_system(system, coloring),
+                coloring: FluidSampleColoring::from_system(system, coloring),
             },
-            Self::SensorPlane { planes } => {
+            Self::SensorPlane { planes, quantity } => {
                 let mut planes_acc = Vec::new();
                 for plane in planes {
-                    let quantity =
-                        system.get_quantity_at_positions(&plane.quantity, &plane.positions);
+                    let data = system.get_quantity_at_positions(quantity, &plane.positions);
                     planes_acc.push(SensorPlaneData {
                         positions: plane.positions.clone(),
-                        quantity,
+                        data,
                         rows: plane.rows,
                         cols: plane.cols,
                     });
                 }
-                Self::SensorPlane { planes: planes_acc }
+                Self::SensorPlane {
+                    quantity: quantity.clone(),
+                    planes: planes_acc,
+                }
             }
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub enum FluidColoring {
+pub enum FluidMeshColoring {
+    /// Uniform, halbtransparentes Grau
     Uniform,
-    FluidId { val: Vec<u32>, max_id: u32 },
-    QuantityGraded { quantity: ScalarQuantity },
+    /// Einfärben nach fluid_id
+    FluidId,
 }
 
-impl FluidColoring {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub enum FluidSampleColoring {
+    Uniform,
+    FluidId {
+        id: Vec<u32>,
+        max_id: u32,
+    },
+    QuantityGraded {
+        quantity: ScalarQuantity,
+        data: Vec<f32>,
+    },
+}
+
+impl FluidSampleColoring {
     fn from_system(system: &dyn SPHSystem, selector: &Self) -> Self {
         match selector {
             Self::Uniform => Self::Uniform,
             Self::FluidId { .. } => {
                 let val = system.get_fluid_ids();
                 let max_id = val.iter().copied().max().unwrap_or(0);
-                Self::FluidId { val, max_id }
+                Self::FluidId { id: val, max_id }
             }
-            Self::QuantityGraded { quantity } => Self::QuantityGraded {
-                quantity: system.get_quantity_of_fluid_samples(quantity),
+            Self::QuantityGraded { data, quantity } => Self::QuantityGraded {
+                quantity: quantity.clone(),
+                data: system.get_quantity_of_fluid_samples(quantity),
             },
         }
     }
@@ -157,25 +181,25 @@ impl FluidColoring {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct SensorPlaneData {
     pub positions: Vec<[f32; 3]>,
-    pub quantity: ScalarQuantity,
+    pub data: Vec<f32>,
     pub rows: usize,
     pub cols: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum ScalarQuantity {
-    SpeedGraded(Vec<f32>),
-    VolumeGraded(Vec<f32>),
-    DensityGraded(Vec<f32>),
-    DensityErrorGraded(Vec<f32>),
-    PressureGraded(Vec<f32>),
-    KineticEnergyGraded(Vec<f32>),
+    Speed,
+    Volume,
+    Density,
+    DensityError,
+    Pressure,
+    KineticEnergy,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum BoundaryVisualization {
     TriangleMesh {
-        mesh: RenderMesh,
+        meshes: Vec<RenderMesh>,
         coloring: BoundaryMeshColoring,
     },
     Samples {
@@ -194,10 +218,11 @@ impl BoundaryVisualization {
 pub enum BoundaryMeshColoring {
     Original,
     Uniform,
+    BoundaryId { id: Vec<u32>, max_id: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum BoundarySampleColoring {
     Uniform,
-    BoundaryId { val: Vec<u32>, max_id: u32 },
+    BoundaryId { id: Vec<u32>, max_id: u32 },
 }

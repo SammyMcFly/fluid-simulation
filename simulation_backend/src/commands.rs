@@ -1,4 +1,4 @@
-use simulation_lib::render_info::{FluidVisualization, TimeStepInfo};
+use simulation_lib::render_info::TimeStepInfo;
 
 /// Commands sent from the UI to the worker thread
 pub enum WorkerCommand {
@@ -15,7 +15,7 @@ pub enum WorkerCommand {
     },
     AddTimeStepsToCompute(usize),
     SaveState {
-        fluid: FluidVisualization,
+        time_step_number: u64,
         file_path: std::path::PathBuf,
     },
     WriteRendering {
@@ -32,5 +32,8 @@ pub enum WorkerCommand {
         file_path: std::path::PathBuf,
     },
     Reload,
+    ContinueFromTimeStep {
+        with_info: Box<TimeStepInfo>,
+    },
     Stop,
 }

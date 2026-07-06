@@ -5,7 +5,8 @@ use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
 pub enum WorkerMessage {
     TimeStepReady(Box<TimeStepInfo>),
     SimulationLoaded(SimulationParameters),
-    FinishedResetting(SimulationParameters),
+    FinishedReloading(SimulationParameters),
+    ContinuedFromCheckpoint,
     ReachedStartTime,
     ReachedFinishTime,
     SavedState,

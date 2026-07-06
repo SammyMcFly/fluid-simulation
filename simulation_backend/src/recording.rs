@@ -2,6 +2,7 @@
 //!
 //!
 use image::{ImageBuffer, Rgba};
+use simulation_lib::fluid::SerFluid3D;
 use simulation_lib::render_info::FluidVisualization;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -14,7 +15,7 @@ use tracing::{error, info}; // debug, error, info, span, trace, warn,
 use crate::SimulationParameters;
 
 /// Store the current state of all fluid particles to a file
-pub fn save_system_state(fluid: FluidVisualization, file_path: &PathBuf) -> std::io::Result<()> {
+pub fn save_system_state(fluid: SerFluid3D, file_path: &PathBuf) -> std::io::Result<()> {
     // convert to global path
     let file_path_parent = std::fs::canonicalize(
         file_path
@@ -113,12 +114,12 @@ pub fn save_screenshot_to_file(
 
 /// Struct that allows to save a [[TimeStepInfo]] into a binary file
 #[derive(Debug)]
-pub struct StateAppender {
+pub struct TSInfoAppender {
     /// File path to store measurement series to
     file_path: PathBuf,
 }
 
-impl StateAppender {
+impl TSInfoAppender {
     pub fn new(file_path: &Path, sim_info: &SimulationParameters) -> std::io::Result<Self> {
         // convert to global path
         let file_path_parent = std::fs::canonicalize(

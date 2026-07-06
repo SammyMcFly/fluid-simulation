@@ -61,7 +61,7 @@ impl FrameControl {
         }
     }
 
-    pub fn count_discarded_timesteps(&mut self, number: usize, discard_past: bool) {
+    pub fn count_discarded_time_steps(&mut self, number: usize, discard_past: bool) {
         if discard_past {
             self.time_steps_discarded += number;
         }
@@ -128,10 +128,21 @@ pub enum StagingResult {
 
 #[derive(Default)]
 pub struct InstanceStore {
-    pub info_buffer: Vec<TimeStepInfo>,
+    info_buffer: Vec<TimeStepInfo>,
+    buffer_length_limit: usize,
     current_index: usize,
     active: bool,
     allow_looping_once: bool,
+    number_min: u64,
+    number_max: u64,
+}
+
+pub enum InsertionResult {
+    TooOld,
+    ReplacedOther,
+    ReplacedCurrent,
+    Pushed,
+    TooNew,
 }
 
 impl InstanceStore {
@@ -144,6 +155,14 @@ impl InstanceStore {
     //     }
     // }
 
+    pub fn set_length_limit(&mut self, limit: usize) {
+        self.buffer_length_limit = limit;
+    }
+
+    pub fn buffer_length_limit(&self) -> usize {
+        self.buffer_length_limit
+    }
+
     pub fn is_active(&self) -> bool {
         self.active
     }
@@ -153,13 +172,64 @@ impl InstanceStore {
         self.info_buffer = time_steps;
         self.current_index = 0;
         self.active = false;
+        if !self.info_buffer.is_empty() {
+            self.number_min = self.info_buffer.first().unwrap().time_step_number;
+            self.number_max = self.info_buffer.last().unwrap().time_step_number;
+        }
     }
 
-    pub fn push(&mut self, time_step_info: TimeStepInfo) {
-        self.info_buffer.push(time_step_info);
+    pub fn insert(&mut self, time_step_info: TimeStepInfo) -> InsertionResult {
+        if time_step_info.time_step_number == self.number_max + 1 {
+            self.number_max += 1;
+            self.info_buffer.push(time_step_info);
+            return InsertionResult::Pushed;
+        }
+        if time_step_info.time_step_number < self.number_min {
+            return InsertionResult::TooOld;
+        }
+        if time_step_info.time_step_number >= self.number_min
+            && time_step_info.time_step_number <= self.number_max
+        {
+            if self.info_buffer.is_empty() {
+                self.number_min = time_step_info.time_step_number;
+                self.number_max = time_step_info.time_step_number;
+                self.info_buffer.push(time_step_info);
+                return InsertionResult::Pushed;
+            }
+            if let Some(idx) = self
+                .info_buffer
+                .iter()
+                .position(|info| info.time_step_number == time_step_info.time_step_number)
+            {
+                if idx == self.current_index {
+                    self.info_buffer[idx] = time_step_info;
+                    return InsertionResult::ReplacedCurrent;
+                } else {
+                    self.info_buffer[idx] = time_step_info;
+                    return InsertionResult::ReplacedOther;
+                }
+            }
+        }
+        // tracing::debug!(
+        //     "Could not insert time step: ts_info_ts_number_inc {:?}, ts_info_ts_number {:?}, current_index {:?}, min {:?}, max {:?}",
+        //     time_step_info.time_step_number,
+        //     self.info_buffer[self.current_index].time_step_number,
+        //     self.current_index,
+        //     self.number_min,
+        //     self.number_max
+        // );
+        InsertionResult::TooNew
     }
 
-    pub fn get_time_step_info(&self) -> Option<&TimeStepInfo> {
+    pub fn get_first_time_step_info(&self) -> Option<&TimeStepInfo> {
+        if !self.info_buffer.is_empty() {
+            Some(&self.info_buffer[0])
+        } else {
+            None
+        }
+    }
+
+    pub fn get_current_time_step_info(&self) -> Option<&TimeStepInfo> {
         if self.active {
             Some(&self.info_buffer[self.current_index])
         } else {
@@ -221,6 +291,18 @@ impl InstanceStore {
         let discarded = self.current_index;
         self.info_buffer.drain(0..self.current_index);
         self.current_index = 0;
+        self.number_min = self
+            .info_buffer
+            .first()
+            .expect("buffer is empty")
+            .time_step_number;
+        discarded
+    }
+
+    pub fn discard_future(&mut self) -> usize {
+        let discarded = self.info_buffer.len() - self.current_index - 1;
+        self.info_buffer.drain((self.current_index + 1)..);
+        self.number_max = self.info_buffer[self.current_index].time_step_number;
         discarded
     }
 
@@ -231,6 +313,8 @@ impl InstanceStore {
         self.current_index = 0;
         self.active = false;
         self.allow_looping_once = false;
+        self.number_min = 0;
+        self.number_max = 0;
     }
 
     /// Advance to next frame, returns true if loop boundary hit (unallowed)

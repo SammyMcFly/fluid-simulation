@@ -30,24 +30,6 @@ pub fn sample_volume_shifted(mesh: &TriMesh, spacing: f64) -> Vec<Point3<f64>> {
         x += spacing;
     }
     points
-    // vec![
-    //     Point3::new(-5., 0., 0.),
-    //     Point3::new(-4., 0., 0.),
-    //     Point3::new(-3., 0., 0.),
-    //     Point3::new(-2., 0., 0.),
-    //     Point3::new(-5., 1., 0.),
-    //     Point3::new(-5., 2., 0.),
-    //     Point3::new(-5., 3., 0.),
-    //     Point3::new(-4., 1., 0.),
-    //     Point3::new(-4., 2., 0.),
-    //     Point3::new(-4., 3., 0.),
-    //     Point3::new(-3., 1., 0.),
-    //     Point3::new(-3., 2., 0.),
-    //     Point3::new(-3., 3., 0.),
-    //     Point3::new(-2., 1., 0.),
-    //     Point3::new(-2., 2., 0.),
-    //     Point3::new(-2., 3., 0.),
-    // ]
 }
 
 fn sample_triangle_grid(

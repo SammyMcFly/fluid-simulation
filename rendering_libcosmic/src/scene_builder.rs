@@ -3,7 +3,7 @@
 use simulation_lib::render_info::*;
 use simulation_lib::utilities::triangle_mesh::RenderMesh;
 
-use crate::colormap;
+use crate::colormap::{self, Colormap};
 use crate::model::ColoredMeshVertex;
 use crate::pipeline::BillboardInstance;
 use crate::primitive::{BoundarySceneData, FluidSceneData, SceneData};
@@ -11,25 +11,47 @@ use crate::primitive::{BoundarySceneData, FluidSceneData, SceneData};
 pub fn build_scene_data(
     time_step: &TimeStepInfo,
     cut: &crate::cut::Cut,
+    cut_boundary: bool,
     boundary_hidden: bool,
     particle_radius: f32,
+    max_mapping: f32,
+    colormap: Colormap,
 ) -> SceneData {
-    let fluid = build_fluid(&time_step.fluid, cut, particle_radius);
+    let fluid = build_fluid(
+        &time_step.fluid,
+        cut,
+        particle_radius,
+        max_mapping,
+        colormap,
+    );
     let boundary = if boundary_hidden {
         BoundarySceneData::None
     } else {
-        build_boundary(&time_step.boundary, cut, particle_radius)
+        build_boundary(
+            &time_step.boundary,
+            cut,
+            cut_boundary,
+            particle_radius,
+            colormap,
+        )
     };
     SceneData { fluid, boundary }
 }
 
-fn build_fluid(vis: &FluidVisualization, cut: &crate::cut::Cut, radius: f32) -> FluidSceneData {
+fn build_fluid(
+    vis: &FluidVisualization,
+    cut: &crate::cut::Cut,
+    radius: f32,
+    max_mapping: f32,
+    colormap: Colormap,
+) -> FluidSceneData {
     match vis {
         FluidVisualization::Samples {
             positions,
             coloring,
         } => {
-            let colors = resolve_fluid_coloring(coloring, positions.len());
+            let colors =
+                resolve_fluid_sample_coloring(coloring, positions.len(), max_mapping, colormap);
             let instances: Vec<BillboardInstance> = positions
                 .iter()
                 .zip(colors.iter())
@@ -47,28 +69,85 @@ fn build_fluid(vis: &FluidVisualization, cut: &crate::cut::Cut, radius: f32) -> 
                 FluidSceneData::Particles { instances }
             }
         }
-        FluidVisualization::TriangleMesh { mesh } => {
-            build_mesh_data(mesh, [0.3, 0.6, 0.9, 0.5], false)
+        FluidVisualization::TriangleMesh {
+            meshes,
+            max_fluid_id,
+            coloring,
+        } => build_fluid_meshes(meshes, *max_fluid_id, coloring, colormap),
+        FluidVisualization::SensorPlane { planes, .. } => {
+            build_sensor_plane_data(planes, max_mapping, colormap)
         }
-        FluidVisualization::SensorPlane { planes } => build_sensor_plane_data(planes),
+    }
+}
+
+fn build_fluid_meshes(
+    meshes: &[(u32, RenderMesh)],
+    max_fluid_id: u32,
+    coloring: &FluidMeshColoring,
+    colormap: Colormap,
+) -> FluidSceneData {
+    let mut vertices: Vec<ColoredMeshVertex> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    const ALPHA: f32 = 0.5; // fluid surface transparency
+
+    for (fluid_id, mesh) in meshes {
+        if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+            continue;
+        }
+
+        // per-fluid color via the same colormap you use elsewhere
+        let color = match coloring {
+            FluidMeshColoring::FluidId => {
+                let rgb = colormap::ids_to_colors(&[*fluid_id], max_fluid_id, colormap, 1.0)[0];
+                [rgb[0], rgb[1], rgb[2], ALPHA]
+            }
+            FluidMeshColoring::Uniform => [0.5, 0.7, 0.8, ALPHA],
+        };
+
+        let base = vertices.len() as u32;
+
+        vertices.extend(mesh.vertices.iter().map(|v| ColoredMeshVertex {
+            position: [
+                v.position[0] as f32,
+                v.position[2] as f32,
+                -v.position[1] as f32,
+            ],
+            normal: [v.normal[0] as f32, v.normal[2] as f32, -v.normal[1] as f32],
+            color,
+        }));
+
+        indices.extend(mesh.indices.iter().map(|&i| i + base));
+    }
+
+    if vertices.is_empty() {
+        FluidSceneData::None
+    } else {
+        FluidSceneData::Mesh {
+            vertices,
+            indices,
+            transparent: true,
+        }
     }
 }
 
 fn build_boundary(
     vis: &BoundaryVisualization,
     cut: &crate::cut::Cut,
+    cut_boundary: bool,
     radius: f32,
+    colormap: Colormap,
 ) -> BoundarySceneData {
     match vis {
         BoundaryVisualization::Samples {
             positions,
             coloring,
         } => {
-            let colors = resolve_boundary_coloring(coloring, positions.len());
+            let colors = resolve_boundary_sample_coloring(coloring, positions.len(), colormap);
             let instances: Vec<BillboardInstance> = positions
                 .iter()
                 .zip(colors.iter())
-                .filter(|(pos, _)| cut.cut(pos))
+                .filter(|(pos, _)| cut.cut(pos) || !cut_boundary)
                 .map(|(pos, color)| BillboardInstance {
                     center: [pos[0], pos[2], -pos[1]],
                     radius,
@@ -82,12 +161,16 @@ fn build_boundary(
                 BoundarySceneData::Particles { instances }
             }
         }
-        BoundaryVisualization::TriangleMesh { mesh, coloring } => {
-            let color = match coloring {
-                BoundaryMeshColoring::Original => [0.7, 0.7, 0.7, 1.0],
-                BoundaryMeshColoring::Uniform => [0.6, 0.6, 0.6, 1.0],
-            };
-            let (vertices, indices) = mesh_to_cpu(mesh, color);
+        BoundaryVisualization::TriangleMesh { meshes, coloring } => {
+            let colors = resolve_boundary_mesh_coloring(coloring, colormap);
+            let (vert_chunks, idx_chunks): (Vec<Vec<ColoredMeshVertex>>, Vec<Vec<_>>) = meshes
+                .iter()
+                .zip(colors.iter())
+                .map(|(m, c)| mesh_to_cpu(m, *c))
+                .unzip();
+
+            let vertices: Vec<_> = vert_chunks.into_iter().flatten().collect();
+            let indices: Vec<_> = idx_chunks.into_iter().flatten().collect();
             if vertices.is_empty() {
                 BoundarySceneData::None
             } else {
@@ -110,17 +193,21 @@ fn build_mesh_data(mesh: &RenderMesh, color: [f32; 4], transparent: bool) -> Flu
     }
 }
 
-fn build_sensor_plane_data(planes: &[SensorPlaneData]) -> FluidSceneData {
+fn build_sensor_plane_data(
+    planes: &[SensorPlaneData],
+    max_mapping: f32,
+    colormap: Colormap,
+) -> FluidSceneData {
     let mut all_vertices: Vec<ColoredMeshVertex> = Vec::new();
     let mut all_indices: Vec<u32> = Vec::new();
 
     for plane in planes {
-        let values = extract_scalar_values(&plane.quantity);
+        let values = &plane.data;
         if plane.positions.is_empty() || values.is_empty() || plane.rows < 2 || plane.cols < 2 {
             continue;
         }
 
-        let colors = colormap::values_to_colors(values, 1.0);
+        let colors = colormap::values_to_colors(values, max_mapping, colormap, 1.0);
         let rows = plane.rows;
         let cols = plane.cols;
         let base_vertex = all_vertices.len() as u32;
@@ -210,32 +297,45 @@ fn mesh_to_cpu(mesh: &RenderMesh, color: [f32; 4]) -> (Vec<ColoredMeshVertex>, V
     (vertices, mesh.indices.clone())
 }
 
-fn resolve_fluid_coloring(coloring: &FluidColoring, count: usize) -> Vec<[f32; 4]> {
+fn resolve_fluid_sample_coloring(
+    coloring: &FluidSampleColoring,
+    count: usize,
+    max_mapping: f32,
+    colormap: Colormap,
+) -> Vec<[f32; 4]> {
     match coloring {
-        FluidColoring::Uniform => vec![[0.2, 0.5, 1.0, 1.0]; count],
-        FluidColoring::FluidId { val, max_id } => colormap::id_to_colors(val, *max_id, 1.0),
-        FluidColoring::QuantityGraded { quantity } => {
-            colormap::values_to_colors(extract_scalar_values(quantity), 1.0)
+        FluidSampleColoring::Uniform => vec![[0.2, 0.5, 1.0, 1.0]; count],
+        FluidSampleColoring::FluidId { id, max_id } => {
+            colormap::ids_to_colors(id, *max_id, colormap, 1.0)
+        }
+        FluidSampleColoring::QuantityGraded { data, .. } => {
+            colormap::values_to_colors(data, max_mapping, colormap, 1.0)
         }
     }
 }
 
-fn resolve_boundary_coloring(coloring: &BoundarySampleColoring, count: usize) -> Vec<[f32; 4]> {
+fn resolve_boundary_sample_coloring(
+    coloring: &BoundarySampleColoring,
+    count: usize,
+    colormap: Colormap,
+) -> Vec<[f32; 4]> {
     match coloring {
         BoundarySampleColoring::Uniform => vec![[0.6, 0.6, 0.6, 1.0]; count],
-        BoundarySampleColoring::BoundaryId { val, max_id } => {
-            colormap::id_to_colors(val, *max_id, 1.0)
+        BoundarySampleColoring::BoundaryId { id, max_id } => {
+            colormap::ids_to_colors(id, *max_id, colormap, 1.0)
         }
     }
 }
 
-fn extract_scalar_values(quantity: &ScalarQuantity) -> &[f32] {
-    match quantity {
-        ScalarQuantity::SpeedGraded(v)
-        | ScalarQuantity::VolumeGraded(v)
-        | ScalarQuantity::DensityGraded(v)
-        | ScalarQuantity::DensityErrorGraded(v)
-        | ScalarQuantity::PressureGraded(v)
-        | ScalarQuantity::KineticEnergyGraded(v) => v,
+fn resolve_boundary_mesh_coloring(
+    coloring: &BoundaryMeshColoring,
+    colormap: Colormap,
+) -> Vec<[f32; 4]> {
+    match coloring {
+        BoundaryMeshColoring::Original => vec![[0.7, 0.7, 0.7, 1.0]],
+        BoundaryMeshColoring::Uniform => vec![[0.6, 0.6, 0.6, 1.0]],
+        BoundaryMeshColoring::BoundaryId { id, max_id } => {
+            colormap::ids_to_colors(id, *max_id, colormap, 1.0)
+        }
     }
 }

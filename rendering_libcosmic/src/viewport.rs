@@ -16,7 +16,7 @@ use simulation_backend::commands::WorkerCommand;
 use crate::camera::{CameraState, CameraUniform, Key};
 use crate::lighting::LightState;
 use crate::primitive::ScreenshotRequest;
-use crate::primitive::{FluidFrame, SceneData};
+use crate::primitive::{SceneData, SimulationFrame};
 
 // ─── Messages from Viewport ──────────────────────────────────
 
@@ -51,7 +51,7 @@ pub struct ViewportState {
 // ─── FluidViewport ───────────────────────────────────────────
 
 /// The shader widget program. Holds all state needed to produce a FluidFrame.
-pub struct FluidViewport {
+pub struct SimulationViewport {
     pub camera: CameraState,
     pub light: LightState,
     pub scene: SceneData,
@@ -66,7 +66,7 @@ pub struct FluidViewport {
     pub screenshot_consumed: Arc<AtomicBool>,
 }
 
-impl FluidViewport {
+impl SimulationViewport {
     pub fn new(
         camera: CameraState,
         light: LightState,
@@ -120,12 +120,12 @@ impl FluidViewport {
     }
 }
 
-impl<Message> shader::Program<Message> for FluidViewport
+impl<Message> shader::Program<Message> for SimulationViewport
 where
     Message: Clone + From<ViewportEvent>,
 {
     type State = ViewportState;
-    type Primitive = FluidFrame;
+    type Primitive = SimulationFrame;
 
     fn update(
         &self,
@@ -235,7 +235,7 @@ where
         _cursor: mouse::Cursor,
         bounds: Rectangle,
     ) -> Self::Primitive {
-        FluidFrame {
+        SimulationFrame {
             camera_uniform: self.camera.uniform,
             light_uniform: self.light.uniform,
             scene: self.scene.clone(),
