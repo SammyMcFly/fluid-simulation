@@ -1,11 +1,13 @@
 [package]
-name = "sci-phi-backend"
+name = "sci-phi-player-backend"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 # simulation library
 simulation_lib = { path = "../simulation_lib", features = ["default"]}
+
+rendering_lib = { path = "../rendering_lib", features = ["default"]}
 
 # for communication between threads
 crossbeam = "0.8.4"

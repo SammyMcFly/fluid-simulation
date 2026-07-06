@@ -42,40 +42,6 @@ pub fn save_system_state(fluid: SerFluid3D, file_path: &PathBuf) -> std::io::Res
     Ok(())
 }
 
-/// Convert raw buffer data to RGBA. The `padded_bytes` contain rows with `padded_bpr` bytes per row,
-/// with actual tight row length = width * 4.
-pub fn buffer_to_rgba(
-    raw_data: &[u8],
-    width: u32,
-    height: u32,
-    padded_bytes_per_row: usize,
-) -> anyhow::Result<Vec<u8>> {
-    // raw_data must be width * height * 4 bytes (RGBA8)
-    let expected_len = padded_bytes_per_row * (height as usize);
-    if raw_data.len() < expected_len {
-        anyhow::bail!("Raw image buffer too small");
-    }
-
-    // Flip vertically because wgpu textures are Y-down but PNG expects Y-up.
-    let mut rgba = vec![0u8; (width * height * 4) as usize];
-    let row_bytes = (width * 4) as usize;
-
-    for y in 0..height as usize {
-        let src_index = y * padded_bytes_per_row;
-        let dst_index = y * row_bytes;
-        for x in 0..width as usize {
-            let i = src_index + x * 4;
-            let o = dst_index + x * 4;
-
-            rgba[o + 0] = raw_data[i + 2]; // R = original B
-            rgba[o + 1] = raw_data[i + 1]; // G stays G
-            rgba[o + 2] = raw_data[i + 0]; // B = original R
-            rgba[o + 3] = raw_data[i + 3]; // A unchanged
-        }
-    }
-    Ok(rgba)
-}
-
 pub fn save_screenshot_into_directory(
     rgba_data: &[u8],
     width: u32,

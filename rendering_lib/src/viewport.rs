@@ -1,7 +1,6 @@
 //! FluidViewport – the shader widget program.
 //! Connects camera/light/scene state to the rendering primitive.
 //! Handles mouse/keyboard interaction within the viewport area.
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -11,10 +10,10 @@ use cosmic::iced::keyboard;
 use cosmic::iced::mouse;
 use cosmic::iced::widget::shader;
 use crossbeam::channel::Sender;
-use simulation_backend::commands::WorkerCommand;
 
-use crate::camera::{CameraState, CameraUniform, Key};
+use crate::camera::{CameraState, Key};
 use crate::lighting::LightState;
+use crate::pipeline::ScreenshotCommand;
 use crate::primitive::ScreenshotRequest;
 use crate::primitive::{SceneData, SimulationFrame};
 
@@ -51,7 +50,7 @@ pub struct ViewportState {
 // ─── FluidViewport ───────────────────────────────────────────
 
 /// The shader widget program. Holds all state needed to produce a FluidFrame.
-pub struct SimulationViewport {
+pub struct SimulationViewport<W: ScreenshotCommand> {
     pub camera: CameraState,
     pub light: LightState,
     pub scene: SceneData,
@@ -59,19 +58,19 @@ pub struct SimulationViewport {
     /// Time of last draw (for dt calculation)
     last_draw: std::time::Instant,
     pub screenshot_request: Option<ScreenshotRequest>,
-    pub worker_sender: Option<Sender<WorkerCommand>>,
+    pub worker_sender: Option<Sender<W>>,
     /// Signals that the last screenshot readback was consumed and sent to the worker.
     /// The app sets this to `false` when requesting a new screenshot,
     /// and the primitive sets it to `true` after the data is read back and dispatched.
     pub screenshot_consumed: Arc<AtomicBool>,
 }
 
-impl SimulationViewport {
+impl<W: ScreenshotCommand> SimulationViewport<W> {
     pub fn new(
         camera: CameraState,
         light: LightState,
         background_color: [f32; 4],
-        worker_sender: Sender<WorkerCommand>,
+        worker_sender: Sender<W>,
     ) -> Self {
         Self {
             camera,
@@ -120,12 +119,12 @@ impl SimulationViewport {
     }
 }
 
-impl<Message> shader::Program<Message> for SimulationViewport
+impl<W: ScreenshotCommand, Message> shader::Program<Message> for SimulationViewport<W>
 where
     Message: Clone + From<ViewportEvent>,
 {
     type State = ViewportState;
-    type Primitive = SimulationFrame;
+    type Primitive = SimulationFrame<W>;
 
     fn update(
         &self,

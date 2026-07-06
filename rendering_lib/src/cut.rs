@@ -1,4 +1,4 @@
-use simulation_lib::render_info::{ScalarQuantity, SensorPlaneData};
+use simulation_lib::render_info::SensorPlaneData;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cut {

@@ -377,10 +377,7 @@ impl SimulationController {
 /// - receives [[WorkerCommand]] from front-end
 /// - passes [[WorkerCommand]] to [[SimulationController]]
 /// - sends [[WorkerMessage]] back to front-end
-pub fn worker_loop(
-    from_ui: Receiver<WorkerCommand>,
-    to_ui: Sender<WorkerMessage>, // ← geändert von EventLoopProxy
-) {
+pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage>) {
     let mut simulation_controller = SimulationController::default();
     'worker: loop {
         for cmd in from_ui.try_iter() {

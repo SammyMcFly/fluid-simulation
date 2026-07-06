@@ -1,4 +1,4 @@
-app-title = Sci-PHi
+app-title = Sci-PHi-Player
 about = About
 repository = Repository
 view = View
@@ -84,6 +84,7 @@ fluid-vis =
     .samples-fluid-id = Samples (fluid ID)
     .samples-quantity = Samples (quantity)
     .sensor-plane = Sensor plane
+    .not-loaded = Not loaded
 
 # Scalar quantities
 quantity =
@@ -101,3 +102,4 @@ boundary-vis =
     .mesh-boundary-id = Triangle mesh (boundary ID)
     .samples-uniform = Samples (uniform)
     .samples-boundary-id = Samples (boundary ID)
+    .not-loaded = Not loaded

@@ -25,9 +25,9 @@ use cosmic::widget::segmented_button::Entity;
 use cosmic::widget::{self, about::About, icon, menu, nav_bar, row};
 use cosmic::{prelude::*, theme};
 use rendering_lib::{CameraState, LightState, SimulationViewport, ViewportEvent, build_scene_data};
-use simulation_backend::commands::WorkerCommand;
-use simulation_backend::messages::WorkerMessage;
-use simulation_backend::worker_loop;
+use sci_phi_backend::commands::WorkerCommand;
+use sci_phi_backend::messages::WorkerMessage;
+use sci_phi_backend::worker_loop;
 use simulation_lib::measurement::{MeasurementSeries, RecordingStatus};
 use simulation_lib::render_info::{
     FluidSampleColoring, FluidVisualization, ScalarQuantity, TimeStepInfo,
@@ -48,7 +48,7 @@ pub struct AppModel {
     /// Contains items assigned to the nav bar panel.
     nav: nav_bar::Model,
     /// Viewport for the fluid simulation.
-    simulation_page: SimulationViewport,
+    simulation_page: SimulationViewport<WorkerCommand>,
     /// Plotting
     plotting_page: pages::plotting::PlottingViewport,
     /// Display a context drawer with the designated page if defined.
@@ -744,6 +744,7 @@ impl cosmic::Application for AppModel {
                             self.simulation_page.request_screenshot(ScreenshotRequest {
                                 target: ScreenshotTarget::RenderingFrame {
                                     frame_index: rendering.frame_counter,
+                                    output_dir: PathBuf::default(),
                                 },
                             });
                             rendering.awaiting_capture = true;
@@ -1425,7 +1426,7 @@ impl Drop for AppModel {
             .as_ref()
             .is_some_and(|r| r.finish_time.is_some())
             && !matches!(self.inspector.info.recording_status, RecordingStatus::None)
-            && !matches!(self.inspector.info.recording_status, RecordingStatus::None)
+            && !matches!(self.inspector.info.rendering_status, RecordingStatus::None)
             && (!self.inspector.info.recording_status.is_finished()
                 || !self.inspector.info.rendering_status.is_finished())
         {

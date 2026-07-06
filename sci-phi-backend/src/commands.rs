@@ -1,6 +1,9 @@
+use rendering_lib::pipeline::ScreenshotCommand;
 use simulation_lib::render_info::TimeStepInfo;
+use std::path::PathBuf;
 
 /// Commands sent from the UI to the worker thread
+#[derive(Debug, Clone)]
 pub enum WorkerCommand {
     Simulate {
         params_file_path: String,
@@ -36,4 +39,29 @@ pub enum WorkerCommand {
         with_info: Box<TimeStepInfo>,
     },
     Stop,
+}
+
+impl ScreenshotCommand for WorkerCommand {
+    fn write_rendering(
+        data: Vec<u8>,
+        width: u32,
+        height: u32,
+        frame_index: usize,
+        _directory: std::path::PathBuf,
+    ) -> Self {
+        WorkerCommand::WriteRendering {
+            data,
+            width,
+            height,
+            frame_index,
+        }
+    }
+    fn save_screenshot_to_file(data: Vec<u8>, width: u32, height: u32, file_path: PathBuf) -> Self {
+        WorkerCommand::SaveScreenshotToFile {
+            data,
+            width,
+            height,
+            file_path,
+        }
+    }
 }

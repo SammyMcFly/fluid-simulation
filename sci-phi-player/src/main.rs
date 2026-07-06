@@ -12,42 +12,30 @@ mod i18n;
 
 use clap::Parser;
 
-/// Advanced fluid solver written in rust.
-#[derive(Parser, Debug, Clone)]
+/// Program for playing back a recording of an SPH fluid simulation create by Sci-PHi.
+#[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// File path to input .toml file with simulation parameters
-    pub params: String,
-    /// File path to scene definition
-    #[arg(long)]
-    pub scene: String,
-    /// File path to initial state (overrides fluid in scene)
-    #[arg(long)]
-    pub state: Option<String>,
-    /// File path for measurement output (.csv)
-    #[arg(short, long)]
-    pub measurement_file: Option<String>,
-    /// File path to store recorded timesteps to
-    #[arg(long)]
-    pub recording_file: Option<String>,
-    /// Directory for rendered image output
-    #[arg(long)]
-    pub rendering_dir: Option<String>,
-    /// Start time for measurement/recording/rendering
-    #[arg(short, long)]
-    pub start_time: Option<f64>,
-    /// Finish time for measurement/recording/rendering
-    #[arg(short, long)]
-    pub finish_time: Option<f64>,
+    /// File path to recording of a rusty fluid solver simulation binary file
+    // #[arg(default_value_t=String::from("scene_config.toml"))]
+    recording: String,
     /// Resume playback at start
     #[arg(short, long)]
-    pub resume: bool,
-    /// Exit when finished
+    resume: bool,
+    /// File path to store rendered images to (.png files)
+    #[arg(long)]
+    rendering_dir: Option<String>,
+    /// Time, which the first measurement/recording is taken at
     #[arg(short, long)]
-    pub exit: bool,
-    /// Log severity level (TRACE, DEBUG, INFO, WARN, ERROR, OFF)
-    #[arg(short, long, default_value_t = String::from("INFO"))]
-    pub log: String,
+    start_time: Option<f64>,
+    /// Time, which the final measurement/recording is taken at
+    ///
+    /// At the same time the simulation is paused. Currently there is no possibility to resume the simulation.
+    #[arg(short, long)]
+    finish_time: Option<f64>,
+    /// Log severity level (Options: TRACE, DEBUG, INFO, WARN, ERROR, OFF)
+    #[arg(short, long, default_value_t=String::from("INFO"))]
+    log: String,
 }
 
 fn main() -> cosmic::iced::Result {

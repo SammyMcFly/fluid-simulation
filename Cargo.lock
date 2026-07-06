@@ -4982,7 +4982,6 @@ dependencies = [
  "ron 0.12.2",
  "rustc-hash 2.1.2",
  "serde",
- "simulation_backend",
  "simulation_lib",
  "tobj",
  "toml 1.1.2+spec-1.1.0",
@@ -5285,12 +5284,73 @@ dependencies = [
  "ron 0.12.2",
  "rust-embed",
  "rustc-hash 2.1.2",
+ "sci-phi-backend",
  "serde",
- "simulation_backend",
  "simulation_lib",
  "tobj",
  "tokio",
  "toml 1.1.2+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "sci-phi-backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossbeam",
+ "image",
+ "rendering_lib",
+ "ron 0.12.2",
+ "simulation_lib",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "sci-phi-player"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "bytemuck",
+ "cgmath",
+ "clap",
+ "crossbeam",
+ "csv",
+ "i18n-embed",
+ "i18n-embed-fl",
+ "libcosmic",
+ "nalgebra 0.35.0",
+ "num-traits",
+ "open",
+ "pollster",
+ "rendering_lib",
+ "rfd 0.15.4",
+ "ron 0.12.2",
+ "rust-embed",
+ "rustc-hash 2.1.2",
+ "sci-phi-player-backend",
+ "serde",
+ "simulation_lib",
+ "tobj",
+ "tokio",
+ "toml 1.1.2+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "sci-phi-player-backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossbeam",
+ "image",
+ "rendering_lib",
+ "ron 0.12.2",
+ "simulation_lib",
  "tracing",
  "tracing-subscriber",
 ]
@@ -5495,19 +5555,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a9c6883ca9c3c7c90e888de77b7a5c849c779d25d74a1269b0218b14e8b136c"
 dependencies = [
  "log",
-]
-
-[[package]]
-name = "simulation_backend"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crossbeam",
- "image",
- "ron 0.12.2",
- "simulation_lib",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

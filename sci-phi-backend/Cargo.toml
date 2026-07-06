@@ -7,6 +7,8 @@ edition = "2024"
 # simulation library
 simulation_lib = { path = "../simulation_lib", features = ["default"]}
 
+rendering_lib = { path = "../rendering_lib", features = ["default"]}
+
 # for communication between threads
 crossbeam = "0.8.4"
 

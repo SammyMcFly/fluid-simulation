@@ -3,13 +3,8 @@ use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
 /// Messages sent from the worker thread to the UI
 #[derive(Debug, Clone)]
 pub enum WorkerMessage {
-    TimeStepReady(Box<TimeStepInfo>),
-    SimulationLoaded(SimulationParameters),
-    FinishedReloading(SimulationParameters),
-    ContinuedFromCheckpoint,
-    ReachedStartTime,
-    ReachedFinishTime,
+    FinishedReading(SimulationParameters, Vec<TimeStepInfo>),
+    SavedScreenshot,
     SavedState,
-    SavedMeasurement,
     Error(String),
 }

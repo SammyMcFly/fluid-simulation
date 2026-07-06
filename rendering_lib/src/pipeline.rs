@@ -4,8 +4,9 @@
 use cosmic::iced::wgpu;
 use cosmic::iced::wgpu::util::DeviceExt;
 use cosmic::iced::widget::shader;
+use std::fmt::Debug;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use crate::camera::CameraUniform;
@@ -120,8 +121,25 @@ pub struct PendingScreenshot {
 
 #[derive(Debug, Clone)]
 pub enum PendingScreenshotTarget {
-    Directory { frame_index: usize },
-    ExplicitPath { path: PathBuf },
+    Directory {
+        frame_index: usize,
+        directory: std::path::PathBuf,
+    },
+    ExplicitPath {
+        path: PathBuf,
+    },
+}
+
+pub trait ScreenshotCommand: Debug + Send + 'static {
+    fn write_rendering(
+        data: Vec<u8>,
+        width: u32,
+        height: u32,
+        frame_index: usize,
+        directory: std::path::PathBuf,
+    ) -> Self;
+
+    fn save_screenshot_to_file(data: Vec<u8>, width: u32, height: u32, file_path: PathBuf) -> Self;
 }
 
 // ─── FluidRenderer ────────────────────────────────────────────

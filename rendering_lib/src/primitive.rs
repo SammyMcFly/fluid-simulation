@@ -7,7 +7,6 @@ use cosmic::iced::wgpu::util::DeviceExt;
 use cosmic::iced::widget::shader;
 use cosmic::iced::widget::shader::Viewport;
 use crossbeam::channel::Sender;
-use simulation_backend::commands::WorkerCommand;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,6 +16,7 @@ use crate::lighting::LightUniform;
 use crate::model::ColoredMeshVertex;
 use crate::pipeline::PendingScreenshot;
 use crate::pipeline::PendingScreenshotTarget;
+use crate::pipeline::ScreenshotCommand;
 use crate::pipeline::ScreenshotState;
 use crate::pipeline::{BillboardInstance, DepthTexture, SimulationRenderer};
 
@@ -78,7 +78,7 @@ pub enum ScreenshotTarget {
     /// Sequential frame in a directory (CLI rendering)
     RenderingFrame {
         frame_index: usize,
-        // output_dir: PathBuf,
+        output_dir: PathBuf,
     },
 }
 
@@ -91,19 +91,19 @@ pub struct ScreenshotRequest {
 
 /// The per-frame primitive. Carries all data needed for one render.
 #[derive(Debug, Clone)]
-pub struct SimulationFrame {
+pub struct SimulationFrame<W: ScreenshotCommand> {
     pub camera_uniform: CameraUniform,
     pub light_uniform: LightUniform,
     pub scene: SceneData,
     pub background_color: [f32; 4],
     // Screenshot
     pub readback_request: Option<ScreenshotRequest>,
-    pub worker_sender: Option<Sender<WorkerCommand>>,
+    pub worker_sender: Option<Sender<W>>,
     /// Shared flag: set to true once readback data is dispatched
     pub screenshot_consumed: Arc<AtomicBool>,
 }
 
-impl shader::Primitive for SimulationFrame {
+impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
     type Pipeline = SimulationRenderer;
 
     fn prepare(
@@ -171,22 +171,25 @@ impl shader::Primitive for SimulationFrame {
                                 // Dispatch to worker
                                 if let Some(sender) = &self.worker_sender {
                                     match pending.target {
-                                        PendingScreenshotTarget::Directory { frame_index } => {
-                                            let _ = sender.send(WorkerCommand::WriteRendering {
-                                                data: rgba,
-                                                width: pending.width,
-                                                height: pending.height,
+                                        PendingScreenshotTarget::Directory {
+                                            frame_index,
+                                            directory,
+                                        } => {
+                                            let _ = sender.send(W::write_rendering(
+                                                rgba,
+                                                pending.width,
+                                                pending.height,
                                                 frame_index,
-                                            });
+                                                directory,
+                                            ));
                                         }
                                         PendingScreenshotTarget::ExplicitPath { path } => {
-                                            let _ =
-                                                sender.send(WorkerCommand::SaveScreenshotToFile {
-                                                    data: rgba,
-                                                    width: pending.width,
-                                                    height: pending.height,
-                                                    file_path: path,
-                                                });
+                                            let _ = sender.send(W::save_screenshot_to_file(
+                                                rgba,
+                                                pending.width,
+                                                pending.height,
+                                                path,
+                                            ));
                                         }
                                     }
                                 }
@@ -371,11 +374,13 @@ impl shader::Primitive for SimulationFrame {
                             ScreenshotTarget::SingleFile { path } => {
                                 PendingScreenshotTarget::ExplicitPath { path: path.clone() }
                             }
-                            ScreenshotTarget::RenderingFrame { frame_index } => {
-                                PendingScreenshotTarget::Directory {
-                                    frame_index: *frame_index,
-                                }
-                            }
+                            ScreenshotTarget::RenderingFrame {
+                                frame_index,
+                                output_dir,
+                            } => PendingScreenshotTarget::Directory {
+                                frame_index: *frame_index,
+                                directory: output_dir.clone(),
+                            },
                         };
 
                         // Transition: Idle → CopyIssued
@@ -396,7 +401,7 @@ impl shader::Primitive for SimulationFrame {
 
 // ─── Upload helpers ───────────────────────────────────────────
 
-impl SimulationFrame {
+impl<W: ScreenshotCommand> SimulationFrame<W> {
     fn upload_scene(&self, pipeline: &mut SimulationRenderer, device: &wgpu::Device) {
         // Reset
         pipeline.scene = Default::default();

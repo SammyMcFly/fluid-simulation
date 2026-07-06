@@ -13,9 +13,6 @@ logging = ["dep:tracing"]
 # my rendering library
 simulation_lib = { path = "../simulation_lib" }
 
-# simulation backend
-simulation_backend = { path = "../simulation_backend"}
-
 # linear algebra
 nalgebra = "0.35"
 cgmath = "0.18"

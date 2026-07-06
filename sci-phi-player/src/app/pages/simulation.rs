@@ -8,7 +8,6 @@ use simulation_lib::render_info::{
     BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization, FluidMeshColoring,
     FluidSampleColoring, FluidVisualization, ScalarQuantity, TimeStepInfo,
 };
-use simulation_lib::utilities::triangle_mesh::RenderMesh;
 
 use crate::app::Message;
 use crate::fl;
@@ -45,13 +44,13 @@ pub struct SimulationSettings {
 impl Default for SimulationSettings {
     fn default() -> Self {
         Self {
-            fluid_vis: FluidVisOption::SamplesQuantity,
+            fluid_vis: FluidVisOption::NotLoaded,
             fluid_quantity: QuantityOption::Speed,
             colormap: Colormap::default(),
             color_mapping_max: 10.0,
             color_mapping_max_input: "10.0".to_string(),
             boundary_hidden: false,
-            boundary_vis: BoundaryVisOption::MeshOriginal,
+            boundary_vis: BoundaryVisOption::NotLoaded,
             sensor_plane: SensorPlaneConfig::default(),
             cut: Cut::default(),
             cut_x_input: "0.0".to_string(),
@@ -59,7 +58,7 @@ impl Default for SimulationSettings {
             cut_z_input: "0.0".to_string(),
             cut_boundary: true,
             particle_radius: 1.0,
-            discard_past: true,
+            discard_past: false,
             wait_for_timesteps: true,
             play_looped: false,
             invert_time: false,
@@ -86,47 +85,10 @@ impl SimulationSettings {
         self.particle_radius = radius;
     }
 
-    pub fn build_fluid_template(&self) -> FluidVisualization {
-        match self.fluid_vis {
-            FluidVisOption::TriangleMeshUniform => FluidVisualization::TriangleMesh {
-                meshes: Vec::new(),
-                max_fluid_id: 0,
-                coloring: FluidMeshColoring::Uniform,
-            },
-            FluidVisOption::TriangleMeshFluidId => FluidVisualization::TriangleMesh {
-                meshes: Vec::new(),
-                max_fluid_id: 0,
-                coloring: FluidMeshColoring::FluidId,
-            },
-            FluidVisOption::SamplesUniform => FluidVisualization::Samples {
-                positions: Vec::new(),
-                coloring: FluidSampleColoring::Uniform,
-            },
-            FluidVisOption::SamplesFluidId => FluidVisualization::Samples {
-                positions: Vec::new(),
-                coloring: FluidSampleColoring::FluidId {
-                    id: Vec::new(),
-                    max_id: 0,
-                },
-            },
-            FluidVisOption::SamplesQuantity => FluidVisualization::Samples {
-                positions: Vec::new(),
-                coloring: FluidSampleColoring::QuantityGraded {
-                    data: Vec::new(),
-                    quantity: self.fluid_quantity.to_quantity(),
-                },
-            },
-            FluidVisOption::SensorPlane => {
-                let cfg = &self.sensor_plane;
-                let planes =
-                    self.cut
-                        .sensor_plane_samples(cfg.parse_dx(), cfg.parse_min(), cfg.parse_max());
-                FluidVisualization::SensorPlane {
-                    planes,
-                    quantity: self.fluid_quantity.to_quantity(),
-                }
-            }
-        }
+    pub fn update(&mut self, info: &TimeStepInfo) {
+        self.fluid_vis = FluidVisOption::from_template(&info.fluid);
+        self.fluid_quantity = QuantityOption::from_template(&info.fluid);
+        self.boundary_vis = BoundaryVisOption::from_template(&info.boundary);
     }
 
     fn colormap_controls<'a>(&'a self) -> cosmic::Element<'a, Message> {
@@ -200,32 +162,26 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
         // ─── Fluid ───────────────────────────────────────────
         let fluid_selected = FluidVisOption::ALL
             .iter()
-            .position(|o| *o == self.fluid_vis);
+            .position(|o| *o == self.fluid_vis)
+            .expect("Failed to get position of selected fluid");
         let mut fluid_section = widget::settings::section()
             .title(fl!("section", "fluid"))
             .add(
-                widget::settings::item::builder(fl!("settings", "fluid")).control(
-                    widget::dropdown(
-                        &self.fluid_vis_labels,
-                        fluid_selected,
-                        Message::SetFluidVisualization,
-                    ),
-                ),
+                widget::settings::item::builder(fl!("settings", "fluid")).control(widget::text(
+                    self.fluid_vis_labels[fluid_selected].to_string(),
+                )),
             );
 
         // Quantity selector.
         if self.fluid_vis.uses_quantity() {
             let quantity_selected = QuantityOption::ALL
                 .iter()
-                .position(|q| *q == self.fluid_quantity);
+                .position(|q| *q == self.fluid_quantity)
+                .expect("Failed to get position of selected quantity");
             fluid_section = fluid_section
                 .add(
                     widget::settings::item::builder(fl!("settings", "quantity")).control(
-                        widget::dropdown(
-                            &self.quantity_labels,
-                            quantity_selected,
-                            Message::SetFluidQuantity,
-                        ),
+                        widget::text(self.quantity_labels[quantity_selected].to_string()),
                     ),
                 )
                 .add(self.colormap_controls());
@@ -235,50 +191,20 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
         if self.fluid_vis == FluidVisOption::SensorPlane {
             let cfg = &self.sensor_plane;
             fluid_section = fluid_section
-                .add(stepper_row(
-                    fl!("settings", "min-x"),
-                    &cfg.min[0],
-                    SensorField::Min(0),
-                ))
-                .add(stepper_row(
-                    fl!("settings", "min-y"),
-                    &cfg.min[1],
-                    SensorField::Min(1),
-                ))
-                .add(stepper_row(
-                    fl!("settings", "min-z"),
-                    &cfg.min[2],
-                    SensorField::Min(2),
-                ))
-                .add(stepper_row(
-                    fl!("settings", "max-x"),
-                    &cfg.max[0],
-                    SensorField::Max(0),
-                ))
-                .add(stepper_row(
-                    fl!("settings", "max-y"),
-                    &cfg.max[1],
-                    SensorField::Max(1),
-                ))
-                .add(stepper_row(
-                    fl!("settings", "max-z"),
-                    &cfg.max[2],
-                    SensorField::Max(2),
-                ))
-                .add(stepper_row(fl!("settings", "dx"), &cfg.dx, SensorField::Dx))
-                .add(
-                    widget::settings::item::builder(fl!("settings", "apply-bounds")).control(
-                        widget::button::suggested(fl!("settings", "apply"))
-                            .on_press(Message::ApplySensorPlaneConfig),
-                    ),
-                )
-                .add(widget::text::body(fl!("settings", "sensor-plane-info")));
+                .add(stepper_row(fl!("settings", "min-x"), &cfg.min[0]))
+                .add(stepper_row(fl!("settings", "min-y"), &cfg.min[1]))
+                .add(stepper_row(fl!("settings", "min-z"), &cfg.min[2]))
+                .add(stepper_row(fl!("settings", "max-x"), &cfg.max[0]))
+                .add(stepper_row(fl!("settings", "max-y"), &cfg.max[1]))
+                .add(stepper_row(fl!("settings", "max-z"), &cfg.max[2]))
+                .add(stepper_row(fl!("settings", "dx"), &cfg.dx));
         }
 
         // ─── Boundary ─────────────────────────────────────────
         let boundary_selected = BoundaryVisOption::ALL
             .iter()
-            .position(|o| *o == self.boundary_vis);
+            .position(|o| *o == self.boundary_vis)
+            .expect("Failed to get position of selected boundary");
         let boundary_section = widget::settings::section()
             .title(fl!("section", "boundary"))
             .add(
@@ -286,13 +212,9 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
                     .toggler(self.boundary_hidden, |_| Message::ToggleHideBoundary),
             )
             .add(
-                widget::settings::item::builder(fl!("settings", "boundary")).control(
-                    widget::dropdown(
-                        &self.boundary_vis_labels,
-                        boundary_selected,
-                        Message::SetBoundaryVisualization,
-                    ),
-                ),
+                widget::settings::item::builder(fl!("settings", "boundary")).control(widget::text(
+                    self.boundary_vis_labels[boundary_selected].to_string(),
+                )),
             );
 
         // ─── Cut Controls ─────────────────────────────────────
@@ -397,36 +319,14 @@ pub fn colorbar_bytes(cmap: Colormap, width: usize, height: usize) -> Vec<u8> {
 fn stepper_row<'a>(
     label: impl Into<std::borrow::Cow<'a, str>>,
     value: &'a str,
-    field: SensorField,
 ) -> Element<'a, Message, Theme, Renderer> {
     let spacing = theme::active().cosmic().spacing;
 
-    let input = widget::text_input("0.0", value)
-        .on_input(move |s| Message::SensorPlaneInput(field, s))
-        .width(cosmic::iced::Length::Fixed(spacing.space_xxxl as f32))
-        .padding(4);
-
-    let minus_btn = widget::button::icon(
-        widget::icon::from_name("list-remove-symbolic")
-            .size(spacing.space_m)
-            .symbolic(true),
-    )
-    .icon_size(spacing.space_m)
-    .padding(spacing.space_xxxs)
-    .on_press(Message::SensorPlaneStep(field, false));
-
-    let plus_btn = widget::button::icon(
-        widget::icon::from_name("list-add-symbolic")
-            .size(spacing.space_m)
-            .symbolic(true),
-    )
-    .icon_size(spacing.space_m)
-    .padding(spacing.space_xxxs)
-    .on_press(Message::SensorPlaneStep(field, true));
+    let value = widget::text(value).width(cosmic::iced::Length::Fixed(spacing.space_xxxl as f32));
 
     widget::settings::item::builder(label)
         .control(
-            widget::row::with_children(vec![input.into(), minus_btn.into(), plus_btn.into()])
+            widget::row::with_children(vec![value.into()])
                 .align_y(Alignment::Center)
                 .spacing(spacing.space_xxxs),
         )
@@ -507,16 +407,18 @@ pub enum FluidVisOption {
     SamplesFluidId,
     SamplesQuantity,
     SensorPlane,
+    NotLoaded,
 }
 
 impl FluidVisOption {
-    pub const ALL: [FluidVisOption; 6] = [
+    pub const ALL: [FluidVisOption; 7] = [
         Self::TriangleMeshUniform,
         Self::TriangleMeshFluidId,
         Self::SamplesUniform,
         Self::SamplesFluidId,
         Self::SamplesQuantity,
         Self::SensorPlane,
+        Self::NotLoaded,
     ];
 
     pub fn label(self) -> String {
@@ -527,6 +429,7 @@ impl FluidVisOption {
             Self::SamplesFluidId => fl!("fluid-vis", "samples-fluid-id"),
             Self::SamplesQuantity => fl!("fluid-vis", "samples-quantity"),
             Self::SensorPlane => fl!("fluid-vis", "sensor-plane"),
+            Self::NotLoaded => fl!("fluid-vis", "not-loaded"),
         }
     }
 
@@ -688,15 +591,17 @@ pub enum BoundaryVisOption {
     MeshBoundaryId,
     SamplesUniform,
     SamplesBoundaryId,
+    NotLoaded,
 }
 
 impl BoundaryVisOption {
-    pub const ALL: [BoundaryVisOption; 5] = [
+    pub const ALL: [BoundaryVisOption; 6] = [
         Self::MeshOriginal,
         Self::MeshUniform,
         Self::MeshBoundaryId,
         Self::SamplesUniform,
         Self::SamplesBoundaryId,
+        Self::NotLoaded,
     ];
 
     pub fn label(self) -> String {
@@ -706,37 +611,7 @@ impl BoundaryVisOption {
             Self::MeshBoundaryId => fl!("boundary-vis", "mesh-boundary-id"),
             Self::SamplesUniform => fl!("boundary-vis", "samples-uniform"),
             Self::SamplesBoundaryId => fl!("boundary-vis", "samples-boundary-id"),
-        }
-    }
-
-    pub fn to_template(self) -> BoundaryVisualization {
-        match self {
-            Self::MeshOriginal => BoundaryVisualization::TriangleMesh {
-                meshes: vec![RenderMesh::default()],
-                coloring: BoundaryMeshColoring::Original,
-            },
-            Self::MeshUniform => BoundaryVisualization::TriangleMesh {
-                meshes: vec![RenderMesh::default()],
-                coloring: BoundaryMeshColoring::Uniform,
-            },
-            Self::MeshBoundaryId => BoundaryVisualization::TriangleMesh {
-                meshes: vec![RenderMesh::default()],
-                coloring: BoundaryMeshColoring::BoundaryId {
-                    id: Vec::new(),
-                    max_id: 0,
-                },
-            },
-            Self::SamplesUniform => BoundaryVisualization::Samples {
-                positions: Vec::new(),
-                coloring: BoundarySampleColoring::Uniform,
-            },
-            Self::SamplesBoundaryId => BoundaryVisualization::Samples {
-                positions: Vec::new(),
-                coloring: BoundarySampleColoring::BoundaryId {
-                    id: Vec::new(),
-                    max_id: 0,
-                },
-            },
+            Self::NotLoaded => fl!("boundary-vis", "not-loaded"),
         }
     }
 
