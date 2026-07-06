@@ -365,6 +365,12 @@ impl SimulationController {
         }
         Ok(())
     }
+    fn stop(&mut self) -> Result<(), String> {
+        if !self.finish_registered {
+            self.save_measurement()?;
+        }
+        Ok(())
+    }
 }
 
 /// Function that does:
@@ -517,6 +523,12 @@ pub fn worker_loop(
                     }
                 }
                 WorkerCommand::Stop => {
+                    match simulation_controller.stop() {
+                        Ok(_) => {}
+                        Err(e) => {
+                            let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
+                        }
+                    }
                     info!("Stopped backend!");
                     break 'worker;
                 }
@@ -534,7 +546,6 @@ pub fn worker_loop(
             let save_message = if let Err(e) = simulation_controller.save_measurement() {
                 WorkerMessage::Error(e)
             } else {
-                info!("Successfully saved measurement!");
                 WorkerMessage::SavedMeasurement
             };
             let _ = to_ui.send(save_message);

@@ -89,6 +89,8 @@ pub struct AppModel {
 /// Messages emitted by the application and its widgets.
 #[derive(Debug, Clone)]
 pub enum Message {
+    ClosePressed(cosmic::iced::window::Id),
+    RequestClose,
     ToggleInspector,
     InspectorTabSelected(Entity),
     ToggleContextPage(ContextPage),
@@ -281,13 +283,7 @@ impl cosmic::Application for AppModel {
             config: cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
                 .map(|context| match Config::get_entry(&context) {
                     Ok(config) => config,
-                    Err((_errors, config)) => {
-                        // for why in errors {
-                        //     tracing::error!(%why, "error loading app config");
-                        // }
-
-                        config
-                    }
+                    Err((_errors, config)) => config,
                 })
                 .unwrap_or_default(),
             frame: FrameControl::default(),
@@ -426,9 +422,19 @@ impl cosmic::Application for AppModel {
     fn subscription(&self) -> Subscription<Self::Message> {
         // Camera tick already polls the worker channel
         Subscription::batch(vec![
+            cosmic::iced::event::listen_with(|event, _status, window_id| match event {
+                cosmic::iced::event::Event::Window(cosmic::iced::window::Event::CloseRequested) => {
+                    Some(Message::ClosePressed(window_id))
+                }
+                _ => None,
+            }),
             cosmic::iced::time::every(std::time::Duration::from_millis(16))
                 .map(|_| Message::CameraTick),
         ])
+    }
+
+    fn on_app_exit(&mut self) -> Option<Message> {
+        Some(Message::RequestClose)
     }
 
     /// Handles messages emitted by the application and its widgets.
@@ -437,6 +443,14 @@ impl cosmic::Application for AppModel {
     /// on the application's async runtime.
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
+            Message::ClosePressed(window_id) => {
+                if Some(window_id) == self.core.main_window_id() {
+                    return self.update(Message::RequestClose); // your existing path
+                }
+            }
+            Message::RequestClose => {
+                return self.request_action(PendingAction::Close);
+            }
             Message::ToggleInspector => {
                 self.inspector.toggle_show();
             }
@@ -1004,7 +1018,29 @@ impl cosmic::Application for AppModel {
     fn dialog(&self) -> Option<Element<Self::Message>> {
         let dialog_page = self.dialog_page.as_ref()?;
 
-        let (title, body) = match dialog_page {
+        let (title, body, action) = match dialog_page {
+            PendingAction::Close => {
+                let fill_in = if (self.inspector.info.is_measurement_saved
+                    || self.inspector.info.is_recorded)
+                    && self.inspector.info.is_rendered_to_file
+                {
+                    "recording and rendering?"
+                } else if self.inspector.info.is_measurement_saved
+                    || self.inspector.info.is_recorded
+                {
+                    "recording?"
+                } else {
+                    "rendering?"
+                };
+                (
+                    format!("Stop {}?", fill_in),
+                    format!(
+                        "Closing the window will stop the current {}. Continue?",
+                        fill_in
+                    ),
+                    "Stop & close",
+                )
+            }
             PendingAction::Reload => {
                 let fill_in = if (self.inspector.info.is_measurement_saved
                     || self.inspector.info.is_recorded)
@@ -1021,6 +1057,7 @@ impl cosmic::Application for AppModel {
                 (
                     format!("Stop {}?", fill_in),
                     format!("Reloading will stop the current {}. Continue?", fill_in),
+                    "Stop & continue",
                 )
             }
             PendingAction::ReloadWithCurrentVisualization => {
@@ -1042,6 +1079,7 @@ impl cosmic::Application for AppModel {
                         "Changing the visualization will stop the current {}. Continue?",
                         fill_in
                     ),
+                    "Stop & continue",
                 )
             }
         };
@@ -1049,9 +1087,7 @@ impl cosmic::Application for AppModel {
         let dialog = widget::dialog()
             .title(title)
             .body(body)
-            .primary_action(
-                widget::button::destructive("Stop & continue").on_press(Message::DialogConfirm),
-            )
+            .primary_action(widget::button::destructive(action).on_press(Message::DialogConfirm))
             .secondary_action(widget::button::standard("Cancel").on_press(Message::DialogCancel));
 
         Some(dialog.into())
@@ -1125,9 +1161,10 @@ impl AppModel {
                 }
                 if self.exit_when_finished && !rendering_active {
                     let _ = self.to_worker.send(WorkerCommand::Stop);
-                    if let Some(id) = self.core.main_window_id() {
-                        return Some(cosmic::iced::window::close(id));
-                    }
+                    return Some(Task::batch([
+                        cosmic::iced::window::close(self.core.main_window_id().unwrap()),
+                        cosmic::iced::exit(),
+                    ]));
                 }
                 None
             }
@@ -1148,10 +1185,12 @@ impl AppModel {
     }
 
     fn request_action(&mut self, action: PendingAction) -> Task<cosmic::Action<Message>> {
-        if self.is_recording() {
+        if self.is_recording() || self.is_rendering() {
+            tracing::info!("recording");
             self.dialog_page = Some(action);
             Task::none()
         } else {
+            tracing::info!("not recording");
             self.perform(action)
         }
     }
@@ -1164,8 +1203,20 @@ impl AppModel {
         ) && !self.inspector.info.recording_status.is_finished()
     }
 
+    fn is_rendering(&self) -> bool {
+        // "in progress" = started but not finished. Adjust to your real variants.
+        !matches!(
+            self.inspector.info.rendering_status,
+            RecordingStatus::None | RecordingStatus::NotStarted | RecordingStatus::Finished
+        )
+    }
+
     fn perform(&mut self, action: PendingAction) -> Task<cosmic::Action<Message>> {
         match action {
+            PendingAction::Close => Task::batch([
+                cosmic::iced::window::close(self.core.main_window_id().unwrap()),
+                cosmic::iced::exit(),
+            ]),
             PendingAction::ReloadWithCurrentVisualization => {
                 self.reload_with_current_visualization()
             }
@@ -1175,7 +1226,7 @@ impl AppModel {
 
     fn reload(&mut self) -> Task<cosmic::Action<Message>> {
         let _ = self.to_worker.send(WorkerCommand::Reload);
-        cosmic::Task::none()
+        Task::none()
     }
 
     fn reload_with_current_visualization(&mut self) -> Task<cosmic::Action<Message>> {
@@ -1203,7 +1254,7 @@ impl AppModel {
         let _ = self.to_worker.send(WorkerCommand::ContinueFromTimeStep {
             with_info: Box::new(with_info),
         });
-        cosmic::Task::none()
+        Task::none()
     }
 
     fn step_sensor_field(&mut self, field: SensorField, inc: bool) {
@@ -1438,6 +1489,7 @@ impl menu::action::MenuAction for MenuAction {
 
 #[derive(Clone, Debug)]
 pub enum PendingAction {
+    Close,
     ReloadWithCurrentVisualization,
     Reload,
 }
