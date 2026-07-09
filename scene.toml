@@ -9,21 +9,21 @@ sphere = "/mnt/Code/fluid-simulation/sphere.obj"
 [[fluid]]
 mesh = "cube"
 fluid_id = 0
-position = [15.0, 20.0, 10.0]
+position = [13.0, 20.0, 5.0]
 rotation_euler_deg = [0.0, 0.0, 0.0]
-scale = 15.0
+scale = 22.0
 
 [[fluid]]
 mesh = "cube"
 fluid_id = 1
-position = [-5.0, 20.0, 10.0]
-scale = 15.0
+position = [-12.0, 20.0, 5.0]
+scale = 22.0
 
 [[boundary.static]]
 mesh = "sphere"
 boundary_id = 0
 position = [10.0, 0.0, 10.0]
-scale = 30.0
+scale = 40.0
 
 # [[boundary.dynamic]]
 # mesh = "cube"
