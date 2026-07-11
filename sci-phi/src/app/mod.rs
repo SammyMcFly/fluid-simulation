@@ -13,8 +13,6 @@ use crate::fl;
 use pages::plotting::PlottingSettings;
 use pages::simulation::SimulationSettings;
 use playback::{FrameControl, InstanceStore, PlaybackControls, StagingResult};
-use rendering_lib::colormap::Colormap;
-use rendering_lib::primitive::{ScreenshotRequest, ScreenshotTarget};
 
 use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
@@ -24,6 +22,8 @@ use cosmic::iced::{Alignment, Length, Subscription};
 use cosmic::widget::segmented_button::Entity;
 use cosmic::widget::{self, about::About, icon, menu, nav_bar, row};
 use cosmic::{prelude::*, theme};
+use rendering_lib::colormap::Colormap;
+use rendering_lib::primitive::{ScreenshotRequest, ScreenshotTarget};
 use rendering_lib::{CameraState, LightState, SimulationViewport, ViewportEvent, build_scene_data};
 use sci_phi_backend::commands::WorkerCommand;
 use sci_phi_backend::messages::WorkerMessage;
@@ -126,6 +126,7 @@ pub enum Message {
     ApplyColorMappingMax,
     SetBoundaryVisualization(usize),
     ToggleHideBoundary,
+    SetBoundaryAlpha(f32),
     ToggleCutX,
     ToggleCutZ,
     ToggleCutY,
@@ -317,7 +318,7 @@ impl cosmic::Application for AppModel {
     }
 
     fn header_end(&self) -> Vec<Element<'_, Self::Message>> {
-        let menu_bar = menu::bar(vec![menu::Tree::with_children(
+        let hamburger_menu = menu::bar(vec![menu::Tree::with_children(
             widget::icon::from_name("open-menu-symbolic")
                 .size(20)
                 .symbolic(true)
@@ -330,7 +331,7 @@ impl cosmic::Application for AppModel {
             ),
         )]);
 
-        vec![menu_bar.into()]
+        vec![hamburger_menu.into()]
     }
 
     /// Enables the COSMIC application to create a nav bar with this model.
@@ -877,6 +878,10 @@ impl cosmic::Application for AppModel {
                 self.sim_settings.boundary_hidden = !self.sim_settings.boundary_hidden;
                 self.rebuild_scene();
             }
+            Message::SetBoundaryAlpha(a) => {
+                self.sim_settings.boundary_alpha = a;
+                self.rebuild_scene();
+            }
             Message::ToggleCutX => {
                 self.sim_settings.cut.x_active = !self.sim_settings.cut.x_active;
                 if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
@@ -1410,6 +1415,7 @@ impl AppModel {
                 &self.sim_settings.cut,
                 self.sim_settings.cut_boundary,
                 self.sim_settings.boundary_hidden,
+                self.sim_settings.boundary_alpha,
                 self.sim_settings.particle_radius,
                 self.sim_settings.color_mapping_max,
                 self.sim_settings.colormap,

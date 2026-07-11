@@ -13,6 +13,7 @@ pub fn build_scene_data(
     cut: &crate::cut::Cut,
     cut_boundary: bool,
     boundary_hidden: bool,
+    bounbary_alpha: f32,
     particle_radius: f32,
     max_mapping: f32,
     colormap: Colormap,
@@ -31,6 +32,7 @@ pub fn build_scene_data(
             &time_step.boundary,
             cut,
             cut_boundary,
+            bounbary_alpha,
             particle_radius,
             colormap,
         )
@@ -135,6 +137,7 @@ fn build_boundary(
     vis: &BoundaryVisualization,
     cut: &crate::cut::Cut,
     cut_boundary: bool,
+    bounbary_alpha: f32,
     radius: f32,
     colormap: Colormap,
 ) -> BoundarySceneData {
@@ -143,7 +146,12 @@ fn build_boundary(
             positions,
             coloring,
         } => {
-            let colors = resolve_boundary_sample_coloring(coloring, positions.len(), colormap);
+            let colors = resolve_boundary_sample_coloring(
+                coloring,
+                positions.len(),
+                colormap,
+                bounbary_alpha,
+            );
             let instances: Vec<BillboardInstance> = positions
                 .iter()
                 .zip(colors.iter())
@@ -162,7 +170,7 @@ fn build_boundary(
             }
         }
         BoundaryVisualization::TriangleMesh { meshes, coloring } => {
-            let colors = resolve_boundary_mesh_coloring(coloring, colormap);
+            let colors = resolve_boundary_mesh_coloring(coloring, colormap, bounbary_alpha);
             let (vert_chunks, idx_chunks): (Vec<Vec<ColoredMeshVertex>>, Vec<Vec<_>>) = meshes
                 .iter()
                 .zip(colors.iter())
@@ -318,11 +326,12 @@ fn resolve_boundary_sample_coloring(
     coloring: &BoundarySampleColoring,
     count: usize,
     colormap: Colormap,
+    bounbary_alpha: f32,
 ) -> Vec<[f32; 4]> {
     match coloring {
-        BoundarySampleColoring::Uniform => vec![[0.6, 0.6, 0.6, 1.0]; count],
+        BoundarySampleColoring::Uniform => vec![[0.6, 0.6, 0.6, bounbary_alpha]; count],
         BoundarySampleColoring::BoundaryId { id, max_id } => {
-            colormap::ids_to_colors(id, *max_id, colormap, 1.0)
+            colormap::ids_to_colors(id, *max_id, colormap, bounbary_alpha)
         }
     }
 }
@@ -330,12 +339,13 @@ fn resolve_boundary_sample_coloring(
 fn resolve_boundary_mesh_coloring(
     coloring: &BoundaryMeshColoring,
     colormap: Colormap,
+    bounbary_alpha: f32,
 ) -> Vec<[f32; 4]> {
     match coloring {
-        BoundaryMeshColoring::Original => vec![[0.7, 0.7, 0.7, 1.0]],
-        BoundaryMeshColoring::Uniform => vec![[0.6, 0.6, 0.6, 1.0]],
+        BoundaryMeshColoring::Original => vec![[0.7, 0.7, 0.7, bounbary_alpha]],
+        BoundaryMeshColoring::Uniform => vec![[0.6, 0.6, 0.6, bounbary_alpha]],
         BoundaryMeshColoring::BoundaryId { id, max_id } => {
-            colormap::ids_to_colors(id, *max_id, colormap, 1.0)
+            colormap::ids_to_colors(id, *max_id, colormap, bounbary_alpha)
         }
     }
 }

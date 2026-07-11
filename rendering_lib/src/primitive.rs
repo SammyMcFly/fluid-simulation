@@ -569,32 +569,6 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
         );
         pass.draw_indexed(0..pipeline.light_mesh.num_indices, 0, 0..1);
 
-        // Boundary particles
-        if let Some(buf) = &pipeline.scene.boundary_particle_buffer {
-            if pipeline.scene.boundary_particle_count > 0 {
-                pass.set_pipeline(&pipeline.particle_pipeline);
-                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-                pass.set_vertex_buffer(0, buf.slice(..));
-                pass.draw(0..6, 0..pipeline.scene.boundary_particle_count);
-            }
-        }
-
-        // Boundary mesh
-        if let (Some(vb), Some(ib)) = (
-            &pipeline.scene.boundary_mesh_vertex_buffer,
-            &pipeline.scene.boundary_mesh_index_buffer,
-        ) {
-            if pipeline.scene.boundary_mesh_index_count > 0 {
-                pass.set_pipeline(&pipeline.mesh_opaque_pipeline);
-                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-                pass.set_vertex_buffer(0, vb.slice(..));
-                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..pipeline.scene.boundary_mesh_index_count, 0, 0..1);
-            }
-        }
-
         // Fluid particles
         if let Some(buf) = &pipeline.scene.particle_buffer {
             if pipeline.scene.particle_count > 0 {
@@ -627,17 +601,54 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
             &pipeline.scene.mesh_index_buffer,
         ) {
             if pipeline.scene.mesh_index_count > 0 {
-                let pip = if pipeline.scene.mesh_transparent {
-                    &pipeline.mesh_transparent_pipeline
+                if pipeline.scene.mesh_transparent {
+                    pass.set_pipeline(&pipeline.mesh_transparent_fluid_backface_pipeline);
+                    pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+                    pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
+                    pass.set_vertex_buffer(0, vb.slice(..));
+                    pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+
+                    pass.set_pipeline(&pipeline.mesh_transparent_fluid_pipeline);
+                    pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
                 } else {
-                    &pipeline.mesh_opaque_pipeline
-                };
-                pass.set_pipeline(pip);
+                    pass.set_pipeline(&pipeline.mesh_opaque_pipeline);
+                    pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+                    pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
+                    pass.set_vertex_buffer(0, vb.slice(..));
+                    pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
+                }
+            }
+        }
+
+        // Boundary particles
+        if let Some(buf) = &pipeline.scene.boundary_particle_buffer {
+            if pipeline.scene.boundary_particle_count > 0 {
+                pass.set_pipeline(&pipeline.particle_transparent_pipeline);
+                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
+                pass.set_vertex_buffer(0, buf.slice(..));
+                pass.draw(0..6, 0..pipeline.scene.boundary_particle_count);
+            }
+        }
+
+        // Boundary mesh
+        if let (Some(vb), Some(ib)) = (
+            &pipeline.scene.boundary_mesh_vertex_buffer,
+            &pipeline.scene.boundary_mesh_index_buffer,
+        ) {
+            if pipeline.scene.boundary_mesh_index_count > 0 {
+                // Pass 1: only backside (cull front)
+                pass.set_pipeline(&pipeline.mesh_transparent_backface_pipeline);
                 pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
                 pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
+                pass.draw_indexed(0..pipeline.scene.boundary_mesh_index_count, 0, 0..1);
+
+                // Pass 2: only front (cull back)
+                pass.set_pipeline(&pipeline.mesh_transparent_pipeline);
+                pass.draw_indexed(0..pipeline.scene.boundary_mesh_index_count, 0, 0..1);
             }
         }
     }

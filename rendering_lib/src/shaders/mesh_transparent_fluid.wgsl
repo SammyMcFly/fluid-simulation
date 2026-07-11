@@ -39,15 +39,27 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.world_normal);
+    let view_dir = normalize(camera.view_pos.xyz - in.world_position);
     let light_dir = normalize(light.position - in.world_position);
 
-    // Simple diffuse lighting
-    let ambient = 0.2;
-    let diffuse = max(dot(normal, light_dir), 0.0) * 0.8;
-    let lit = ambient + diffuse;
+    // Fresnel (Schlick, IOR ~1.33 → R0 ≈ 0.02)
+    let r0 = 0.02;
+    let cos_theta = max(dot(normal, view_dir), 0.0);
+    let fresnel = r0 + (1.0 - r0) * pow(1.0 - cos_theta, 5.0);
 
-    let result = in.color.rgb * lit;
+    // Diffuse (subtil für Glas-Look)
+    let diffuse = max(dot(normal, light_dir), 0.0) * 0.3;
 
-    // Alpha from vertex color
-    return vec4(result, in.color.a);
+    // Specular (stark, glasig)
+    let half_dir = normalize(view_dir + light_dir);
+    let specular = pow(max(dot(normal, half_dir), 0.0), 64.0) * 1.2;
+
+    // Farbe mit Lichtbrechungs-Effekt
+    let base = in.color.rgb * (0.1 + diffuse);
+    let result = base + light.color * (specular + fresnel * 0.3);
+
+    // Alpha: Fresnel-gesteuert (Kanten opaker, Mitte transparenter)
+    let alpha = clamp(in.color.a * (0.3 + fresnel * 0.7), 0.1, 0.85);
+
+    return vec4(result, alpha);
 }

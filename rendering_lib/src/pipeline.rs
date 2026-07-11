@@ -155,8 +155,12 @@ pub struct SimulationRenderer {
     pub light_bind_group: wgpu::BindGroup,
     // Pipelines
     pub particle_pipeline: wgpu::RenderPipeline,
+    pub particle_transparent_pipeline: wgpu::RenderPipeline,
     pub mesh_opaque_pipeline: wgpu::RenderPipeline,
     pub mesh_transparent_pipeline: wgpu::RenderPipeline,
+    pub mesh_transparent_backface_pipeline: wgpu::RenderPipeline,
+    pub mesh_transparent_fluid_pipeline: wgpu::RenderPipeline,
+    pub mesh_transparent_fluid_backface_pipeline: wgpu::RenderPipeline,
     pub mesh_unlit_pipeline: wgpu::RenderPipeline,
     pub light_pipeline: wgpu::RenderPipeline,
     /// The texture format used by all pipelines (matches swapchain)
@@ -255,6 +259,12 @@ impl shader::Pipeline for SimulationRenderer {
             &camera_bind_group_layout,
             &light_bind_group_layout,
         );
+        let particle_transparent_pipeline = Self::create_particle_pipeline_transparent(
+            device,
+            format,
+            &camera_bind_group_layout,
+            &light_bind_group_layout,
+        );
 
         // ─── Mesh Pipelines ───────────────────────────────────
 
@@ -263,14 +273,44 @@ impl shader::Pipeline for SimulationRenderer {
             format,
             &camera_bind_group_layout,
             &light_bind_group_layout,
+            Some(wgpu::Face::Back),
+            false,
             false,
         );
-
         let mesh_transparent_pipeline = Self::create_mesh_pipeline(
             device,
             format,
             &camera_bind_group_layout,
             &light_bind_group_layout,
+            Some(wgpu::Face::Back),
+            true,
+            false,
+        );
+        let mesh_transparent_backface_pipeline = Self::create_mesh_pipeline(
+            device,
+            format,
+            &camera_bind_group_layout,
+            &light_bind_group_layout,
+            Some(wgpu::Face::Front),
+            true,
+            false,
+        );
+        let mesh_transparent_fluid_pipeline = Self::create_mesh_pipeline(
+            device,
+            format,
+            &camera_bind_group_layout,
+            &light_bind_group_layout,
+            Some(wgpu::Face::Back),
+            true,
+            true,
+        );
+        let mesh_transparent_fluid_backface_pipeline = Self::create_mesh_pipeline(
+            device,
+            format,
+            &camera_bind_group_layout,
+            &light_bind_group_layout,
+            Some(wgpu::Face::Front),
+            true,
             true,
         );
         let mesh_unlit_pipeline =
@@ -297,8 +337,12 @@ impl shader::Pipeline for SimulationRenderer {
             light_bind_group_layout,
             light_bind_group,
             particle_pipeline,
+            particle_transparent_pipeline,
             mesh_opaque_pipeline,
             mesh_transparent_pipeline,
+            mesh_transparent_backface_pipeline,
+            mesh_transparent_fluid_pipeline,
+            mesh_transparent_fluid_backface_pipeline,
             mesh_unlit_pipeline,
             light_pipeline,
             surface_format: format,
@@ -376,14 +420,84 @@ impl SimulationRenderer {
         })
     }
 
+    // Neue Methode in impl SimulationRenderer:
+    fn create_particle_pipeline_transparent(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        camera_bgl: &wgpu::BindGroupLayout,
+        light_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Particle Impostor Shader (Transparent)"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/particle_impostor.wgsl").into()),
+        });
+
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Particle Transparent Pipeline Layout"),
+            bind_group_layouts: &[camera_bgl, light_bgl],
+            immediate_size: 0,
+        });
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Particle Transparent Pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[BillboardInstance::layout()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DepthTexture::FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+
     fn create_mesh_pipeline(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         camera_bgl: &wgpu::BindGroupLayout,
         light_bgl: &wgpu::BindGroupLayout,
+        cull_mode: Option<wgpu::Face>,
         transparent: bool,
+        fluid: bool,
     ) -> wgpu::RenderPipeline {
-        let shader_src = if transparent {
+        let shader_src = if transparent && fluid {
+            include_str!("shaders/mesh_transparent_fluid.wgsl")
+        } else if transparent {
             include_str!("shaders/mesh_transparent.wgsl")
         } else {
             include_str!("shaders/mesh_opaque.wgsl")
@@ -443,7 +557,7 @@ impl SimulationRenderer {
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None, // double-sided
+                cull_mode,
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {

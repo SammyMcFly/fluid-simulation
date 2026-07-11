@@ -69,6 +69,7 @@ settings =
     .sensor-plane-info = Cut planes define the sensor planes.
     .boundary = Boundary
     .hide-boundary = Hide boundary
+    .boundary-alpha = Boundary alpha
     .cut-boundary = Cut boundary
     .discard-past-auto = Discard past automatically
     .play-reversed = Play reversed

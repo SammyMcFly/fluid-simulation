@@ -24,6 +24,8 @@ pub struct SimulationSettings {
     // Boundary visualization option
     pub boundary_hidden: bool,
     pub boundary_vis: BoundaryVisOption,
+    pub boundary_alpha: f32,
+    /// Sensor plane configuration
     pub sensor_plane: SensorPlaneConfig,
     /// Cut plane state
     pub cut: Cut,
@@ -52,6 +54,7 @@ impl Default for SimulationSettings {
             color_mapping_max_input: "10.0".to_string(),
             boundary_hidden: false,
             boundary_vis: BoundaryVisOption::MeshOriginal,
+            boundary_alpha: 1.0,
             sensor_plane: SensorPlaneConfig::default(),
             cut: Cut::default(),
             cut_x_input: "0.0".to_string(),
@@ -292,6 +295,14 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
                         boundary_selected,
                         Message::SetBoundaryVisualization,
                     ),
+                ),
+            )
+            .add(
+                widget::settings::item::builder(fl!("settings", "boundary-alpha")).control(
+                    widget::slider(0.0..=1.0, self.boundary_alpha, |value| {
+                        Message::SetBoundaryAlpha(value)
+                    })
+                    .step(0.01),
                 ),
             );
 

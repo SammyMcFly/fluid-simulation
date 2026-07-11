@@ -104,6 +104,7 @@ pub enum Message {
     ColorMappingMaxStep(f32, bool), // true = +, false = −
     ApplyColorMappingMax,
     ToggleHideBoundary,
+    SetBoundaryAlpha(f32),
     ToggleCutX,
     ToggleCutZ,
     ToggleCutY,
@@ -717,6 +718,10 @@ impl cosmic::Application for AppModel {
                 self.sim_settings.boundary_hidden = !self.sim_settings.boundary_hidden;
                 self.rebuild_scene();
             }
+            Message::SetBoundaryAlpha(a) => {
+                self.sim_settings.boundary_alpha = a;
+                self.rebuild_scene();
+            }
             Message::ToggleCutX => {
                 self.sim_settings.cut.x_active = !self.sim_settings.cut.x_active;
                 self.rebuild_scene();
@@ -1064,6 +1069,7 @@ impl AppModel {
                 &self.sim_settings.cut,
                 self.sim_settings.cut_boundary,
                 self.sim_settings.boundary_hidden,
+                self.sim_settings.boundary_alpha,
                 self.sim_settings.particle_radius,
                 self.sim_settings.color_mapping_max,
                 self.sim_settings.colormap,
