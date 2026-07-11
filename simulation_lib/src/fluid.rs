@@ -332,7 +332,7 @@ impl From<SerFluid3D> for Fluid3D {
             velocity_prev: vec![Vector3::zeros(); len],
             velocity_pred: vec![Vector3::zeros(); len],
             acceleration: vec![Vector3::zeros(); len],
-            mass: vec![ser_fluid.mass; len],
+            mass: ser_fluid.mass,
             volume: vec![0.; len],
             pressure: vec![0.; len],
         }
@@ -346,7 +346,7 @@ pub struct SerFluid3D {
     pub fluid_id: Vec<u32>,
     pub position: Vec<[f64; 3]>,
     pub velocity: Vec<[f64; 3]>,
-    pub mass: f64,
+    pub mass: Vec<f64>,
 }
 
 impl From<Fluid3D> for SerFluid3D {
@@ -355,7 +355,7 @@ impl From<Fluid3D> for SerFluid3D {
             fluid_id: fluid.fluid_id,
             position: fluid.position.iter().map(|pos| (*pos).into()).collect(),
             velocity: fluid.velocity.iter().map(|vel| (*vel).into()).collect(),
-            mass: fluid.mass[0],
+            mass: fluid.mass,
         }
     }
 }

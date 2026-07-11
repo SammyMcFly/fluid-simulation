@@ -248,7 +248,7 @@ enum ComputationState {
     Paused,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct SimulationLoadInfo {
     params_file_path: String,
     scene_file_path: String,

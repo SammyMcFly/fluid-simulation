@@ -13,12 +13,12 @@ use crate::integration_schemes::*;
 use crate::neighbor_search::NeighborSearch;
 use crate::neighbor_search::*;
 use crate::setup::input::{Parameters, Procedures, Scene};
+use crate::sph::SystemParameters;
 use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::boundary_handling::*;
 use crate::sph::kernel::*;
 use crate::sph::pressure_solver::PressureSolver;
 use crate::sph::pressure_solver::*;
-use crate::sph::{CurrentSystemProperties, SystemParameters};
 use crate::sph::{SPHSystem, System3D};
 use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary, transform_trimesh};
 
