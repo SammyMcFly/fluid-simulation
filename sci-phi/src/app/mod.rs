@@ -176,7 +176,12 @@ impl cosmic::Application for AppModel {
     }
 
     /// Initializes the application with any given flags and startup commands.
-    fn init(core: cosmic::Core, args: Self::Flags) -> (Self, Task<cosmic::Action<Self::Message>>) {
+    fn init(
+        mut core: cosmic::Core,
+        args: Self::Flags,
+    ) -> (Self, Task<cosmic::Action<Self::Message>>) {
+        // set the context drawer to not be drawn over the content
+        core.window.context_is_overlay = false;
         // Create a nav bar with page items.
         let mut nav = nav_bar::Model::default();
 
