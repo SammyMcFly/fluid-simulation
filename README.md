@@ -6,6 +6,10 @@ A physics-based **Smoothed Particle Hydrodynamics (SPH)** fluid simulation frame
 
 This workspace implements a 3D SPH fluid solver with an interactive wgpu-based renderer. The simulation runs on a dedicated worker thread while the frontend handles rendering and user input. Simulations can be recorded and replayed with the included player application.
 
+The following image shows the user interface of `sci-phi`.
+
+<img width="2560" height="1408" alt="ui" src="./sci-phi/img/ui.png" />
+
 ## Workspace Crates
 
 ```
