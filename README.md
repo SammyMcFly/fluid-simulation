@@ -8,7 +8,9 @@ This workspace implements a 3D SPH fluid solver with an interactive wgpu-based r
 
 The following image shows the user interface of `sci-phi`.
 
-<img width="2560" height="1408" alt="ui" src="./sci-phi/img/ui.png" />
+<div align="center">
+  <img src="./sci-phi/img/ui.png" alt="ui" style="max-width: 100%; height: auto;" />
+</div>
 
 ## Workspace Crates
 

@@ -6,8 +6,9 @@ An SPH fluid simulation application with interactive 3D visualization.
 
 `sci-phi` is the main simulation binary of the workspace. It loads a scene configuration, runs the SPH fluid solver on a dedicated worker thread, and renders results in real time using a libcosmic-based desktop application with custom wgpu rendering.
 
-<img width="2560" height="1408" alt="ui" src="./img/ui.png" />
-
+<div align="center">
+  <img src="./img/ui.png" alt="ui" style="max-width: 100%; height: auto;" />
+</div>
 ## Architecture
 
 ```
