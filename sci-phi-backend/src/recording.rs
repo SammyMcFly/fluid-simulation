@@ -3,9 +3,7 @@
 //!
 use image::{ImageBuffer, Rgba};
 use simulation_lib::fluid::SerFluid3D;
-use simulation_lib::render_info::FluidVisualization;
-use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use tracing::{error, info}; // debug, error, info, span, trace, warn,
@@ -14,8 +12,29 @@ use tracing::{error, info}; // debug, error, info, span, trace, warn,
 
 use crate::SimulationParameters;
 
+#[derive(Debug, thiserror::Error)]
+pub enum FileIoError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Image error: {0}")]
+    Image(#[from] image::ImageError),
+
+    #[error("RON serialization error: {0}")]
+    Ron(#[from] ron::Error),
+
+    #[error("File already exists: {0}")]
+    FileAlreadyExists(std::path::PathBuf),
+
+    #[error("No parent directory found")]
+    NoParentDirectory,
+
+    #[error("Failed to create image buffer")]
+    ImageBufferCreationFailed,
+}
+
 /// Store the current state of all fluid particles to a file
-pub fn save_system_state(fluid: SerFluid3D, file_path: &PathBuf) -> std::io::Result<()> {
+pub fn save_system_state(fluid: SerFluid3D, file_path: &Path) -> Result<(), FileIoError> {
     // convert to global path
     let file_path_parent = std::fs::canonicalize(
         file_path
@@ -33,10 +52,10 @@ pub fn save_system_state(fluid: SerFluid3D, file_path: &PathBuf) -> std::io::Res
     } else if global_file_path.exists() {
         // Throw an error if file already exist
         error!("File already exists: {}", global_file_path.display());
-        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+        return Err(FileIoError::FileAlreadyExists(global_file_path));
     }
 
-    let ron_string = ron::to_string(&fluid).unwrap();
+    let ron_string = ron::to_string(&fluid)?;
     let mut file = std::fs::File::create(global_file_path)?;
     file.write_all(ron_string.as_bytes())?;
     Ok(())
@@ -47,8 +66,8 @@ pub fn save_screenshot_into_directory(
     width: u32,
     height: u32,
     frame_index: usize,
-    output_dir: &std::path::PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
+    output_dir: &Path,
+) -> Result<(), FileIoError> {
     let filename = format!("frame_{:06}.png", frame_index);
     let file_path = output_dir.join(filename);
     save_screenshot_to_file(rgba_data, width, height, &file_path)
@@ -59,8 +78,8 @@ pub fn save_screenshot_to_file(
     width: u32,
     height: u32,
     file_path: &std::path::PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let output_dir = file_path.parent().ok_or("Failed to get parent directory")?;
+) -> Result<(), FileIoError> {
+    let output_dir = file_path.parent().ok_or(FileIoError::NoParentDirectory)?;
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)?;
         info!("Created directory: {}", output_dir.display());
@@ -71,7 +90,7 @@ pub fn save_screenshot_to_file(
     }
 
     let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba_data.to_vec())
-        .ok_or("Failed to create image buffer")?;
+        .ok_or(FileIoError::ImageBufferCreationFailed)?;
 
     img.save(&file_path)?;
 
@@ -86,7 +105,7 @@ pub struct TSInfoAppender {
 }
 
 impl TSInfoAppender {
-    pub fn new(file_path: &Path, sim_info: &SimulationParameters) -> std::io::Result<Self> {
+    pub fn new(file_path: &Path, sim_info: &SimulationParameters) -> Result<Self, FileIoError> {
         // convert to global path
         let file_path_parent = std::fs::canonicalize(
             file_path
@@ -104,13 +123,9 @@ impl TSInfoAppender {
         } else if global_file_path.exists() {
             // Throw an error if file already exist
             error!("File already exists: {}", file_path_parent.display());
-            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+            return Err(FileIoError::FileAlreadyExists(global_file_path));
         }
 
-        if global_file_path.exists() {
-            error!("File already exists: {}", file_path_parent.display());
-            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
-        }
         let appender = Self {
             file_path: global_file_path,
         };
@@ -121,7 +136,7 @@ impl TSInfoAppender {
     pub fn append_time_step_info_to_file(
         &self,
         info: impl std::convert::Into<std::vec::Vec<u8>>,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), FileIoError> {
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

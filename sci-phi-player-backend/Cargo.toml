@@ -19,7 +19,7 @@ image = "0.25.9"
 ron = "0.12"
 
 # error handling
-anyhow = "1.0.100"
+thiserror = "2.0"
 
 # logging
 tracing = { version = "0.1.41"}

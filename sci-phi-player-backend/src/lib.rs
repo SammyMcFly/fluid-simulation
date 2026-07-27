@@ -16,7 +16,30 @@ pub mod messages;
 use commands::WorkerCommand;
 use messages::WorkerMessage;
 
-fn read_recording(file_path: &str) -> std::io::Result<(SimulationParameters, Vec<TimeStepInfo>)> {
+#[derive(Debug, thiserror::Error)]
+pub enum FileIoError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Image error: {0}")]
+    Image(#[from] image::ImageError),
+
+    #[error("RON serialization error: {0}")]
+    Ron(#[from] ron::Error),
+
+    #[error("File already exists: {0}")]
+    FileAlreadyExists(std::path::PathBuf),
+
+    #[error("No parent directory found")]
+    NoParentDirectory,
+
+    #[error("Failed to create image buffer")]
+    ImageBufferCreationFailed,
+}
+
+fn read_recording(
+    file_path: &str,
+) -> Result<(SimulationParameters, Vec<TimeStepInfo>), FileIoError> {
     let file_path = Path::new(file_path);
     // convert to global path
     let file_path_parent = std::fs::canonicalize(
@@ -75,7 +98,7 @@ pub fn save_screenshot_into_directory(
     height: u32,
     frame_index: usize,
     output_dir: &std::path::PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), FileIoError> {
     let filename = format!("frame_{:06}.png", frame_index);
     let file_path = output_dir.join(filename);
     save_screenshot_to_file(rgba_data, width, height, &file_path)
@@ -86,19 +109,19 @@ pub fn save_screenshot_to_file(
     width: u32,
     height: u32,
     file_path: &std::path::PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let output_dir = file_path.parent().ok_or("Failed to get parent directory")?;
+) -> Result<(), FileIoError> {
+    let output_dir = file_path.parent().ok_or(FileIoError::NoParentDirectory)?;
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)?;
         info!("Created directory: {}", output_dir.display());
     } else if file_path.exists() {
         // Throw an error if file already exist
         error!("File already exists: {}", file_path.display());
-        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());
+        return Err(FileIoError::FileAlreadyExists(file_path.clone()));
     }
 
     let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba_data.to_vec())
-        .ok_or("Failed to create image buffer")?;
+        .ok_or(FileIoError::ImageBufferCreationFailed)?;
 
     img.save(&file_path)?;
 
@@ -113,9 +136,9 @@ pub fn save_to_png(
     height: u32,
     frame_index: usize,
     output_dir: &std::path::Path,
-) -> anyhow::Result<()> {
+) -> Result<(), FileIoError> {
     let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba_data)
-        .expect("image::ImageBuffer::from_raw failed");
+        .ok_or(FileIoError::ImageBufferCreationFailed)?;
 
     let filename = format!("frame_{:06}.png", frame_index);
     let file_path = output_dir.join(filename);
@@ -126,7 +149,7 @@ pub fn save_to_png(
     } else if file_path.exists() {
         // Throw an error if file already exist
         error!("File already exists: {}", file_path.display());
-        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());
+        return Err(FileIoError::FileAlreadyExists(file_path));
     }
 
     let file = File::create(file_path)?;

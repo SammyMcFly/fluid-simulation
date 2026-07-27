@@ -60,9 +60,6 @@ toml = "1.1"
 # writing to binary files
 bincode = "2.0"
 
-# error handling
-anyhow = "1.0.100"
-
 # load sphere for visualization
 tobj = { version = "4.0.3", default-features = false, features = ["async"]}
 
