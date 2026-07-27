@@ -23,7 +23,7 @@ use crate::utilities::vector;
 #[derive(Debug, Default)]
 pub struct StaticSampleBoundary {
     /// Boundary samples
-    boundary: Boundary3D,
+    boundary: SampleBoundary3D,
     /// List of boundary neighbors
     boundary_neighbor_list: NeighborList,
     // /// Boundary parameters
@@ -184,9 +184,9 @@ impl StaticSampleBoundary {
 
 /// Boundary represented by samples, which are identified by an ID (usize)
 #[derive(Debug, Clone, Default)]
-pub struct Boundary3D {
-    pub boundary_id: Vec<u32>,
-    pub position: Vec<Point3<f64>>,
+pub struct SampleBoundary3D {
+    boundary_id: Vec<u32>,
+    position: Vec<Point3<f64>>,
     velocity: Vec<Vector3<f64>>,
     /// volume (necessary for sph fluid)
     volume: Vec<f64>,
@@ -194,13 +194,13 @@ pub struct Boundary3D {
     pub render_mesh_id: Vec<u32>,
 }
 
-impl Len for Boundary3D {
+impl Len for SampleBoundary3D {
     fn len(&self) -> usize {
         self.position.len()
     }
 }
 
-impl Positional for Boundary3D {
+impl Positional for SampleBoundary3D {
     fn pos_now<I>(&self, id: I) -> &I::Output
     where
         I: SliceIndex<[Point3<f64>]>,
@@ -209,7 +209,7 @@ impl Positional for Boundary3D {
     }
 }
 
-impl Boundary3D {
+impl SampleBoundary3D {
     pub fn add_boundary(
         &mut self,
         boundary: &TriMesh,
@@ -257,7 +257,7 @@ impl Boundary3D {
     }
 }
 
-impl From<SerBoundary3D> for Boundary3D {
+impl From<SerBoundary3D> for SampleBoundary3D {
     fn from(ser_boundary: SerBoundary3D) -> Self {
         let len = ser_boundary.position.len();
         Self {
@@ -289,8 +289,8 @@ pub struct SerBoundary3D {
     render_mesh_id: Vec<u32>,
 }
 
-impl From<Boundary3D> for SerBoundary3D {
-    fn from(boundary: Boundary3D) -> Self {
+impl From<SampleBoundary3D> for SerBoundary3D {
+    fn from(boundary: SampleBoundary3D) -> Self {
         Self {
             boundary_id: boundary.boundary_id,
             position: boundary.position.iter().map(|pos| (*pos).into()).collect(),
