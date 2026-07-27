@@ -8,6 +8,14 @@ use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 use crate::fluid::{Fluid3D, Len};
 use crate::for_each;
 use crate::neighbor_search::NeighborList;
+use crate::setup::input::Parameters;
+use crate::sph::CurrentSystemProperties;
+use crate::sph::SystemParameters;
+use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
+use crate::sph::kernel::KernelFn;
+use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
+use crate::sph::pressure_solver::{add_pressure_acceleration, set_pred_vel_by_applying_acc};
+use crate::utilities::vector;
 
 #[allow(dead_code)]
 pub enum TerminationCondition {
@@ -57,14 +65,7 @@ impl PressureSolver for IISPH {
             // set predicted velocity by applying non-pressure acceleration
             set_pred_vel_by_applying_acc(fluid, params, false);
             // set source term
-            Self::set_source_term_vp::<K>(
-                self,
-                fluid,
-                boundary,
-                neighbor_list,
-                params,
-                false,
-            );
+            Self::set_source_term_vp::<K>(self, fluid, boundary, neighbor_list, params, false);
             // self.set_source_term_vde();
             // println!("s_f: {}", self.particles[200].s_f);
             // solve pressure equation system
@@ -80,15 +81,7 @@ impl PressureSolver for IISPH {
             );
         }
         // add pressure acceleration (compute from pressure)
-        add_pressure_acceleration::<K>(
-            None,
-            fluid,
-            boundary,
-            neighbor_list,
-            params,
-            false,
-            false,
-        );
+        add_pressure_acceleration::<K>(None, fluid, boundary, neighbor_list, params, false, false);
     }
 
     fn measurement_info(&self) -> SolverMeasurementInfo {
@@ -143,13 +136,13 @@ impl IISPH {
                             ),
                         );
                 }
-                for &boundary_neighbor in boundary.get_neighbors(id) {
+                for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                     let r_vec = vector(
                         boundary.pos_now(boundary_neighbor),
                         &pos_now[id],
                     );
                     accu -= params.time_increment
-                        * *boundary.volume(boundary_neighbor)
+                        * boundary.volume(boundary_neighbor)
                         * (vel_pred[id]
                             - *boundary.vel_now(boundary_neighbor))
                         .dot(&K::kernel_gradient(
@@ -213,7 +206,7 @@ impl IISPH {
                             ),
                         );
                 }
-                for &boundary_neighbor in boundary.get_neighbors(id) {
+                for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                     // select position
                     let particle_pos = if with_pred_positions {
                         pos_pred[id]
@@ -226,7 +219,7 @@ impl IISPH {
                         &particle_pos,
                     );
                     accu -= params.time_increment
-                        * *boundary.volume(boundary_neighbor)
+                        * boundary.volume(boundary_neighbor)
                         * (vel_pred[id]
                             - *boundary.vel_now(boundary_neighbor))
                         .dot(&K::kernel_gradient(
@@ -300,7 +293,7 @@ impl IISPH {
                         .norm_squared();
                 }
                 let mut sum_boundary = Vector3::zeros();
-                for &boundary_neighbor in boundary.get_neighbors(id) {
+                for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                     // select position
                     let particle_pos = if with_pred_positions {
                         pos_pred[id]
@@ -312,7 +305,7 @@ impl IISPH {
                         boundary.pos_now(boundary_neighbor),
                         &particle_pos,
                     );
-                    sum_boundary += *boundary.volume(boundary_neighbor)
+                    sum_boundary += boundary.volume(boundary_neighbor)
                         * K::kernel_gradient(
                             &r_vec,
                             params.kernel_support_radius,
@@ -331,11 +324,7 @@ impl IISPH {
         );
     }
 
-    fn initialize(
-        &mut self,
-        fluid: &mut Fluid3D,
-        clamp_pressure: bool,
-    ) {
+    fn initialize(&mut self, fluid: &mut Fluid3D, clamp_pressure: bool) {
         for_each!(
             mut [self.a_ff, fluid.pressure],
             ref [
@@ -375,7 +364,8 @@ impl IISPH {
                 let min_solver_iterations = 2;
                 let max_solver_iteration = u32::MAX;
                 // let max_solver_iteration = 100;
-                (solver_iteration < min_solver_iterations || predicted_density_error > *tde) && solver_iteration < max_solver_iteration
+                (solver_iteration < min_solver_iterations || predicted_density_error > *tde)
+                    && solver_iteration < max_solver_iteration
             }
         }
     }
@@ -396,13 +386,7 @@ impl IISPH {
         clamp_pressure: bool,
     ) {
         // compute diagonal element A_ff
-        self.set_diagonal_element::<K>(
-            fluid,
-            boundary,
-            neighbor_list,
-            params,
-            with_pred_positions,
-        );
+        self.set_diagonal_element::<K>(fluid, boundary, neighbor_list, params, with_pred_positions);
         // Set initial guess
         self.initialize(fluid, clamp_pressure);
         // Solve linear equation system until a sufficiently accurate result is obtained
@@ -467,7 +451,7 @@ impl IISPH {
                                     params.kernel_support_radius,
                                 ));
                     }
-                    for &boundary_neighbor in boundary.get_neighbors(id) {
+                    for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                         // select positions
                         let particle_pos = if with_pred_positions {
                             pos_pred[id]
@@ -480,7 +464,7 @@ impl IISPH {
                             &particle_pos,
                         );
                         a_dot_p_f += params.time_increment.powi(2)
-                            * *boundary.volume(boundary_neighbor)
+                            * boundary.volume(boundary_neighbor)
                             * pressure_acc_f[id]
                                 .dot(&K::kernel_gradient(
                                     &r_vec,

@@ -3,11 +3,16 @@
 use rayon::prelude::*;
 
 use crate::fluid::{Fluid3D, Len};
-use crate::sph::SystemParameters;
-use crate::sph::CurrentSystemProperties;
-use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
-use crate::utilities::vector;
+use crate::for_each;
 use crate::neighbor_search::NeighborList;
+use crate::setup::input::Parameters;
+use crate::sph::CurrentSystemProperties;
+use crate::sph::SystemParameters;
+use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
+use crate::sph::kernel::KernelFn;
+use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
+use crate::sph::pressure_solver::{add_pressure_acceleration, set_pred_vel_by_applying_acc};
+use crate::utilities::vector;
 
 pub struct SESPHwSplitting {
     stiffness: f64,
@@ -33,12 +38,7 @@ impl PressureSolver for SESPHwSplitting {
         self.resize_scratch(fluid.len());
         // perform splitting step conditionally
         set_pred_vel_by_applying_acc(fluid, params, false);
-        self.calc_predicted_density::<K>(
-            fluid,
-            boundary,
-            neighbor_list,
-            params,
-        );
+        self.calc_predicted_density::<K>(fluid, boundary, neighbor_list, params);
         // compute pressure
         {
             for_each!(
@@ -60,15 +60,7 @@ impl PressureSolver for SESPHwSplitting {
             );
         }
         // add pressure acceleration (compute from pressure)
-        add_pressure_acceleration::<K>(
-            None,
-            fluid,
-            boundary,
-            neighbor_list,
-            params,
-            false,
-            false,
-        );
+        add_pressure_acceleration::<K>(None, fluid, boundary, neighbor_list, params, false, false);
     }
 
     fn measurement_info(&self) -> SolverMeasurementInfo {
@@ -121,12 +113,12 @@ impl SESPHwSplitting {
                             ));
                 }
                 // add density for every boundary neighbor (mirror mass of moving sample onto boundary sample)
-                for &boundary_neighbor in boundary.get_neighbors(id) {
+                for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                     let r_vec = vector(
                         boundary.pos_now(boundary_neighbor),
                         &pos_now[id],
                     );
-                    accu += *boundary.volume(boundary_neighbor)
+                    accu += boundary.volume(boundary_neighbor)
                         * mass[id]/params.rest_volume
                         * K::kernel_function(
                             &r_vec,

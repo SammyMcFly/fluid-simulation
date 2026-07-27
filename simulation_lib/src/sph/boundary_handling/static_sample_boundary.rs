@@ -11,10 +11,9 @@ use crate::fluid::Len;
 use crate::fluid::Positional;
 use crate::neighbor_search::NeighborList;
 use crate::neighbor_search::NeighborSearch;
-use crate::render_info::BoundaryMeshColoring;
-use crate::render_info::BoundarySampleColoring;
-use crate::render_info::BoundaryVisualization;
+use crate::render_info::{BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization};
 use crate::sph::boundary_handling::BoundaryHandling;
+use crate::sph::boundary_handling::RequestMode;
 // use crate::sph::boundary_handling::BoundaryParameters;
 use crate::sph::kernel::KernelFn;
 use crate::utilities::sampling::sample_triangle_mesh_surface;
@@ -45,7 +44,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         boundary: &TriMesh,
         boundary_id: u32,
         rest_density_grid_spacing: f64,
-        // boundary_params: BoundaryParameters,
+        kernel_support_radius: f64,
     ) {
         self.boundary
             .add_boundary(boundary, boundary_id, rest_density_grid_spacing);
@@ -79,29 +78,20 @@ impl BoundaryHandling for StaticSampleBoundary {
         );
     }
 
-    fn get_neighbors(&self, id: usize) -> &[usize] {
+    fn get_neighbors(&self, id: usize, _mode: RequestMode) -> &[usize] {
         self.boundary_neighbor_list.get_neighbors(id)
     }
 
-    fn pos_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Point3<f64>]>,
-    {
+    fn pos_now(&self, id: usize) -> &Point3<f64> {
         self.boundary.pos_now(id)
     }
 
-    fn vel_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Vector3<f64>]>,
-    {
+    fn vel_now(&self, id: usize) -> &Vector3<f64> {
         self.boundary.vel_now(id)
     }
 
-    fn volume<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[f64]>,
-    {
-        self.boundary.volume(id)
+    fn volume(&self, id: usize) -> f64 {
+        *self.boundary.volume(id)
     }
 
     // fn density(&self, id: usize) -> &f64 {

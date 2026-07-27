@@ -4,11 +4,16 @@ use nalgebra::Matrix3;
 use rayon::prelude::*;
 
 use crate::fluid::{Fluid3D, Len};
-use crate::sph::{SystemParameters, Outer};
-use crate::sph::CurrentSystemProperties;
-use crate::sph::pressure_solver::iisph::{IISPH, TerminationCondition};
-use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
+use crate::for_each;
 use crate::neighbor_search::NeighborList;
+use crate::setup::input::Parameters;
+use crate::sph::CurrentSystemProperties;
+use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
+use crate::sph::kernel::KernelFn;
+use crate::sph::pressure_solver::iisph::{IISPH, TerminationCondition};
+use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
+use crate::sph::pressure_solver::{add_pressure_acceleration, set_pred_vel_by_applying_acc};
+use crate::sph::{Outer, SystemParameters};
 use crate::utilities::vector;
 
 pub struct IISPHwOST {
@@ -37,12 +42,8 @@ impl PressureSolver for IISPHwOST {
             // set predicted velocity by applying non-pressure acceleration
             set_pred_vel_by_applying_acc(fluid, params, false);
             // set source term
-            self.inner.set_source_term_vde::<K>(
-                fluid,
-                boundary,
-                neighbor_list,
-                params,
-            );
+            self.inner
+                .set_source_term_vde::<K>(fluid, boundary, neighbor_list, params);
             // self.set_source_term_vp(false);
             // solve pressure equation system
             self.inner.resolve_pressure_globally::<K>(
@@ -86,13 +87,8 @@ impl PressureSolver for IISPHwOST {
         // solve EQS2
         {
             // set source term
-            self.inner.set_source_term_vp::<K>(
-                fluid,
-                boundary,
-                neighbor_list,
-                params,
-                false,
-            );
+            self.inner
+                .set_source_term_vp::<K>(fluid, boundary, neighbor_list, params, false);
             // solve pressure equation system
             self.inner.resolve_pressure_globally::<K>(
                 fluid,
@@ -147,12 +143,12 @@ impl PressureSolver for IISPHwOST {
                                 ),
                             );
                     }
-                    for &boundary_neighbor in boundary.get_neighbors(id) {
+                    for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                         let r_vec = vector(
                             boundary.pos_now(boundary_neighbor),
                             &pos_now[id],
                         );
-                        jac_vel -= *boundary.volume(boundary_neighbor)
+                        jac_vel -= boundary.volume(boundary_neighbor)
                             * (vel_pred[id]
                                 - boundary.vel_now(boundary_neighbor))
                             .outer(&K::kernel_gradient(

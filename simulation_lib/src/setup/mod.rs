@@ -107,7 +107,12 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                 // apply transformation
                 let mesh = transform_trimesh(mesh, &b.position, &b.rotation_euler_deg, &b.scale);
 
-                boundary.add_boundary(&mesh, b.boundary_id, params.rest_density_grid_spacing);
+                boundary.add_boundary(
+                    &mesh,
+                    b.boundary_id,
+                    params.rest_density_grid_spacing,
+                    params.kernel_support_radius,
+                );
             }
             for b in &scene.boundary.dynamic {
                 // select mesh
@@ -118,7 +123,12 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                 // apply transformation
                 let mesh = transform_trimesh(mesh, &b.position, &b.rotation_euler_deg, &b.scale);
 
-                boundary.add_boundary(&mesh, b.boundary_id, params.rest_density_grid_spacing);
+                boundary.add_boundary(
+                    &mesh,
+                    b.boundary_id,
+                    params.rest_density_grid_spacing,
+                    params.kernel_support_radius,
+                );
             }
             if boundary.is_empty() {
                 warn!("No boundary is present in simulation.");

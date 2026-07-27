@@ -4,14 +4,16 @@ use nalgebra::Vector3;
 use rayon::prelude::*;
 
 use crate::fluid::Fluid3D;
-use crate::sph::SystemParameters;
-use crate::sph::vector;
+use crate::for_each;
 use crate::neighbor_search::NeighborList;
+use crate::sph::SystemParameters;
+use crate::sph::boundary_handling::BoundaryHandling;
+use crate::sph::boundary_handling::RequestMode;
+use crate::sph::kernel::KernelFn;
+use crate::sph::vector;
 
 /// reset acceleration, i. e. set it to 0.
-pub fn reset_acceleration(
-    fluid: &mut Fluid3D,
-) {
+pub fn reset_acceleration(fluid: &mut Fluid3D) {
     for_each!(
         mut [fluid.acceleration],
         ref [],
@@ -22,9 +24,7 @@ pub fn reset_acceleration(
 }
 
 /// Add gravity acceleration to all not boundary particles
-pub fn add_gravity_acceleration(
-    fluid: &mut Fluid3D,
-) {
+pub fn add_gravity_acceleration(fluid: &mut Fluid3D) {
     for_each!(
         mut [fluid.acceleration],
         ref [position = fluid.position],
@@ -80,7 +80,7 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                     );
             }
             // add viscostiy acceleration contribution from boundary
-            for &boundary_neighbor in boundary.get_neighbors(id) {
+            for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::ViscosityAcceleration) {
                 let r_vec = vector(
                     boundary.pos_now(boundary_neighbor),
                     &pos_now[id],
@@ -88,7 +88,7 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                 accu += params.boundary_viscosity
                     * 2.
                     * (3. + 2.)
-                    * *boundary.volume(boundary_neighbor)
+                    * boundary.volume(boundary_neighbor)
                     * (vel_now[id] - *boundary.vel_now(boundary_neighbor))
                         .dot(
                             &(pos_now[id]

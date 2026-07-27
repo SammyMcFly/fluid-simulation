@@ -5,17 +5,24 @@ use rayon::prelude::*;
 use serde::Deserialize;
 
 use crate::fluid::Fluid3D;
-use crate::sph::SystemParameters;
-use crate::sph::CurrentSystemProperties;
-use crate::utilities::vector;
+use crate::for_each;
 use crate::neighbor_search::NeighborList;
+use crate::setup::input::Parameters;
+use crate::sph::CurrentSystemProperties;
+use crate::sph::SystemParameters;
+use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
+use crate::sph::kernel::KernelFn;
+use crate::utilities::vector;
 
 pub mod iisph;
 pub mod iisph_optimized_source_term;
+pub mod sesph;
+pub mod sesph_with_splitting;
 
 pub use iisph::IISPH;
 pub use iisph_optimized_source_term::IISPHwOST;
-
+pub use sesph::SESPH;
+pub use sesph_with_splitting::SESPHwSplitting;
 
 #[derive(Debug, Deserialize)]
 pub enum PressureSolverVariant {
@@ -86,7 +93,7 @@ fn add_pressure_acceleration<K: KernelFn>(
     neighbors: &NeighborList,
     params: &SystemParameters,
     with_pred_positions: bool,
-    overwrite: bool
+    overwrite: bool,
 ) {
     let target = if let Some(target) = custom_target {
         target
@@ -134,7 +141,7 @@ fn add_pressure_acceleration<K: KernelFn>(
                     );
             }
             // add pressure acceleration from boundary particles
-            for &boundary_neighbor in boundary.get_neighbors(id) {
+            for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                 // select weighting
                 let weighting = params.boundary_pressure_acceleration_weighting;
                 // calc acceleration
@@ -144,7 +151,7 @@ fn add_pressure_acceleration<K: KernelFn>(
                     &particle_pos,
                 );
                 accu -= 2. * weighting * volume[id] / mass[id]
-                    * *boundary.volume(boundary_neighbor)
+                    * boundary.volume(boundary_neighbor)
                     * pressure[id]
                     * K::kernel_gradient(
                         &r_vec,

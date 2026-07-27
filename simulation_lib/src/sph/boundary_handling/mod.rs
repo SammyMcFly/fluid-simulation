@@ -30,7 +30,7 @@ pub trait BoundaryHandling: Send + Sync {
         mesh: &TriMesh,
         id: u32,
         rest_density_grid_spacing: f64,
-        // boundary_params: BoundaryParameters,
+        kernel_support_radius: f64,
     );
 
     fn initialize<K: KernelFn>(
@@ -47,19 +47,13 @@ pub trait BoundaryHandling: Send + Sync {
         positions: &[Point3<f64>],
     );
 
-    fn get_neighbors(&self, id: usize) -> &[usize];
+    fn get_neighbors(&self, id: usize, mode: RequestMode) -> &[usize];
 
-    fn pos_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Point3<f64>]>;
+    fn pos_now(&self, id: usize) -> &Point3<f64>;
 
-    fn vel_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Vector3<f64>]>;
+    fn vel_now(&self, id: usize) -> &Vector3<f64>;
 
-    fn volume<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[f64]>;
+    fn volume(&self, id: usize) -> f64;
 
     // fn density(&self, id: usize) -> &f64;
 
@@ -68,7 +62,9 @@ pub trait BoundaryHandling: Send + Sync {
     fn get_visualization(&self, selector: &BoundaryVisualization) -> BoundaryVisualization;
 }
 
-// #[derive(Debug, Default)]
-// struct BoundaryParameters {
-//     density: Vec<f64>,
-// }
+#[derive(Debug, Clone, Copy, Default)]
+pub enum RequestMode {
+    #[default]
+    Normal,
+    ViscosityAcceleration,
+}

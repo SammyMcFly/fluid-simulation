@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use crate::for_each;
 use crate::neighbor_search::NeighborList;
 use crate::sph::SystemParameters;
-use crate::sph::boundary_handling::BoundaryHandling;
+use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
 use crate::sph::kernel::KernelFn;
 use crate::utilities::vector;
 
@@ -42,7 +42,7 @@ pub fn get_volume<K: KernelFn>(
                     );
             }
             // add volume contribution from boundary
-            for &boundary_neighbor in boundary.get_neighbors(id) {
+            for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                 let r_vec = vector(
                     boundary.pos_now(boundary_neighbor),
                     &position_eval[id],
@@ -96,13 +96,13 @@ pub fn get_speed<K: KernelFn>(
                     );
             }
             // add contribution from boundary
-            for &boundary_neighbor in boundary.get_neighbors(id) {
+            for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
                 let r_vec = vector(
                     &pos_now_eval[id],
                     boundary.pos_now(boundary_neighbor),
                 );
                 accu += *boundary.vel_now(boundary_neighbor)
-                    * *boundary.volume(boundary_neighbor)
+                    * boundary.volume(boundary_neighbor)
                     * K::kernel_function(
                         &r_vec,
                         params.kernel_support_radius,
@@ -222,7 +222,6 @@ pub fn get_density_error<K: KernelFn>(
         }
     );
 }
-
 
 /// Calculate and set speed for all positions at the current point in time
 pub fn get_pressure<K: KernelFn>(
