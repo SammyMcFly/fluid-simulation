@@ -3,6 +3,7 @@ use gauss_quad::GaussLegendre;
 use nalgebra::{Point3, Vector3};
 use std::collections::HashMap;
 use std::f64::consts::PI;
+use thiserror::Error as ThisError;
 
 /// Integrates f(x, y, z) over a sphere with radius 'radius' using the Gauß-Legendre quadrature.
 pub fn gauss_legendre_integrate<F>(f: F, radius: f64, n: usize) -> f64
@@ -28,6 +29,7 @@ where
 /// A cubic serendipity discretization of a 3D scalar function within a predefined grid domain.
 ///
 /// Provides discretized function and function gradient.
+#[derive(Debug)]
 pub struct CubicSerendipityDiscretization {
     x_min: Point3<f64>,
     dx: f64,
@@ -37,9 +39,13 @@ pub struct CubicSerendipityDiscretization {
     values: HashMap<[usize; 3], f64>, // global nodal values, keyed by lattice index
 }
 
+#[derive(Debug, ThisError)]
+#[error("Point is out of bounds.")]
+pub struct OutOfBoundsError;
+
 impl CubicSerendipityDiscretization {
     /// Build the discretization: sample `f` once at every (shared) node.
-    pub fn new<F: Fn(Point3<f64>) -> f64>(
+    pub fn new<F: Fn(&Point3<f64>) -> f64>(
         x_min: Point3<f64>,
         x_max: Point3<f64>,
         dx: f64,
@@ -76,7 +82,7 @@ impl CubicSerendipityDiscretization {
                                 x_min[1] + key[1] as f64 / 3.0 * dx,
                                 x_min[2] + key[2] as f64 / 3.0 * dx,
                             );
-                            f(p)
+                            f(&p)
                         });
                     }
                 }
@@ -268,18 +274,21 @@ impl CubicSerendipityDiscretization {
             .collect()
     }
 
-    fn locate(&self, p: Point3<f64>) -> [usize; 3] {
+    fn get_cube_idx(&self, p: &Point3<f64>) -> Result<[usize; 3], OutOfBoundsError> {
         let mut c = [0usize; 3];
         for d in 0..3 {
             let idx = ((p[d] - self.x_min[d]) / self.dx).floor() as isize;
-            c[d] = idx.clamp(0, self.n[d] as isize - 1) as usize;
+            if idx < 0 || idx >= self.n[d] as isize {
+                return Err(OutOfBoundsError {});
+            }
+            c[d] = idx as usize;
         }
-        c
+        Ok(c)
     }
 
     /// Evaluate the interpolant anywhere in the grid.
-    pub fn function(&self, p: Point3<f64>) -> f64 {
-        let c = self.locate(p);
+    pub fn function(&self, p: &Point3<f64>) -> Result<f64, OutOfBoundsError> {
+        let c = self.get_cube_idx(p)?;
         let o = [
             self.x_min[0] + c[0] as f64 * self.dx,
             self.x_min[1] + c[1] as f64 * self.dx,
@@ -292,19 +301,20 @@ impl CubicSerendipityDiscretization {
         let base = [3 * c[0], 3 * c[1], 3 * c[2]];
         let shp = Self::shape_functions(&self.ref_nodes, xi, eta, zeta);
 
-        self.offsets
+        Ok(self
+            .offsets
             .iter()
             .zip(&shp)
             .map(|(off, &ni)| {
                 let key = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
                 self.values[&key] * ni
             })
-            .sum()
+            .sum())
     }
 
     /// Evaluate the interpolant anywhere in the grid.
-    pub fn gradient(&self, p: Point3<f64>) -> Vector3<f64> {
-        let c = self.locate(p);
+    pub fn gradient(&self, p: &Point3<f64>) -> Result<Vector3<f64>, OutOfBoundsError> {
+        let c = self.get_cube_idx(p)?;
         let o = [
             self.x_min[0] + c[0] as f64 * self.dx,
             self.x_min[1] + c[1] as f64 * self.dx,
@@ -317,13 +327,14 @@ impl CubicSerendipityDiscretization {
         let base = [3 * c[0], 3 * c[1], 3 * c[2]];
         let shp = Self::shape_function_gradients(&self.ref_nodes, xi, eta, zeta);
 
-        self.offsets
+        Ok(self
+            .offsets
             .iter()
             .zip(&shp)
             .map(|(off, &ni)| {
                 let key = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
                 2. / self.dx * self.values[&key] * ni
             })
-            .sum()
+            .sum())
     }
 }
