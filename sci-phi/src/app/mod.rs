@@ -205,12 +205,12 @@ impl cosmic::Application for AppModel {
             .license(env!("CARGO_PKG_LICENSE"));
 
         let camera = CameraState::new(
-            (10.0, -30.0, 40.0),
+            (0.0, -60.0, 40.0),
             cgmath::Deg(-90.0),
             cgmath::Deg(-30.0),
             0.25, // speed
             1.25, // sensitivity
-            0.5,  // scroll_speed
+            3.0,  // scroll_speed
             cgmath::Deg(45.0),
             0.1,   // znear
             100.0, // zfar
