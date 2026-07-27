@@ -9,6 +9,7 @@ An SPH fluid simulation application with interactive 3D visualization.
 <div align="center">
   <img src="./img/ui.png" alt="ui" style="max-width: 100%; height: auto;" />
 </div>
+
 ## Architecture
 
 ```
