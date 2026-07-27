@@ -733,7 +733,7 @@ impl BoundaryVisOption {
             Self::MeshBoundaryId => BoundaryVisualization::TriangleMesh {
                 meshes: vec![RenderMesh::default()],
                 coloring: BoundaryMeshColoring::BoundaryId {
-                    id: Vec::new(),
+                    ids: Vec::new(),
                     max_id: 0,
                 },
             },
@@ -744,7 +744,7 @@ impl BoundaryVisOption {
             Self::SamplesBoundaryId => BoundaryVisualization::Samples {
                 positions: Vec::new(),
                 coloring: BoundarySampleColoring::BoundaryId {
-                    id: Vec::new(),
+                    ids: Vec::new(),
                     max_id: 0,
                 },
             },

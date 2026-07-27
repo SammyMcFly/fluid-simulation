@@ -109,7 +109,7 @@ impl BoundaryHandling for StaticSampleBoundary {
                     BoundaryMeshColoring::Original => BoundaryMeshColoring::Original,
                     BoundaryMeshColoring::Uniform => BoundaryMeshColoring::Uniform,
                     BoundaryMeshColoring::BoundaryId { .. } => BoundaryMeshColoring::BoundaryId {
-                        id: self.boundary.render_mesh_ids.clone(),
+                        ids: self.boundary.render_mesh_ids.clone(),
                         max_id: *self.boundary.render_mesh_ids.iter().max().unwrap_or(&0),
                     },
                 };
@@ -123,7 +123,7 @@ impl BoundaryHandling for StaticSampleBoundary {
                     BoundarySampleColoring::Uniform => BoundarySampleColoring::Uniform,
                     BoundarySampleColoring::BoundaryId { .. } => {
                         BoundarySampleColoring::BoundaryId {
-                            id: self.boundary.boundary_id.clone(),
+                            ids: self.boundary.boundary_id.clone(),
                             max_id: *self.boundary.boundary_id.iter().max().unwrap_or(&0),
                         }
                     }

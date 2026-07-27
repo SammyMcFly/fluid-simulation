@@ -218,11 +218,11 @@ impl BoundaryVisualization {
 pub enum BoundaryMeshColoring {
     Original,
     Uniform,
-    BoundaryId { id: Vec<u32>, max_id: u32 },
+    BoundaryId { ids: Vec<u32>, max_id: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum BoundarySampleColoring {
     Uniform,
-    BoundaryId { id: Vec<u32>, max_id: u32 },
+    BoundaryId { ids: Vec<u32>, max_id: u32 },
 }

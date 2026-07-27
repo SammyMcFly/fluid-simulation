@@ -330,8 +330,8 @@ fn resolve_boundary_sample_coloring(
 ) -> Vec<[f32; 4]> {
     match coloring {
         BoundarySampleColoring::Uniform => vec![[0.6, 0.6, 0.6, bounbary_alpha]; count],
-        BoundarySampleColoring::BoundaryId { id, max_id } => {
-            colormap::ids_to_colors(id, *max_id, colormap, bounbary_alpha)
+        BoundarySampleColoring::BoundaryId { ids, max_id } => {
+            colormap::ids_to_colors(ids, *max_id, colormap, bounbary_alpha)
         }
     }
 }
@@ -344,8 +344,8 @@ fn resolve_boundary_mesh_coloring(
     match coloring {
         BoundaryMeshColoring::Original => vec![[0.7, 0.7, 0.7, bounbary_alpha]],
         BoundaryMeshColoring::Uniform => vec![[0.6, 0.6, 0.6, bounbary_alpha]],
-        BoundaryMeshColoring::BoundaryId { id, max_id } => {
-            colormap::ids_to_colors(id, *max_id, colormap, bounbary_alpha)
+        BoundaryMeshColoring::BoundaryId { ids, max_id } => {
+            colormap::ids_to_colors(ids, *max_id, colormap, bounbary_alpha)
         }
     }
 }
