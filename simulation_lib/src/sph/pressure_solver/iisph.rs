@@ -5,16 +5,8 @@ use rayon::prelude::*;
 #[cfg(feature = "logging")]
 use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 
-use crate::for_each;
-use crate::setup::input::Parameters;
-use crate::sph::boundary_handling::BoundaryHandling;
-use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
-use crate::sph::kernel::KernelFn;
 use crate::fluid::{Fluid3D, Len};
-use crate::sph::SystemParameters;
-use crate::sph::CurrentSystemProperties;
-use crate::sph::pressure_solver::{set_pred_vel_by_applying_acc, add_pressure_acceleration};
-use crate::utilities::vector;
+use crate::for_each;
 use crate::neighbor_search::NeighborList;
 
 #[allow(dead_code)]

@@ -32,7 +32,7 @@ pub fn sample_volume_shifted(mesh: &TriMesh, spacing: f64) -> Vec<Point3<f64>> {
     points
 }
 
-fn sample_triangle_grid(
+fn sample_triangle_surface(
     v0: &Point3<f64>,
     v1: &Point3<f64>,
     v2: &Point3<f64>,
@@ -56,14 +56,14 @@ fn sample_triangle_grid(
     points
 }
 
-pub fn sample_mesh_surface_grid(mesh: &TriMesh, spacing: f64) -> Vec<Point3<f64>> {
+pub fn sample_triangle_mesh_surface(mesh: &TriMesh, spacing: f64) -> Vec<Point3<f64>> {
     let sample_area_density = 2. / spacing.powi(2);
     mesh.triangles()
         .flat_map(|tri| {
             let a = Point3::new(tri.a.x, tri.a.y, tri.a.z);
             let b = Point3::new(tri.b.x, tri.b.y, tri.b.z);
             let c = Point3::new(tri.c.x, tri.c.y, tri.c.z);
-            sample_triangle_grid(&a, &b, &c, sample_area_density)
+            sample_triangle_surface(&a, &b, &c, sample_area_density)
         })
         .collect()
 }

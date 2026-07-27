@@ -17,7 +17,7 @@ use crate::render_info::BoundaryVisualization;
 use crate::sph::boundary_handling::BoundaryHandling;
 // use crate::sph::boundary_handling::BoundaryParameters;
 use crate::sph::kernel::KernelFn;
-use crate::utilities::sampling::sample_mesh_surface_grid;
+use crate::utilities::sampling::sample_triangle_mesh_surface;
 use crate::utilities::triangle_mesh::RenderMesh;
 use crate::utilities::vector;
 
@@ -226,7 +226,7 @@ impl Boundary3D {
         boundary_id: u32,
         rest_density_grid_spacing: f64,
     ) {
-        let position = sample_mesh_surface_grid(boundary, rest_density_grid_spacing);
+        let position = sample_triangle_mesh_surface(boundary, rest_density_grid_spacing);
         let len = position.len();
         let boundary = Self {
             boundary_id: vec![boundary_id; len],

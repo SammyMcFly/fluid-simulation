@@ -3,11 +3,6 @@ use nalgebra::Matrix3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::for_each;
-use crate::setup::input::Parameters;
-use crate::sph::boundary_handling::BoundaryHandling;
-use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
-use crate::sph::kernel::KernelFn;
 use crate::fluid::{Fluid3D, Len};
 use crate::sph::{SystemParameters, Outer};
 use crate::sph::CurrentSystemProperties;

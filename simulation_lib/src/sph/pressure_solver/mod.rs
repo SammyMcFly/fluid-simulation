@@ -4,23 +4,15 @@ use nalgebra::Vector3;
 use rayon::prelude::*;
 use serde::Deserialize;
 
-use crate::for_each;
-use crate::setup::input::Parameters;
-use crate::sph::boundary_handling::BoundaryHandling;
-use crate::sph::kernel::KernelFn;
 use crate::fluid::Fluid3D;
 use crate::sph::SystemParameters;
 use crate::sph::CurrentSystemProperties;
 use crate::utilities::vector;
 use crate::neighbor_search::NeighborList;
 
-pub mod sesph;
-pub mod sesph_with_splitting;
 pub mod iisph;
 pub mod iisph_optimized_source_term;
 
-pub use sesph::SESPH;
-pub use sesph_with_splitting::SESPHwSplitting;
 pub use iisph::IISPH;
 pub use iisph_optimized_source_term::IISPHwOST;
 

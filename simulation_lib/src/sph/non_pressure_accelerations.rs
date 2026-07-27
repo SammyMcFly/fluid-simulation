@@ -1,12 +1,8 @@
-use nalgebra::Point3;
 /// Acceleration module
 use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::for_each;
-use crate::sph::boundary_handling::BoundaryHandling;
-use crate::sph::kernel::KernelFn;
 use crate::fluid::Fluid3D;
 use crate::sph::SystemParameters;
 use crate::sph::vector;
