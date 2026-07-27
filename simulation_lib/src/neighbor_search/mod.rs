@@ -10,7 +10,6 @@ pub mod spatial_hashing;
 
 pub use spatial_hashing::SpatialHashing;
 
-
 #[derive(Debug, Deserialize)]
 pub enum NeighborSearchVariant {
     SpatialHashing,
@@ -36,34 +35,34 @@ pub fn distance(from: &Point3<f64>, to: &Point3<f64>) -> f64 {
 /// Struct that stores neighbors of samples in a flat array
 #[derive(Debug, Clone, Default)]
 pub struct NeighborList {
-    /// Flat neighbor list
-    data: Vec<usize>,
+    /// Flat neighbor list: indices of neighboring samples
+    indices: Vec<usize>,
     /// Index list to point to start of the neighbor list of each sample
     offsets: Vec<usize>,
     /// Unflattened neighbor list which is necessary for parallelization
-    unflattened_data: Vec<Vec<usize>>,
+    unflattened_indices: Vec<Vec<usize>>,
 }
 
 impl NeighborList {
     pub fn new(len: usize) -> Self {
         Self {
-            data: vec![usize::default(); len],
-            offsets: vec![usize::default(); len+1],
-            unflattened_data: vec![Vec::new(); len],
+            indices: vec![usize::default(); len],
+            offsets: vec![usize::default(); len + 1],
+            unflattened_indices: vec![Vec::new(); len],
         }
     }
 
     pub fn resize(&mut self, len: usize) {
-        self.data.resize(len, usize::default());
-        self.offsets.resize(len+1, usize::default());
-        self.unflattened_data.resize(len, Vec::new());
+        // self.indices.resize(len, usize::default());
+        // self.offsets.resize(len + 1, usize::default());
+        self.unflattened_indices.resize(len, Vec::new());
     }
 
     pub fn clear(&mut self) {
-        self.data.clear();
+        self.indices.clear();
         self.offsets.clear();
         for_each!(
-            mut [self.unflattened_data],
+            mut [self.unflattened_indices],
             ref [],
             |_id, id_neighbors| {
                 id_neighbors.clear();
@@ -74,34 +73,33 @@ impl NeighborList {
     /// Get mutable reference to unflattened neighbor list: one Vec<usize> per sample
     ///
     /// Contract: Always call flatten after updating data in unflattened array
-    pub fn neighbors_mut(&mut self) -> &mut[Vec<usize>] {
-        &mut self.unflattened_data
+    pub fn neighbors_mut(&mut self) -> &mut [Vec<usize>] {
+        &mut self.unflattened_indices
     }
 
     /// Flatten neighbor list
     fn flatten(&mut self) {
-        self.data.clear();
+        self.indices.clear();
         self.offsets.clear();
 
-        let total_neighbors: usize = self.unflattened_data.iter().map(|v| v.len()).sum();
-        let num_particles = self.unflattened_data.len();
+        let total_neighbors: usize = self.unflattened_indices.iter().map(|v| v.len()).sum();
+        let num_particles = self.unflattened_indices.len();
 
-        self.data.reserve(total_neighbors);
+        self.indices.reserve(total_neighbors);
         self.offsets.reserve(num_particles + 1);
 
         self.offsets.push(0);
-        for nbrs in &self.unflattened_data {
-            self.data.extend_from_slice(nbrs);
-            self.offsets.push(self.data.len());
+        for nbrs in &self.unflattened_indices {
+            self.indices.extend_from_slice(nbrs);
+            self.offsets.push(self.indices.len());
         }
     }
 
     /// Get indices of neighbor of sample with identifier 'id'
     pub fn get_neighbors(&self, id: usize) -> &[usize] {
-        &self.data[self.offsets[id]..self.offsets[id+1]]
+        &self.indices[self.offsets[id]..self.offsets[id + 1]]
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -110,8 +108,8 @@ mod tests {
     #[test]
     fn new_creates_empty_neighbor_list() {
         let nl = NeighborList::new(5);
-        assert_eq!(nl.unflattened_data.len(), 5);
-        assert!(nl.unflattened_data.iter().all(|v| v.is_empty()));
+        assert_eq!(nl.unflattened_indices.len(), 5);
+        assert!(nl.unflattened_indices.iter().all(|v| v.is_empty()));
     }
 
     #[test]
@@ -119,7 +117,7 @@ mod tests {
         let mut nl = NeighborList::new(3);
         nl.flatten();
         assert_eq!(nl.offsets.len(), 4); // num_particles + 1
-        assert_eq!(nl.data.len(), 0);
+        assert_eq!(nl.indices.len(), 0);
         for i in 0..3 {
             assert_eq!(nl.get_neighbors(i), &[]);
         }
@@ -176,9 +174,9 @@ mod tests {
 
         nl.clear();
 
-        assert!(nl.data.is_empty());
+        assert!(nl.indices.is_empty());
         assert!(nl.offsets.is_empty());
-        assert!(nl.unflattened_data.iter().all(|v| v.is_empty()));
+        assert!(nl.unflattened_indices.iter().all(|v| v.is_empty()));
     }
 
     #[test]
@@ -189,14 +187,14 @@ mod tests {
 
         nl.resize(5);
 
-        assert_eq!(nl.unflattened_data.len(), 5);
+        assert_eq!(nl.unflattened_indices.len(), 5);
         // Existing data preserved
-        assert_eq!(nl.unflattened_data[0], vec![1]);
-        assert_eq!(nl.unflattened_data[1], vec![0]);
+        assert_eq!(nl.unflattened_indices[0], vec![1]);
+        assert_eq!(nl.unflattened_indices[1], vec![0]);
         // New entries are empty
-        assert!(nl.unflattened_data[2].is_empty());
-        assert!(nl.unflattened_data[3].is_empty());
-        assert!(nl.unflattened_data[4].is_empty());
+        assert!(nl.unflattened_indices[2].is_empty());
+        assert!(nl.unflattened_indices[3].is_empty());
+        assert!(nl.unflattened_indices[4].is_empty());
     }
 
     #[test]
@@ -207,8 +205,8 @@ mod tests {
 
         nl.resize(2);
 
-        assert_eq!(nl.unflattened_data.len(), 2);
-        assert_eq!(nl.unflattened_data[0], vec![1, 2]);
+        assert_eq!(nl.unflattened_indices.len(), 2);
+        assert_eq!(nl.unflattened_indices[0], vec![1, 2]);
     }
 
     #[test]
@@ -261,7 +259,7 @@ mod tests {
         nl.flatten();
 
         let total: usize = (0..4).map(|i| nl.get_neighbors(i).len()).sum();
-        assert_eq!(total, nl.data.len());
+        assert_eq!(total, nl.indices.len());
         assert_eq!(nl.offsets.len(), 5); // num_particles + 1
     }
 
