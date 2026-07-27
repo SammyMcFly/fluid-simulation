@@ -109,13 +109,13 @@ impl BoundaryHandling for StaticSampleBoundary {
                     BoundaryMeshColoring::Original => BoundaryMeshColoring::Original,
                     BoundaryMeshColoring::Uniform => BoundaryMeshColoring::Uniform,
                     BoundaryMeshColoring::BoundaryId { .. } => BoundaryMeshColoring::BoundaryId {
-                        id: self.boundary.render_mesh_id.clone(),
-                        max_id: *self.boundary.render_mesh_id.iter().max().unwrap_or(&0),
+                        id: self.boundary.render_mesh_ids.clone(),
+                        max_id: *self.boundary.render_mesh_ids.iter().max().unwrap_or(&0),
                     },
                 };
                 BoundaryVisualization::TriangleMesh {
-                    meshes: self.boundary.render_mesh.clone(),
-                    coloring: coloring.clone(),
+                    meshes: self.boundary.render_meshes.clone(),
+                    coloring,
                 }
             }
             BoundaryVisualization::Samples { coloring, .. } => {
@@ -190,8 +190,8 @@ pub struct SampleBoundary3D {
     velocity: Vec<Vector3<f64>>,
     /// volume (necessary for sph fluid)
     volume: Vec<f64>,
-    pub render_mesh: Vec<RenderMesh>,
-    pub render_mesh_id: Vec<u32>,
+    render_meshes: Vec<RenderMesh>,
+    render_mesh_ids: Vec<u32>,
 }
 
 impl Len for SampleBoundary3D {
@@ -223,8 +223,8 @@ impl SampleBoundary3D {
             position,
             velocity: vec![Vector3::zeros(); len],
             volume: vec![0.; len],
-            render_mesh: vec![RenderMesh::from_trimesh(boundary, boundary_id)],
-            render_mesh_id: vec![boundary_id],
+            render_meshes: vec![RenderMesh::from_trimesh(boundary, boundary_id)],
+            render_mesh_ids: vec![boundary_id],
         };
         self.extend(boundary);
     }
@@ -234,8 +234,8 @@ impl SampleBoundary3D {
         self.position.extend(other.position);
         self.velocity.extend(other.velocity);
         self.volume.extend(other.volume);
-        self.render_mesh.extend(other.render_mesh);
-        self.render_mesh_id.extend(other.render_mesh_id);
+        self.render_meshes.extend(other.render_meshes);
+        self.render_mesh_ids.extend(other.render_mesh_ids);
     }
 
     pub fn vel_now<I>(&self, id: I) -> &I::Output
@@ -273,8 +273,8 @@ impl From<SerBoundary3D> for SampleBoundary3D {
                 .map(|vel| (*vel).into())
                 .collect(),
             volume: vec![0.; len],
-            render_mesh: ser_boundary.render_mesh,
-            render_mesh_id: ser_boundary.render_mesh_id,
+            render_meshes: ser_boundary.render_mesh,
+            render_mesh_ids: ser_boundary.render_mesh_id,
         }
     }
 }
@@ -295,8 +295,8 @@ impl From<SampleBoundary3D> for SerBoundary3D {
             boundary_id: boundary.boundary_id,
             position: boundary.position.iter().map(|pos| (*pos).into()).collect(),
             velocity: boundary.velocity.iter().map(|vel| (*vel).into()).collect(),
-            render_mesh: boundary.render_mesh,
-            render_mesh_id: boundary.render_mesh_id,
+            render_mesh: boundary.render_meshes,
+            render_mesh_id: boundary.render_mesh_ids,
         }
     }
 }
