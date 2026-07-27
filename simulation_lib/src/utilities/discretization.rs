@@ -6,21 +6,23 @@ use std::f64::consts::PI;
 use thiserror::Error as ThisError;
 
 /// Integrates f(x, y, z) over a sphere with radius 'radius' using the Gauß-Legendre quadrature.
-pub fn gauss_legendre_integrate<F>(f: F, radius: f64, n: usize) -> f64
+pub fn gauss_legendre_integrate<F>(f: &F, center: &Point3<f64>, radius: f64, order: usize) -> f64
 where
-    F: Fn(f64, f64, f64) -> f64,
+    F: Fn(&Point3<f64>) -> f64,
 {
-    let quad = GaussLegendre::new(n.try_into().unwrap());
+    let quad = GaussLegendre::new(order.try_into().unwrap());
 
     quad.integrate(0.0, radius, |r| {
         r.powi(2)
             * quad.integrate(0.0, PI, |theta| {
                 theta.sin()
                     * quad.integrate(0.0, 2. * PI, |phi| {
-                        let x = r * theta.sin() * phi.cos();
-                        let y = r * theta.sin() * phi.sin();
-                        let z = r * theta.cos();
-                        f(x, y, z)
+                        let p = Point3::new(
+                            center.x + r * theta.sin() * phi.cos(),
+                            center.y + r * theta.sin() * phi.sin(),
+                            center.z + r * theta.cos(),
+                        );
+                        f(&p)
                     })
             })
     })
