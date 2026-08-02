@@ -54,7 +54,7 @@ impl Default for SimulationSettings {
             color_mapping_max_input: "10.0".to_string(),
             boundary_hidden: false,
             boundary_vis: BoundaryVisOption::MeshOriginal,
-            boundary_alpha: 1.0,
+            boundary_alpha: 0.5,
             sensor_plane: SensorPlaneConfig::default(),
             cut: Cut::default(),
             cut_x_input: "0.0".to_string(),
