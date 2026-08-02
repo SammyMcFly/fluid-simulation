@@ -23,6 +23,7 @@ pub enum TerminationCondition {
     TargetDensityError(f64),
 }
 
+#[derive(Clone)]
 pub struct IISPH {
     // pub solver_iterations: u32,
     pub target_density_error: f64,

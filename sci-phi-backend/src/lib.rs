@@ -55,12 +55,7 @@ impl Simulation {
             simulation_load_info.state_file_path.as_deref(),
         )?;
 
-        let state_saver_system = new_boxed_system3d(
-            &procedures,
-            &params,
-            &scene,
-            simulation_load_info.state_file_path.as_deref(),
-        )?;
+        let state_saver_system = dyn_clone::clone_box(&*initial_system);
 
         let checkpoints = vec![Rc::new(Checkpoint::from_sph_system(&*initial_system))];
 

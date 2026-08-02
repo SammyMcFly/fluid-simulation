@@ -14,6 +14,7 @@ use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::pressure_solver::{add_pressure_acceleration, set_pred_vel_by_applying_acc};
 use crate::utilities::vector;
 
+#[derive(Clone)]
 pub struct SESPHwSplitting {
     stiffness: f64,
     density_pred: Vec<f64>,

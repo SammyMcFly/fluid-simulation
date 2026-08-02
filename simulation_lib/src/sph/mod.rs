@@ -35,7 +35,16 @@ use kernel::KernelFn;
 use pressure_solver::PressureSolver;
 use quantities::get_volume;
 
-pub trait SPHSystem {
+use dyn_clone::DynClone;
+use nalgebra::{Matrix3, Point3, Vector3};
+use num_traits::Zero;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+use std::rc::Rc;
+#[cfg(feature = "logging")]
+use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
+
+pub trait SPHSystem: DynClone {
     fn time(&self) -> f64;
     fn time_steps_propagated(&self) -> u64;
 
@@ -65,6 +74,8 @@ pub trait SPHSystem {
     -> BoundaryVisualization;
 }
 
+dyn_clone::clone_trait_object!(SPHSystem);
+
 ///  3D implementation of a physical system to be simulated
 #[derive(Debug, Clone)]
 pub struct System3D<
@@ -92,11 +103,11 @@ pub struct System3D<
 }
 
 impl<
-    K: KernelFn + 'static,
-    I: IntegrationScheme + 'static,
-    P: PressureSolver + 'static,
-    N: NeighborSearch + 'static,
-    B: BoundaryHandling + 'static,
+    K: KernelFn + Clone + 'static,
+    I: IntegrationScheme + Clone + 'static,
+    P: PressureSolver + Clone + 'static,
+    N: NeighborSearch + Clone + 'static,
+    B: BoundaryHandling + Clone + 'static,
 > SPHSystem for System3D<K, I, P, N, B>
 {
     fn time(&self) -> f64 {
@@ -347,11 +358,11 @@ impl<
 }
 
 impl<
-    K: KernelFn + 'static,
-    I: IntegrationScheme + 'static,
-    P: PressureSolver + 'static,
-    N: NeighborSearch + 'static,
-    B: BoundaryHandling + 'static,
+    K: KernelFn + Clone + 'static,
+    I: IntegrationScheme + Clone + 'static,
+    P: PressureSolver + Clone + 'static,
+    N: NeighborSearch + Clone + 'static,
+    B: BoundaryHandling + Clone + 'static,
 > System3D<K, I, P, N, B>
 {
     pub fn new_boxed(constructor: setup::System3DConstructor<K, I, P, N, B>) -> Box<dyn SPHSystem> {

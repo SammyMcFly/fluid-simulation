@@ -69,6 +69,9 @@ bytemuck = { version = "1.24.0", features = [ "derive" ] }
 # error handling
 thiserror = "2.0"
 
+# dynamic cloning of trait objects
+dyn-clone = "1.0"
+
 # optional
 ## logging
 tracing = { version = "0.1.41", optional = true }

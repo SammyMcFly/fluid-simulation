@@ -1,11 +1,11 @@
 /// Explicit Euler integration scheme
-use crate::for_each;
-use crate::integration_schemes::IntegrationScheme;
-use crate::fluid::Fluid3D;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
+use crate::fluid::Fluid3D;
+use crate::for_each;
+use crate::integration_schemes::IntegrationScheme;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ExplicitEuler;
 
 impl IntegrationScheme for ExplicitEuler {

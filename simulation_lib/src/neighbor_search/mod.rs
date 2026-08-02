@@ -15,7 +15,7 @@ pub enum NeighborSearchVariant {
     SpatialHashing,
 }
 
-pub trait NeighborSearch: Send + Sync {
+pub trait NeighborSearch: Send + Sync + Clone {
     /// Initialize spatial hashing with given cell size.
     fn new(within_range: f64) -> Self;
     fn find_samples(

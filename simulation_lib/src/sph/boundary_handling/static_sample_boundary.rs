@@ -20,7 +20,7 @@ use crate::utilities::sampling::sample_triangle_mesh_surface;
 use crate::utilities::triangle_mesh::RenderMesh;
 use crate::utilities::vector;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct StaticSampleBoundary {
     /// Boundary samples
     boundary: SampleBoundary3D,

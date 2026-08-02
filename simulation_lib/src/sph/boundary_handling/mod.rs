@@ -20,7 +20,7 @@ pub enum BoundaryHandlingVariant {
     // VolumeMaps,
 }
 
-pub trait BoundaryHandling: Send + Sync {
+pub trait BoundaryHandling: Send + Sync + Clone {
     fn new() -> Self;
 
     fn is_empty(&self) -> bool;

@@ -32,7 +32,7 @@ pub enum PressureSolverVariant {
     IISPHwOST,
 }
 
-pub trait PressureSolver: Send + Sync {
+pub trait PressureSolver: Send + Sync + Clone {
     fn new(params: &Parameters) -> Self;
 
     /// Compute pressure

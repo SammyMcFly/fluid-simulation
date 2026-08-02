@@ -6,7 +6,6 @@ use serde::Deserialize;
 pub mod cubic_spline;
 pub use cubic_spline::CubicBSpline3D;
 
-
 #[derive(Debug, Deserialize)]
 pub enum KernelFnVariant {
     CubicBSpline3D,
@@ -15,7 +14,7 @@ pub enum KernelFnVariant {
 /// Kernel function trait according to 'Boundary Handling and Neighbor Search in Iterative Incompressible SPH' by Stefan Band
 ///
 /// `r_vec` = r_i - r_j (from neighbor towards evaluated position)
-pub trait KernelFn: Send + Sync {
+pub trait KernelFn: Send + Sync + Clone {
     const ALPHA: f64;
     const DIMENSION: i32;
 
@@ -41,7 +40,8 @@ pub trait KernelFn: Send + Sync {
         if r == 0.0 {
             Vector3::zeros()
         } else {
-            Self::ALPHA / support_radius.powi(Self::DIMENSION+1) * r_vec / r * Self::d_q_w(Self::q(r_vec, support_radius))
+            Self::ALPHA / support_radius.powi(Self::DIMENSION + 1) * r_vec / r
+                * Self::d_q_w(Self::q(r_vec, support_radius))
         }
     }
 }

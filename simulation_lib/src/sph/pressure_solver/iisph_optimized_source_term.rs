@@ -16,6 +16,7 @@ use crate::sph::pressure_solver::{add_pressure_acceleration, set_pred_vel_by_app
 use crate::sph::{Outer, SystemParameters};
 use crate::utilities::vector;
 
+#[derive(Clone)]
 pub struct IISPHwOST {
     inner: IISPH,
 }

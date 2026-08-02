@@ -14,8 +14,6 @@ pub use explicit_euler::ExplicitEuler;
 pub use take_predicted::TakePredicted;
 pub use verlet::Verlet;
 
-
-
 #[derive(Debug, Deserialize)]
 pub enum IntegrationSchemeVariant {
     ExplicitEuler,
@@ -25,7 +23,7 @@ pub enum IntegrationSchemeVariant {
     TakePredicted,
 }
 
-pub trait IntegrationScheme: Send + Sync + Default {
+pub trait IntegrationScheme: Send + Sync + Default + Clone {
     /// Advance positions and velocities by one time step.
     ///
     /// Contract: acceleration has already been computed before this is called.

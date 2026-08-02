@@ -1,11 +1,10 @@
-/// Verlet integration scheme
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use crate::fluid::Fluid3D;
 use crate::for_each;
 use crate::integration_schemes::IntegrationScheme;
-use crate::fluid::Fluid3D;
+/// Verlet integration scheme
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Verlet;
 
 impl IntegrationScheme for Verlet {
