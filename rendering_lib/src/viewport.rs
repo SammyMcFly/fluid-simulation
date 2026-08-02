@@ -40,7 +40,7 @@ pub enum ViewportEvent {
 /// Tracks interaction state within the shader widget.
 #[derive(Debug, Default)]
 pub struct ViewportState {
-    pub right_mouse_pressed: bool,
+    pub middle_mouse_pressed: bool,
     pub last_cursor_position: Option<(f32, f32)>,
     /// Whether camera is currently moving (keys held)
     pub camera_active: bool,
@@ -152,18 +152,18 @@ where
 
         match event {
             // ─── Mouse button ─────────────────────────────────
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
                 if cursor_in_bounds {
-                    state.right_mouse_pressed = true;
+                    state.middle_mouse_pressed = true;
                     if let Some(pos) = cursor.position() {
                         state.last_cursor_position = Some((pos.x, pos.y));
                     }
                     return Some(shader::Action::capture());
                 }
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) => {
-                if state.right_mouse_pressed {
-                    state.right_mouse_pressed = false;
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
+                if state.middle_mouse_pressed {
+                    state.middle_mouse_pressed = false;
                     state.last_cursor_position = None;
                     return Some(shader::Action::capture());
                 }
@@ -171,7 +171,7 @@ where
 
             // ─── Mouse motion ─────────────────────────────────
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                if state.right_mouse_pressed {
+                if state.middle_mouse_pressed {
                     if let Some((last_x, last_y)) = state.last_cursor_position {
                         let dx = position.x - last_x;
                         let dy = position.y - last_y;
@@ -251,7 +251,7 @@ where
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if state.right_mouse_pressed {
+        if state.middle_mouse_pressed {
             mouse::Interaction::Grabbing
         } else if cursor.position_over(bounds).is_some() {
             mouse::Interaction::default()
