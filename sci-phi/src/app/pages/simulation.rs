@@ -221,17 +221,20 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
             let quantity_selected = QuantityOption::ALL
                 .iter()
                 .position(|q| *q == self.fluid_quantity);
-            fluid_section = fluid_section
-                .add(
-                    widget::settings::item::builder(fl!("settings", "quantity")).control(
-                        widget::dropdown(
-                            &self.quantity_labels,
-                            quantity_selected,
-                            Message::SetFluidQuantity,
-                        ),
+            fluid_section = fluid_section.add(
+                widget::settings::item::builder(fl!("settings", "quantity")).control(
+                    widget::dropdown(
+                        &self.quantity_labels,
+                        quantity_selected,
+                        Message::SetFluidQuantity,
                     ),
-                )
-                .add(self.colormap_controls());
+                ),
+            );
+        }
+
+        // Quantity selector.
+        if self.fluid_vis.uses_colormap() {
+            fluid_section = fluid_section.add(self.colormap_controls());
         }
 
         // Bounds + dx + commit only for Sensor-Plane.
@@ -543,6 +546,16 @@ impl FluidVisOption {
 
     pub fn uses_quantity(self) -> bool {
         matches!(self, Self::SamplesQuantity | Self::SensorPlane)
+    }
+
+    pub fn uses_colormap(self) -> bool {
+        matches!(
+            self,
+            Self::TriangleMeshFluidId
+                | Self::SamplesFluidId
+                | Self::SamplesQuantity
+                | Self::SensorPlane,
+        )
     }
 
     pub fn from_template(v: &FluidVisualization) -> Self {
