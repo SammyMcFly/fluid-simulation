@@ -133,6 +133,12 @@ impl Simulation {
         }
         self.recording_status = RecordingStatus::None;
 
+        if self.system.time_steps_propagated() < with_info.time_step_number {
+            warn!(
+                "Could not cater to request of continuing from checkpoint. Checkpoint has not yet been created."
+            );
+            return Err("Checkpoint has not yet been created.".into());
+        }
         let last_checkpoint =
             self.checkpoints[usize::try_from(with_info.time_step_number / Self::N)
                 .expect("Value too large for usize")]

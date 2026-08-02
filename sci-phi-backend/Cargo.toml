@@ -21,6 +21,9 @@ ron = "0.12"
 # error handling
 thiserror = "2.0"
 
+# dynamic cloning of trait objects
+dyn-clone = "1.0"
+
 # logging
 tracing = { version = "0.1.41"}
 tracing-subscriber = { version = "0.3.20"}
