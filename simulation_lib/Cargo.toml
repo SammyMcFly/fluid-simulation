@@ -30,6 +30,7 @@ nalgebra = "0.35"
 
 # collision detection
 parry3d-f64 = "0.28"
+glam = "0.33.2"
 
 # surface reconstruction
 splashsurf_lib = "0.14.1"

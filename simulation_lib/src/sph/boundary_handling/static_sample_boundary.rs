@@ -12,11 +12,13 @@ use crate::fluid::Positional;
 use crate::neighbor_search::NeighborList;
 use crate::neighbor_search::NeighborSearch;
 use crate::render_info::{BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization};
+use crate::setup::input::VertexNormalRenderOption;
 use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::boundary_handling::RequestMode;
 // use crate::sph::boundary_handling::BoundaryParameters;
 use crate::sph::kernel::KernelFn;
 use crate::utilities::sampling::sample_triangle_mesh_surface;
+use crate::utilities::triangle_mesh::MeshContainer;
 use crate::utilities::triangle_mesh::RenderMesh;
 use crate::utilities::vector;
 
@@ -41,13 +43,18 @@ impl BoundaryHandling for StaticSampleBoundary {
 
     fn add_boundary(
         &mut self,
-        boundary: &TriMesh,
+        boundary: &mut MeshContainer,
         boundary_id: u32,
         rest_density_grid_spacing: f64,
-        kernel_support_radius: f64,
+        _kernel_support_radius: f64,
+        render_vertex_normals: VertexNormalRenderOption,
     ) {
-        self.boundary
-            .add_boundary(boundary, boundary_id, rest_density_grid_spacing);
+        self.boundary.add_boundary(
+            boundary,
+            boundary_id,
+            rest_density_grid_spacing,
+            render_vertex_normals,
+        );
         self.boundary_neighbor_list.resize(self.boundary.len());
     }
 
@@ -69,6 +76,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         neighbor_search: &mut impl NeighborSearch,
         kernel_support_radius: f64,
         positions: &[Point3<f64>],
+        _rest_density_grid_spacing: f64,
     ) {
         neighbor_search.find_samples(
             kernel_support_radius,
@@ -212,18 +220,20 @@ impl Positional for SampleBoundary3D {
 impl SampleBoundary3D {
     pub fn add_boundary(
         &mut self,
-        boundary: &TriMesh,
+        boundary: &mut MeshContainer,
         boundary_id: u32,
         rest_density_grid_spacing: f64,
+        render_vertex_normals: VertexNormalRenderOption,
     ) {
-        let position = sample_triangle_mesh_surface(boundary, rest_density_grid_spacing);
+        let trimesh = boundary.trimesh();
+        let position = sample_triangle_mesh_surface(trimesh, rest_density_grid_spacing);
         let len = position.len();
         let boundary = Self {
             boundary_id: vec![boundary_id; len],
             position,
             velocity: vec![Vector3::zeros(); len],
             volume: vec![0.; len],
-            render_meshes: vec![RenderMesh::from_trimesh(boundary, boundary_id)],
+            render_meshes: vec![boundary.render_mesh(render_vertex_normals).clone()],
             render_mesh_ids: vec![boundary_id],
         };
         self.extend(boundary);

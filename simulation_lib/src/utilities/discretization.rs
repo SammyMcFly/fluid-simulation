@@ -1,39 +1,70 @@
 /// Discretization helpers
 use gauss_quad::GaussLegendre;
 use nalgebra::{Point3, Vector3};
-use std::collections::HashMap;
+use rayon::prelude::*;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use thiserror::Error as ThisError;
 
-/// Integrates f(x, y, z) over a sphere with radius 'radius' using the Gauß-Legendre quadrature.
-pub fn gauss_legendre_integrate<F>(f: &F, center: &Point3<f64>, radius: f64, order: usize) -> f64
+#[derive(Debug, ThisError)]
+pub enum EvaluationError {
+    #[error("Point is out of bounds.")]
+    OutOfBounds,
+    #[error("Point lies in a pruned cell with no discretization values.")]
+    PrunedCell,
+}
+
+/// Integrates f(x, y, z) over a ball with radius 'radius' using the Gauß-Legendre quadrature.
+pub fn gauss_legendre_integrate<F>(
+    f: &F,
+    center: &Point3<f64>,
+    radius: f64,
+    order: usize,
+) -> Result<f64, EvaluationError>
 where
-    F: Fn(&Point3<f64>) -> f64,
+    F: Fn(&Point3<f64>) -> Result<f64, EvaluationError>,
 {
     let quad = GaussLegendre::new(order.try_into().unwrap());
+    let error: RefCell<Option<EvaluationError>> = RefCell::new(None);
 
-    quad.integrate(0.0, radius, |r| {
+    let result = quad.integrate(0.0, radius, |r| {
         r.powi(2)
             * quad.integrate(0.0, PI, |theta| {
                 theta.sin()
                     * quad.integrate(0.0, 2. * PI, |phi| {
+                        if error.borrow().is_some() {
+                            return 0.0; // short-circuit remaining quadrature points
+                        }
                         let p = Point3::new(
                             center.x + r * theta.sin() * phi.cos(),
                             center.y + r * theta.sin() * phi.sin(),
                             center.z + r * theta.cos(),
                         );
-                        f(&p)
+                        match f(&p) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                *error.borrow_mut() = Some(e);
+                                0.0
+                            }
+                        }
                     })
             })
-    })
+    });
+
+    match error.into_inner() {
+        Some(e) => Err(e),
+        None => Ok(result),
+    }
 }
 
 /// A cubic serendipity discretization of a 3D scalar function within a predefined grid domain.
 ///
 /// Provides discretized function and function gradient.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CubicSerendipityDiscretization {
     x_min: Point3<f64>,
+    x_max: Point3<f64>,
     dx: f64,
     n: [usize; 3], // cells per axis
     ref_nodes: Vec<Point3<f64>>,
@@ -41,15 +72,101 @@ pub struct CubicSerendipityDiscretization {
     values: HashMap<[usize; 3], f64>, // global nodal values, keyed by lattice index
 }
 
-#[derive(Debug, ThisError)]
-#[error("Point is out of bounds.")]
-pub struct OutOfBoundsError;
-
 impl CubicSerendipityDiscretization {
     /// Build the discretization: sample `f` once at every (shared) node.
-    pub fn new<F: Fn(&Point3<f64>) -> f64>(
+    ///
+    /// The function f is only discretized in space where lower_bound < f(x) < upper_bound.
+    // pub fn new<F: Fn(&Point3<f64>) -> Result<f64, EvaluationError>>(
+    //     x_min: Point3<f64>,
+    //     x_max: Point3<f64>,
+    //     lower_bound: Option<f64>,
+    //     upper_bound: Option<f64>,
+    //     dx: f64,
+    //     f: &F,
+    // ) -> Self {
+    //     let n = [
+    //         ((x_max[0] - x_min[0]) / dx).round() as usize,
+    //         ((x_max[1] - x_min[1]) / dx).round() as usize,
+    //         ((x_max[2] - x_min[2]) / dx).round() as usize,
+    //     ];
+    //     let ref_nodes = Self::reference_nodes();
+    //     let offsets: Vec<[usize; 3]> = ref_nodes
+    //         .iter()
+    //         .map(|&p_ref| {
+    //             [
+    //                 Self::to_offset(p_ref.x),
+    //                 Self::to_offset(p_ref.y),
+    //                 Self::to_offset(p_ref.z),
+    //             ]
+    //         })
+    //         .collect();
+
+    //     let mut values = HashMap::new();
+    //     // fine-lattice physical position: x_min + (lattice/3)*dx
+    //     for cz in 0..n[2] {
+    //         for cy in 0..n[1] {
+    //             for cx in 0..n[0] {
+    //                 let base = [3 * cx, 3 * cy, 3 * cz];
+
+    //                 let mut newly_computed: Vec<([usize; 3], f64)> = Vec::new();
+    //                 let mut node_values: Vec<f64> = Vec::new();
+    //                 let mut eval_error = false;
+    //                 for off in &offsets {
+    //                     let key = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
+    //                     let v = if let Some(&v) = values.get(&key) {
+    //                         v
+    //                     } else {
+    //                         let p = Point3::new(
+    //                             x_min[0] + key[0] as f64 / 3.0 * dx,
+    //                             x_min[1] + key[1] as f64 / 3.0 * dx,
+    //                             x_min[2] + key[2] as f64 / 3.0 * dx,
+    //                         );
+    //                         match f(&p) {
+    //                             Ok(v) => {
+    //                                 newly_computed.push((key, v));
+    //                                 v
+    //                             }
+    //                             Err(_) => {
+    //                                 eval_error = true;
+    //                                 break;
+    //                             }
+    //                         }
+    //                     };
+    //                     node_values.push(v);
+    //                 }
+
+    //                 if eval_error {
+    //                     continue;
+    //                 }
+
+    //                 let prune_low = lower_bound.is_some_and(|t| node_values.iter().all(|&v| v < t));
+    //                 let prune_high =
+    //                     upper_bound.is_some_and(|t| node_values.iter().all(|&v| v > t));
+
+    //                 if !prune_low && !prune_high {
+    //                     for (key, val) in newly_computed {
+    //                         values.insert(key, val);
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     Self {
+    //         x_min,
+    //         x_max,
+    //         dx,
+    //         n,
+    //         ref_nodes,
+    //         offsets,
+    //         values,
+    //     }
+    // }
+    pub fn new<F: Fn(&Point3<f64>) -> Result<f64, EvaluationError> + Sync>(
         x_min: Point3<f64>,
         x_max: Point3<f64>,
+        lower_bound: Option<f64>,
+        upper_bound: Option<f64>,
         dx: f64,
         f: &F,
     ) -> Self {
@@ -70,22 +187,77 @@ impl CubicSerendipityDiscretization {
             })
             .collect();
 
+        // Collect all unique node keys across all cells
+        let offsets_ref = &offsets;
+        let all_keys: HashSet<[usize; 3]> = (0..n[2])
+            .flat_map(|cz| {
+                (0..n[1]).flat_map(move |cy| {
+                    (0..n[0]).flat_map(move |cx| {
+                        let base = [3 * cx, 3 * cy, 3 * cz];
+                        offsets_ref
+                            .iter()
+                            .map(move |off| [base[0] + off[0], base[1] + off[1], base[2] + off[2]])
+                    })
+                })
+            })
+            .collect();
+
+        // Compute all node values in parallel; None signals an EvaluationError
+        #[cfg(not(feature = "parallel"))]
+        let all_values: HashMap<[usize; 3], Option<f64>> = all_keys
+            .iter()
+            .map(|&key| {
+                let p = Point3::new(
+                    x_min[0] + key[0] as f64 / 3.0 * dx,
+                    x_min[1] + key[1] as f64 / 3.0 * dx,
+                    x_min[2] + key[2] as f64 / 3.0 * dx,
+                );
+                (key, f(&p).ok())
+            })
+            .collect();
+        #[cfg(feature = "parallel")]
+        let all_values: HashMap<[usize; 3], Option<f64>> = all_keys
+            .par_iter()
+            .map(|&key| {
+                let p = Point3::new(
+                    x_min[0] + key[0] as f64 / 3.0 * dx,
+                    x_min[1] + key[1] as f64 / 3.0 * dx,
+                    x_min[2] + key[2] as f64 / 3.0 * dx,
+                );
+                (key, f(&p).ok())
+            })
+            .collect();
+
+        // Apply pruning sequentially
         let mut values = HashMap::new();
-        // fine-lattice physical position: x_min + (lattice/3)*dx
         for cz in 0..n[2] {
             for cy in 0..n[1] {
                 for cx in 0..n[0] {
                     let base = [3 * cx, 3 * cy, 3 * cz];
-                    for off in &offsets {
-                        let key = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
-                        values.entry(key).or_insert_with(|| {
-                            let p = Point3::new(
-                                x_min[0] + key[0] as f64 / 3.0 * dx,
-                                x_min[1] + key[1] as f64 / 3.0 * dx,
-                                x_min[2] + key[2] as f64 / 3.0 * dx,
-                            );
-                            f(&p)
-                        });
+
+                    let node_values: Vec<f64> = offsets
+                        .iter()
+                        .filter_map(|off| {
+                            *all_values
+                                .get(&[base[0] + off[0], base[1] + off[1], base[2] + off[2]])
+                                .unwrap()
+                        })
+                        .collect();
+
+                    // Prune if any node had an EvaluationError
+                    if node_values.len() != offsets.len() {
+                        continue;
+                    }
+
+                    let prune_low = lower_bound.is_some_and(|t| node_values.iter().all(|&v| v < t));
+                    let prune_high =
+                        upper_bound.is_some_and(|t| node_values.iter().all(|&v| v > t));
+
+                    if !prune_low && !prune_high {
+                        for (off, val) in offsets.iter().zip(node_values.iter()) {
+                            let key = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
+                            values.entry(key).or_insert(*val);
+                        }
                     }
                 }
             }
@@ -93,6 +265,7 @@ impl CubicSerendipityDiscretization {
 
         Self {
             x_min,
+            x_max,
             dx,
             n,
             ref_nodes,
@@ -223,7 +396,7 @@ impl CubicSerendipityDiscretization {
                         (9.0 / 64.0)
                             * (1.0 + eta * p_ref.y)
                             * (1.0 + zeta * p_ref.z)
-                            * (2. * xi * (1.0 + 9.0 * xi * p_ref.x)
+                            * (-2. * xi * (1.0 + 9.0 * xi * p_ref.x)
                                 + (1.0 - xi * xi) * 9.0 * p_ref.x),
                         (9.0 / 64.0)
                             * (1.0 - xi * xi)
@@ -245,7 +418,7 @@ impl CubicSerendipityDiscretization {
                         (9.0 / 64.0)
                             * (1.0 + xi * p_ref.x)
                             * (1.0 + zeta * p_ref.z)
-                            * (2.0 * eta * (1.0 + 9.0 * eta * p_ref.y)
+                            * (-2.0 * eta * (1.0 + 9.0 * eta * p_ref.y)
                                 + (1.0 - eta * eta) * 9.0 * p_ref.y),
                         (9.0 / 64.0)
                             * (1.0 - eta * eta)
@@ -267,7 +440,7 @@ impl CubicSerendipityDiscretization {
                         (9.0 / 64.0)
                             * (1.0 + xi * p_ref.x)
                             * (1.0 + eta * p_ref.y)
-                            * (2.0 * zeta * (1.0 + 9.0 * zeta * p_ref.z)
+                            * (-2.0 * zeta * (1.0 + 9.0 * zeta * p_ref.z)
                                 + (1.0 - zeta * zeta) * 9.0 * p_ref.z),
                     ),
                     _ => Vector3::new(0.0, 0.0, 0.0),
@@ -276,21 +449,32 @@ impl CubicSerendipityDiscretization {
             .collect()
     }
 
-    fn get_cube_idx(&self, p: &Point3<f64>) -> Result<[usize; 3], OutOfBoundsError> {
+    fn get_cube_idx(&self, p: &Point3<f64>) -> Result<[usize; 3], EvaluationError> {
         let mut c = [0usize; 3];
         for d in 0..3 {
             let idx = ((p[d] - self.x_min[d]) / self.dx).floor() as isize;
-            if idx < 0 || idx >= self.n[d] as isize {
-                return Err(OutOfBoundsError {});
+            if p[d] < self.x_min[d] || p[d] > self.x_max[d] {
+                return Err(EvaluationError::OutOfBounds {});
             }
-            c[d] = idx as usize;
+            // point with p[d] == self.x_max[d] is included by clamping it to last valid cell
+            c[d] = (idx.min(self.n[d] as isize - 1)) as usize;
         }
         Ok(c)
     }
 
     /// Evaluate the interpolant anywhere in the grid.
-    pub fn function(&self, p: &Point3<f64>) -> Result<f64, OutOfBoundsError> {
+    pub fn function(&self, p: &Point3<f64>) -> Result<f64, EvaluationError> {
         let c = self.get_cube_idx(p)?;
+        let base = [3 * c[0], 3 * c[1], 3 * c[2]];
+
+        if self.offsets.iter().any(|off| {
+            !self
+                .values
+                .contains_key(&[base[0] + off[0], base[1] + off[1], base[2] + off[2]])
+        }) {
+            return Err(EvaluationError::PrunedCell);
+        }
+
         let o = [
             self.x_min[0] + c[0] as f64 * self.dx,
             self.x_min[1] + c[1] as f64 * self.dx,
@@ -300,7 +484,6 @@ impl CubicSerendipityDiscretization {
         let eta = 2.0 * (p[1] - o[1]) / self.dx - 1.0;
         let zeta = 2.0 * (p[2] - o[2]) / self.dx - 1.0;
 
-        let base = [3 * c[0], 3 * c[1], 3 * c[2]];
         let shp = Self::shape_functions(&self.ref_nodes, xi, eta, zeta);
 
         Ok(self
@@ -315,8 +498,18 @@ impl CubicSerendipityDiscretization {
     }
 
     /// Evaluate the interpolant anywhere in the grid.
-    pub fn gradient(&self, p: &Point3<f64>) -> Result<Vector3<f64>, OutOfBoundsError> {
+    pub fn gradient(&self, p: &Point3<f64>) -> Result<Vector3<f64>, EvaluationError> {
         let c = self.get_cube_idx(p)?;
+        let base = [3 * c[0], 3 * c[1], 3 * c[2]];
+
+        if self.offsets.iter().any(|off| {
+            !self
+                .values
+                .contains_key(&[base[0] + off[0], base[1] + off[1], base[2] + off[2]])
+        }) {
+            return Err(EvaluationError::PrunedCell);
+        }
+
         let o = [
             self.x_min[0] + c[0] as f64 * self.dx,
             self.x_min[1] + c[1] as f64 * self.dx,
@@ -326,7 +519,6 @@ impl CubicSerendipityDiscretization {
         let eta = 2.0 * (p[1] - o[1]) / self.dx - 1.0;
         let zeta = 2.0 * (p[2] - o[2]) / self.dx - 1.0;
 
-        let base = [3 * c[0], 3 * c[1], 3 * c[2]];
         let shp = Self::shape_function_gradients(&self.ref_nodes, xi, eta, zeta);
 
         Ok(self

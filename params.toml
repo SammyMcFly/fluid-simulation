@@ -13,7 +13,8 @@ kernel_support_radius = 1.6 # (not hot swappable)
 disable_particles_below = -50
 fluid_viscosity = 0.2
 boundary_viscosity = 0.2
-boundary_pressure_acceleration_weighting = 0.7 # gamma
+# boundary_pressure_acceleration_weighting = 0.7 # gamma
+boundary_pressure_acceleration_weighting = 1.0 # gamma
 boundary_rest_volume_weighting = 1.0 # gamma
 
 # local pressure
@@ -22,12 +23,12 @@ stiffness = 15000000.0 # k
 # solver_iterations = 5 # deprecated
 target_density_error = 0.1 # in percent
 relaxation_factor = 0.5 # omega
-min_diagonal_element = 1e-25 # epsilon
+min_diagonal_element = 1e-15 # epsilon
 
 # constant time step
 time_increment = 0.006
 # cfl time step
-max_time_increment = 0.015
+max_time_increment = 0.01
 cfl_number = 0.4
 
 [[parameters.fluid]]

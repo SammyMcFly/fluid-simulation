@@ -1,17 +1,7 @@
-use std::rc::Rc;
-
 /// # Core SPH simulation
 ///
 /// Contains the simulated system, the information of the individual samples
 /// and provides the methods for propagating the system in time.
-///
-use nalgebra::{Matrix3, Point3, Vector3};
-use num_traits::Zero;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-#[cfg(feature = "logging")]
-use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
-
 pub mod boundary_handling;
 pub mod kernel;
 mod non_pressure_accelerations;
@@ -260,6 +250,7 @@ impl<
             &mut self.neighbor_search,
             self.parameters.kernel_support_radius,
             positions,
+            self.parameters.rest_density_grid_spacing,
         );
         let mut q = vec![0.; positions.len()];
         match quantity {
@@ -462,8 +453,8 @@ impl<
                 .volume
                 .iter()
                 .map(|volume| {
-                    if *quantities < self.parameters.rest_volume {
-                        self.parameters.rest_volume / quantities
+                    if *volume < self.parameters.rest_volume {
+                        self.parameters.rest_volume / volume
                     } else {
                         1.
                     }
@@ -660,6 +651,7 @@ impl<
             &mut self.neighbor_search,
             self.parameters.kernel_support_radius,
             &self.fluid.position,
+            self.parameters.rest_density_grid_spacing,
         );
         // compute density
         get_volume::<K>(

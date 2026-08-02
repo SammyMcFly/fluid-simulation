@@ -1,23 +1,23 @@
 /// Boundary handling module
 use nalgebra::{Point3, Vector3};
-use parry3d_f64::shape::TriMesh;
 use serde::Deserialize;
-use std::slice::SliceIndex;
 
 use crate::{
-    neighbor_search::NeighborSearch, render_info::BoundaryVisualization, sph::kernel::KernelFn,
+    neighbor_search::NeighborSearch, render_info::BoundaryVisualization,
+    setup::input::VertexNormalRenderOption, sph::kernel::KernelFn,
+    utilities::triangle_mesh::MeshContainer,
 };
 
 mod static_sample_boundary;
-// mod volume_maps;
+mod volume_maps;
 
 pub use static_sample_boundary::StaticSampleBoundary;
-// pub use volume_maps::VolumeMaps;
+pub use volume_maps::VolumeMaps;
 
 #[derive(Debug, Deserialize)]
 pub enum BoundaryHandlingVariant {
     StaticSampleBoundary,
-    // VolumeMaps,
+    VolumeMaps,
 }
 
 pub trait BoundaryHandling: Send + Sync + Clone {
@@ -27,10 +27,11 @@ pub trait BoundaryHandling: Send + Sync + Clone {
 
     fn add_boundary(
         &mut self,
-        mesh: &TriMesh,
+        mesh: &mut MeshContainer,
         id: u32,
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
+        render_vertex_normals: VertexNormalRenderOption,
     );
 
     fn initialize<K: KernelFn>(
@@ -45,6 +46,7 @@ pub trait BoundaryHandling: Send + Sync + Clone {
         neighbor_search: &mut impl NeighborSearch,
         within_range: f64,
         positions: &[Point3<f64>],
+        rest_density_grid_spacing: f64,
     );
 
     fn get_neighbors(&self, id: usize, mode: RequestMode) -> &[usize];

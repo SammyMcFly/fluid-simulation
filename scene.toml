@@ -6,64 +6,67 @@ position = [ 2.0, 2.0, 100.0 ]
 cube_out = "/mnt/Code/fluid-simulation/cube_face_normals_outwards.obj"
 cube_in = "/mnt/Code/fluid-simulation/cube_face_normals_inwards.obj"
 sphere_out = "/mnt/Code/fluid-simulation/sphere_face_normals_outwards.obj"
-sphere_in = "/mnt/Code/fluid-simulation/sphere_face_normals_outwards.obj"
+sphere_in = "/mnt/Code/fluid-simulation/sphere_face_normals_inwards.obj"
 
-# TEST
-[[fluid]]
-mesh = "cube_out"
-fluid_id = 0
-position = [0.0, 0.0, 0.0]
-rotation_euler_deg = [0.0, 0.0, 0.0]
-scale = 0.2
-
-[[boundary.static]]
-mesh = "cube_in"
-boundary_id = 0
-position = [0.0, 0.0, 0.0]
-scale = 5.0
-
-# # MEDIUM
+# # TEST
 # [[fluid]]
 # mesh = "cube_out"
 # fluid_id = 0
-# position = [11.0, 0.0, 0.0]
+# translation = [0.0, 0.0, 0.0]
 # rotation_euler_deg = [0.0, 0.0, 0.0]
-# scale = 10.0
-
-# [[fluid]]
-# mesh = "cube_out"
-# fluid_id = 1
-# position = [-11.0, 0.0, 0.0]
-# scale = 10.0
+# scale = 1.0
 
 # [[boundary.static]]
-# mesh = "sphere_in"
+# mesh = "cube_in"
 # boundary_id = 0
-# position = [0.0, 0.0, 0.0]
-# scale = 30.0
+# translation = [0.0, 0.0, 0.0]
+# scale = 7.0
+# # render_vertex_normals = "AngleWeightedPseudoNormals"
+
+# MEDIUM
+[[fluid]]
+mesh = "cube_out"
+fluid_id = 0
+translation = [11.0, 0.0, 0.0]
+rotation_euler_deg = [0.0, 0.0, 0.0]
+scale = 10.0
+
+[[fluid]]
+mesh = "cube_out"
+fluid_id = 1
+translation = [-11.0, 0.0, 0.0]
+scale = 10.0
+
+[[boundary.static]]
+mesh = "sphere_in"
+boundary_id = 0
+translation = [0.0, 0.0, 0.0]
+scale = 30.0
+render_vertex_normals = "AngleWeightedPseudoNormals"
 
 # # BIG
 # [[fluid]]
 # mesh = "cube_out"
 # fluid_id = 0
-# position = [16.0, 0.0, 0.0]
+# translation = [16.0, 0.0, 0.0]
 # rotation_euler_deg = [0.0, 0.0, 0.0]
 # scale = 15.0
 
 # [[fluid]]
 # mesh = "cube_out"
 # fluid_id = 1
-# position = [-16.0, 0.0, 0.0]
+# translation = [-16.0, 0.0, 0.0]
 # scale = 15.0
 
 # [[boundary.static]]
 # mesh = "sphere_in"
 # boundary_id = 0
-# position = [0.0, 0.0, 0.0]
+# translation = [0.0, 0.0, 0.0]
 # scale = 40.0
+# render_vertex_normals = "AngleWeightedPseudoNormals"
 
 # [[boundary.dynamic]]
 # mesh = "cube"
 # boundary_id = 1
-# position = [2.0, 0.0, 0.0]
+# translation = [2.0, 0.0, 0.0]
 # rotation_euler_deg = [0.0, 0.0, 0.0]

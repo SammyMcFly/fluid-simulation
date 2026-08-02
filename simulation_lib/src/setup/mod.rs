@@ -20,7 +20,7 @@ use crate::sph::kernel::*;
 use crate::sph::pressure_solver::PressureSolver;
 use crate::sph::pressure_solver::*;
 use crate::sph::{SPHSystem, System3D};
-use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary, transform_trimesh};
+use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary};
 
 pub struct System3DConstructor<
     K: KernelFn,
@@ -47,6 +47,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
         scene: &Scene,
         sample_state_file_path: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        println!("called once");
         let integrator = I::default();
         let pressure_solver: P = P::new(params);
         let mut neighbor_search = N::new(params.kernel_support_radius);
@@ -73,15 +74,17 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             let mut fluid = Fluid3D::new();
             for f in &scene.fluid {
                 // select mesh
-                let mesh = meshes.trimesh(MeshHandle {
-                    idx: *index_map.get(&f.mesh).expect("Failed to get mesh"),
-                    mesh_id: f.fluid_id,
-                });
+                let mut mesh = meshes
+                    .get_mesh_container(MeshHandle {
+                        idx: *index_map.get(&f.mesh).expect("Failed to get mesh"),
+                        mesh_id: f.fluid_id,
+                    })
+                    .clone();
                 // apply transformation
-                let mesh = transform_trimesh(mesh, &f.position, &f.rotation_euler_deg, &f.scale);
+                mesh.transform(&f.translation, &f.rotation_euler_deg, &f.scale);
 
                 fluid.add_samples(
-                    &mesh,
+                    mesh.trimesh(),
                     f.fluid_id,
                     *fluid_rest_densities
                         .get(&f.fluid_id)
@@ -100,34 +103,40 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             let mut boundary = B::new();
             for b in &scene.boundary.statics {
                 // select mesh
-                let mesh = meshes.trimesh(MeshHandle {
-                    idx: *index_map.get(&b.mesh).expect("Failed to get mesh"),
-                    mesh_id: b.boundary_id,
-                });
+                let mut mesh = meshes
+                    .get_mesh_container(MeshHandle {
+                        idx: *index_map.get(&b.mesh).expect("Failed to get mesh"),
+                        mesh_id: b.boundary_id,
+                    })
+                    .clone();
                 // apply transformation
-                let mesh = transform_trimesh(mesh, &b.position, &b.rotation_euler_deg, &b.scale);
+                mesh.transform(&b.translation, &b.rotation_euler_deg, &b.scale);
 
                 boundary.add_boundary(
-                    &mesh,
+                    &mut mesh,
                     b.boundary_id,
                     params.rest_density_grid_spacing,
                     params.kernel_support_radius,
+                    b.render_vertex_normals,
                 );
             }
             for b in &scene.boundary.dynamic {
                 // select mesh
-                let mesh = meshes.trimesh(MeshHandle {
-                    idx: *index_map.get(&b.mesh).expect("Failed to get mesh"),
-                    mesh_id: b.boundary_id,
-                });
+                let mut mesh = meshes
+                    .get_mesh_container(MeshHandle {
+                        idx: *index_map.get(&b.mesh).expect("Failed to get mesh"),
+                        mesh_id: b.boundary_id,
+                    })
+                    .clone();
                 // apply transformation
-                let mesh = transform_trimesh(mesh, &b.position, &b.rotation_euler_deg, &b.scale);
+                mesh.transform(&b.translation, &b.rotation_euler_deg, &b.scale);
 
                 boundary.add_boundary(
-                    &mesh,
+                    &mut mesh,
                     b.boundary_id,
                     params.rest_density_grid_spacing,
                     params.kernel_support_radius,
+                    b.render_vertex_normals,
                 );
             }
             if boundary.is_empty() {
@@ -190,8 +199,12 @@ pub fn new_boxed_system3d(
     macro_rules! with_boundary {
         ($K:ty, $I:ty, $P:ty, $N:ty) => {
             match procs.boundary_handling {
-                BoundaryHandlingVariant::StaticSampleBoundary => create!(params, scene, state, $K, $I, $P, $N, StaticSampleBoundary),
-                // BoundaryHandlingVariant::VolumeMaps           => create!(params, scene, state, $K, $I, $P, $N, VolumeMaps),
+                BoundaryHandlingVariant::StaticSampleBoundary => {
+                    create!(params, scene, state, $K, $I, $P, $N, StaticSampleBoundary)
+                }
+                BoundaryHandlingVariant::VolumeMaps => {
+                    create!(params, scene, state, $K, $I, $P, $N, VolumeMaps)
+                }
             }
         };
     }

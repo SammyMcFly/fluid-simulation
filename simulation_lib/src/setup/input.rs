@@ -5,8 +5,14 @@ use serde::Deserialize;
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use std::collections::HashMap;
 
-use crate::{integration_schemes::IntegrationSchemeVariant, neighbor_search::NeighborSearchVariant, sph::{boundary_handling::BoundaryHandlingVariant, kernel::KernelFnVariant, pressure_solver::PressureSolverVariant}};
-
+use crate::{
+    integration_schemes::IntegrationSchemeVariant,
+    neighbor_search::NeighborSearchVariant,
+    sph::{
+        boundary_handling::BoundaryHandlingVariant, kernel::KernelFnVariant,
+        pressure_solver::PressureSolverVariant,
+    },
+};
 
 #[derive(Debug, Deserialize)]
 pub struct Procedures {
@@ -18,7 +24,7 @@ pub struct Procedures {
 }
 
 impl Procedures {
-    pub fn from_file(file_path: &str,) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>{
+    pub fn from_file(file_path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Read the config file
         let table: toml::Table = toml::from_str(&std::fs::read_to_string(file_path)?)?;
         let procedures = table
@@ -55,7 +61,7 @@ pub struct Parameters {
 }
 
 impl Parameters {
-    pub fn from_file(file_path: &str,) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>{
+    pub fn from_file(file_path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Read the config file
         let table: toml::Table = toml::from_str(&std::fs::read_to_string(file_path)?)?;
         let procedures = table
@@ -84,7 +90,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn from_file(file_path: &str,) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>{
+    pub fn from_file(file_path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Read the scene file
         let config: Self = toml::from_str(&std::fs::read_to_string(file_path)?)?;
         Ok(config)
@@ -96,13 +102,12 @@ pub struct Light {
     pub position: [f64; 3],
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct FluidDef {
     pub mesh: String,
     pub fluid_id: u32,
     #[serde(default)]
-    pub position: [f64; 3],
+    pub translation: [f64; 3],
     #[serde(default)]
     pub rotation_euler_deg: [f64; 3],
     #[serde(default = "default_scale", deserialize_with = "deserialize_scale")]
@@ -122,11 +127,13 @@ pub struct StaticBoundaryDef {
     pub mesh: String,
     pub boundary_id: u32,
     #[serde(default)]
-    pub position: [f64; 3],
+    pub translation: [f64; 3],
     #[serde(default)]
     pub rotation_euler_deg: [f64; 3],
     #[serde(default = "default_scale", deserialize_with = "deserialize_scale")]
     pub scale: [f64; 3],
+    #[serde(default)]
+    pub render_vertex_normals: VertexNormalRenderOption,
 }
 
 #[derive(Debug, Deserialize)]
@@ -134,11 +141,20 @@ pub struct DynamicBoundaryDef {
     pub mesh: String,
     pub boundary_id: u32,
     #[serde(default)]
-    pub position: [f64; 3],
+    pub translation: [f64; 3],
     #[serde(default)]
     pub rotation_euler_deg: [f64; 3],
     #[serde(default = "default_scale", deserialize_with = "deserialize_scale")]
     pub scale: [f64; 3],
+    #[serde(default)]
+    pub render_vertex_normals: VertexNormalRenderOption,
+}
+
+#[derive(Debug, Default, Copy, Clone, Deserialize)]
+pub enum VertexNormalRenderOption {
+    #[default]
+    FaceNormals,
+    AngleWeightedPseudoNormals,
 }
 
 fn default_scale() -> [f64; 3] {
@@ -167,9 +183,15 @@ where
         }
 
         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<[f64; 3], A::Error> {
-            let x = seq.next_element::<f64>()?.ok_or_else(|| de::Error::invalid_length(0, &self))?;
-            let y = seq.next_element::<f64>()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
-            let z = seq.next_element::<f64>()?.ok_or_else(|| de::Error::invalid_length(2, &self))?;
+            let x = seq
+                .next_element::<f64>()?
+                .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+            let y = seq
+                .next_element::<f64>()?
+                .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+            let z = seq
+                .next_element::<f64>()?
+                .ok_or_else(|| de::Error::invalid_length(2, &self))?;
             Ok([x, y, z])
         }
     }
