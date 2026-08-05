@@ -19,7 +19,7 @@ use parry3d_f64::shape::TriMesh;
 use rayon::prelude::*;
 use std::slice::SliceIndex;
 #[cfg(feature = "logging")]
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Default, Clone)]
 pub struct VolumeMaps {
@@ -175,7 +175,7 @@ impl BoundaryHandling for VolumeMaps {
             trimesh.aabb(&identity).maxs.z,
         );
 
-        let padding_sd = 3. * kernel_support_radius;
+        let padding_sd = 3.1 * kernel_support_radius;
         let sd_field = TriangleMeshWrapper::new(trimesh);
 
         #[cfg(feature = "logging")]
@@ -197,13 +197,18 @@ impl BoundaryHandling for VolumeMaps {
         info!("Start volume integration.");
 
         let padding_vm = 2. * kernel_support_radius;
+        let v_max = 4.0 / 3.0 * std::f64::consts::PI * kernel_support_radius.powi(3);
         let vm = CubicSerendipityDiscretization::new(
             aabb_min - Vector3::new(padding_vm, padding_vm, padding_vm),
             aabb_max + Vector3::new(padding_vm, padding_vm, padding_vm),
             Some(0.),
             None,
             dx,
-            &|p| sd_field.volume(p, kernel_support_radius, Self::INTEGRATION_ORDER),
+            &|p| {
+                sd_field
+                    .volume(p, kernel_support_radius, Self::INTEGRATION_ORDER)
+                    .map(|v| v.clamp(0.0, v_max))
+            },
         );
 
         #[cfg(feature = "logging")]
@@ -379,8 +384,23 @@ impl BoundaryHandling for VolumeMaps {
                         _ => continue,
                     };
 
+                    // Clamp volume to [0, v_max] range to avoid negative volumes due to cubic serendipity interpolation
+                    let v_max = 4.0 / 3.0 * std::f64::consts::PI * within_range.powi(3);
+                    let volume = volume.clamp(0.0, v_max);
+
                     // Skip particles with very small volume or negative volume due to cubic serendipity interpolation
                     if volume < 1e-10 {
+                        continue;
+                    }
+                    // Skip particles with unphysical of signed distance gradient: For SDF the eikonal condition should hold: ‖∇d‖ ≈ 1
+                    if signed_distance_gradient.norm() < 0.5
+                        || signed_distance_gradient.norm() > 2.0
+                    {
+                        #[cfg(feature = "logging")]
+                        warn!(
+                            "Skipping particle with unphysical signed distance gradient: ‖∇d‖ = {}",
+                            signed_distance_gradient.norm()
+                        );
                         continue;
                     }
 
