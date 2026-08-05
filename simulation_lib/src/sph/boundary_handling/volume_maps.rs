@@ -482,9 +482,9 @@ impl BoundaryHandling for VolumeMaps {
 
     fn get_neighbors(&self, id: usize, mode: RequestMode) -> &[usize] {
         match mode {
-            RequestMode::Normal => &self.boundary_neighbor_list.get_neighbors(id),
+            RequestMode::Normal => self.boundary_neighbor_list.get_neighbors(id),
             RequestMode::ViscosityAcceleration => {
-                &self.boundary_neighbor_list_viscosity.get_neighbors(id)
+                self.boundary_neighbor_list_viscosity.get_neighbors(id)
             }
         }
     }
