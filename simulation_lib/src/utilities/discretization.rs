@@ -204,20 +204,10 @@ impl CubicSerendipityDiscretization {
 
         // Compute all node values in parallel; None signals an EvaluationError
         #[cfg(not(feature = "parallel"))]
-        let all_values: HashMap<[usize; 3], Option<f64>> = all_keys
-            .iter()
-            .map(|&key| {
-                let p = Point3::new(
-                    x_min[0] + key[0] as f64 / 3.0 * dx,
-                    x_min[1] + key[1] as f64 / 3.0 * dx,
-                    x_min[2] + key[2] as f64 / 3.0 * dx,
-                );
-                (key, f(&p).ok())
-            })
-            .collect();
+        let all_keys_iter = all_keys.iter();
         #[cfg(feature = "parallel")]
-        let all_values: HashMap<[usize; 3], Option<f64>> = all_keys
-            .par_iter()
+        let all_keys_iter = all_keys.par_iter();
+        let all_values: HashMap<[usize; 3], Option<f64>> = all_keys_iter
             .map(|&key| {
                 let p = Point3::new(
                     x_min[0] + key[0] as f64 / 3.0 * dx,
