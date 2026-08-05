@@ -741,7 +741,10 @@ impl NeighborList {
     }
 
     /// Flatten neighbor list
-    fn flatten(&mut self) {
+    fn flatten(&mut self, global_offset: usize) {
+        self.positions.clear();
+        self.velocities.clear();
+        self.volumes.clear();
         self.indices.clear();
         self.offsets.clear();
 
