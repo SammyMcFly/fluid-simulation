@@ -165,8 +165,8 @@ impl CubicSerendipityDiscretization {
     pub fn new<F: Fn(&Point3<f64>) -> Result<f64, EvaluationError> + Sync>(
         x_min: Point3<f64>,
         x_max: Point3<f64>,
-        lower_bound: Option<f64>,
-        upper_bound: Option<f64>,
+        f_value_prune_lower_bound: Option<f64>,
+        f_value_prune_upper_bound: Option<f64>,
         dx: f64,
         f: &F,
     ) -> Self {
@@ -239,9 +239,10 @@ impl CubicSerendipityDiscretization {
                         continue;
                     }
 
-                    let prune_low = lower_bound.is_some_and(|t| node_values.iter().all(|&v| v < t));
-                    let prune_high =
-                        upper_bound.is_some_and(|t| node_values.iter().all(|&v| v > t));
+                    let prune_low = f_value_prune_lower_bound
+                        .is_some_and(|t| node_values.iter().all(|&v| v < t));
+                    let prune_high = f_value_prune_upper_bound
+                        .is_some_and(|t| node_values.iter().all(|&v| v > t));
 
                     if !prune_low && !prune_high {
                         for (off, val) in offsets.iter().zip(node_values.iter()) {
