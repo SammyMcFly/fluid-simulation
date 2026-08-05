@@ -465,7 +465,7 @@ impl BoundaryHandling for VolumeMaps {
             for j in 0..(r.v_pos.len() / 4) {
                 let global_start = num_samples;
                 let local_start = 4 * j;
-                let base = global_start + local_start;
+                let base = local_start;
                 for k in 0..4 {
                     neighbor_v_pos[i].push(r.v_pos[4 * j + k]);
                     neighbor_v_vel[i].push(r.v_vel[4 * j + k]);
@@ -475,8 +475,9 @@ impl BoundaryHandling for VolumeMaps {
             }
         }
 
-        self.boundary_neighbor_list.flatten();
-        self.boundary_neighbor_list_viscosity.flatten();
+        self.boundary_neighbor_list.flatten(0);
+        self.boundary_neighbor_list_viscosity
+            .flatten(self.boundary_neighbor_list.len());
     }
 
     fn get_neighbors(&self, id: usize, mode: RequestMode) -> &[usize] {
@@ -489,33 +490,33 @@ impl BoundaryHandling for VolumeMaps {
     }
 
     fn pos_now(&self, id: usize) -> &Point3<f64> {
-        let num_samples = self.boundary_neighbor_list.num_samples();
-        if id < num_samples {
+        let num_neighbors = self.boundary_neighbor_list.len();
+        if id < num_neighbors {
             self.boundary_neighbor_list.pos_now(id)
         } else {
             self.boundary_neighbor_list_viscosity
-                .pos_now(id - num_samples)
+                .pos_now(id - num_neighbors)
         }
     }
 
     fn vel_now(&self, id: usize) -> &Vector3<f64> {
-        let num_samples = self.boundary_neighbor_list.num_samples();
-        if id < num_samples {
+        let num_neighbors = self.boundary_neighbor_list.len();
+        if id < num_neighbors {
             self.boundary_neighbor_list.vel_now(id)
         } else {
             self.boundary_neighbor_list_viscosity
-                .vel_now(id - num_samples)
+                .vel_now(id - num_neighbors)
         }
     }
 
     fn volume(&self, id: usize) -> f64 {
-        let num_samples = self.boundary_neighbor_list.num_samples();
-        if id < num_samples {
+        let num_neighbors = self.boundary_neighbor_list.len();
+        if id < num_neighbors {
             *self.boundary_neighbor_list.volume(id)
         } else {
             *self
                 .boundary_neighbor_list_viscosity
-                .volume(id - num_samples)
+                .volume(id - num_neighbors)
         }
     }
 
@@ -579,7 +580,7 @@ impl<'a> TriangleMeshWrapper<'a> {
         let diff = pt - glam::DVec3::new(proj.point.x, proj.point.y, proj.point.z);
         let dist = diff.length();
 
-        // Outward normal vetor of feature:
+        // Outward normal vector of feature:
         let n = self
             .boundary
             .feature_normal(feature)
@@ -672,7 +673,7 @@ struct NeighborList {
 }
 
 impl NeighborList {
-    pub fn new(len: usize) -> Self {
+    fn new(len: usize) -> Self {
         Self {
             positions: Vec::new(),
             velocities: Vec::new(),
@@ -686,8 +687,8 @@ impl NeighborList {
         }
     }
 
-    pub fn num_samples(&self) -> usize {
-        self.unflattened_positions.len()
+    pub fn len(&self) -> usize {
+        self.positions.len()
     }
 
     pub fn resize(&mut self, len: usize) {
@@ -767,7 +768,7 @@ impl NeighborList {
             self.volumes.extend_from_slice(nbr_vol);
             for &local_idx in idcs {
                 self.indices
-                    .push(offset_bc_of_previous_samples_neighbors + local_idx);
+                    .push(global_offset + offset_bc_of_previous_samples_neighbors + local_idx);
             }
             self.offsets.push(self.indices.len());
         }
@@ -881,6 +882,35 @@ impl NeighborList {
 //             isometry: iso,
 //             linear_velocity: Vector3::zeros(),
 //             angular_velocity: self.axis.normalize() * self.angular_speed,
+//         }
+//     }
+// }
+
+// #[test]
+// fn boundary_index_offset_is_consistent() {
+//     let mut vm = /* VolumeMaps mit mind. 1 Boundary aufbauen */;
+//     let positions = /* ein paar Testpartikel nahe der Wand */;
+//     vm.find_boundary_samples(&mut ns, within_range, &positions, dx);
+
+//     let n_normal = vm.boundary_neighbor_list.len();
+//     let n_visc   = vm.boundary_neighbor_list_viscosity.len();
+
+//     for id in 0..positions.len() {
+//         // Normal-Indizes müssen in [0, n_normal) liegen
+//         for &nb in vm.get_neighbors(id, RequestMode::Normal) {
+//             assert!(nb < n_normal, "Normal-Index {nb} >= {n_normal}");
+//             let _ = vm.volume(nb);   // darf nicht paniken
+//             let _ = vm.pos_now(nb);
+//         }
+//         // Viskositäts-Indizes müssen in [n_normal, n_normal + n_visc) liegen
+//         for &nb in vm.get_neighbors(id, RequestMode::ViscosityAcceleration) {
+//             assert!(
+//                 (n_normal..n_normal + n_visc).contains(&nb),
+//                 "Visc-Index {nb} nicht in [{n_normal}, {})",
+//                 n_normal + n_visc
+//             );
+//             let _ = vm.volume(nb);
+//             let _ = vm.pos_now(nb);
 //         }
 //     }
 // }
