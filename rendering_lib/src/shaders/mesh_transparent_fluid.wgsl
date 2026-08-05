@@ -55,11 +55,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let specular = pow(max(dot(normal, half_dir), 0.0), 64.0) * 1.2;
 
     // Farbe mit Lichtbrechungs-Effekt
-    let base = in.color.rgb * (0.1 + diffuse);
+    let base = in.color.rgb * (0.4 + diffuse);
     let result = base + light.color * (specular + fresnel * 0.3);
 
     // Alpha: Fresnel-gesteuert (Kanten opaker, Mitte transparenter)
-    let alpha = clamp(in.color.a * (0.3 + fresnel * 0.7), 0.1, 0.85);
+    let alpha = clamp(in.color.a * (0.5 + fresnel * 0.5), 0.1, 0.95);
 
     return vec4(result, alpha);
 }
