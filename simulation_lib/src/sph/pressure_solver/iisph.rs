@@ -3,7 +3,7 @@ use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 #[cfg(feature = "logging")]
-use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
+use tracing::{debug, error, warn}; // debug, error, info, span, trace, warn,
 
 use crate::fluid::{Fluid3D, Len};
 use crate::for_each;
@@ -327,18 +327,19 @@ impl IISPH {
 
     fn initialize(&mut self, fluid: &mut Fluid3D, clamp_pressure: bool) {
         for_each!(
-            mut [self.a_ff, fluid.pressure],
+            mut [fluid.pressure],
             ref [
                 s_f = self.s_f,
+                a_ff = self.a_ff,
             ],
-            |id, id_a_ff, id_pressure| {
+            |id, id_pressure| {
                 // initialize pressure with fixed result of first self iteration
                 // Update pressure
-                if *id_a_ff > self.min_diagonal_element
-                    || *id_a_ff < -self.min_diagonal_element
+                if a_ff[id] > self.min_diagonal_element
+                    || a_ff[id] < -self.min_diagonal_element
                 {
                     let p_next_iter =
-                        self.relaxation_factor * s_f[id] / *id_a_ff;
+                        self.relaxation_factor * s_f[id] / a_ff[id];
                     // particle.set_pressure(0.); // TODO remove
                     if clamp_pressure {
                         // TODO uncomment
@@ -349,7 +350,10 @@ impl IISPH {
                 } else {
                     *id_pressure = 0.;
                 }
-                assert!(*id_a_ff <= 0.);
+                if a_ff[id] > 0. {
+                    error!("id_a_ff: {}", a_ff[id]);
+                }
+                assert!(a_ff[id] <= 0., "a_ff: {}", a_ff[id]);
             }
         );
     }
