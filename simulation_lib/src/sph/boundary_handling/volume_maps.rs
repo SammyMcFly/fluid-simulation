@@ -32,14 +32,7 @@ pub struct VolumeMaps {
 
 impl VolumeMaps {
     const INTEGRATION_ORDER: usize = 30;
-
-    fn new() -> Self {
-        Self {
-            boundaries: Vec::new(),
-            boundary_neighbor_list: NeighborList::new(0),
-            boundary_neighbor_list_viscosity: NeighborList::new(0),
-        }
-    }
+    const VOLUME_DISCARD_THRESHOLD: f64 = 1e-10;
 
     // pub fn add_fluid(&mut self, mesh: MeshHandle, isometry: Isometry3<f64>, scale: Vector3<f64>) {
     //     self.fluid_instances.push(FluidInstance { mesh, isometry, scale });
@@ -401,7 +394,7 @@ impl BoundaryHandling for VolumeMaps {
                     };
 
                     let volume = if let Ok(v) = b.volume_map.function(pos)
-                        && v > 1e-10
+                        && v > 0.
                     { // Skip particles with very small volume or negative volume due to cubic serendipity interpolation
                         v
                     } else {
