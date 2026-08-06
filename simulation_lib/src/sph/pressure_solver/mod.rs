@@ -1,4 +1,4 @@
-/// Pressure solver algorithm module
+//! Pressure solver algorithm module
 use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;

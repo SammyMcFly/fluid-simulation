@@ -1,4 +1,4 @@
-/// Explicit Euler integration scheme
+//! Explicit Euler integration scheme
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::fluid::Fluid3D;

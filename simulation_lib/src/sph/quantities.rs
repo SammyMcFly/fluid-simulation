@@ -1,5 +1,5 @@
+//! Volume calculation module
 use nalgebra::{Point3, Vector3};
-/// Volume calculation module
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 

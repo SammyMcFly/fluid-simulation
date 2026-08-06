@@ -1,4 +1,4 @@
-/// Utilities module
+//! Utilities module
 pub mod discretization;
 pub mod sampling;
 pub mod triangle_mesh;

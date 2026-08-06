@@ -1,4 +1,4 @@
-/// Discretization helpers
+//! Discretization helpers
 use gauss_quad::GaussLegendre;
 use nalgebra::{Point3, Vector3};
 use rayon::prelude::*;

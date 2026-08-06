@@ -1,5 +1,5 @@
-/// Module that contains a representation of a collection of samples for an SPH fluid simulation
-///
+//! Module that contains a representation of a collection of samples for an SPH fluid simulation
+//!
 use bincode::{Decode, Encode};
 use nalgebra::{Point3, Vector3};
 use parry3d_f64::shape::TriMesh;

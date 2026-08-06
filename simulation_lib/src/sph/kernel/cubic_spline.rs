@@ -1,4 +1,4 @@
-/// Cubic B-Spline kernel function module
+//! Cubic B-Spline kernel function module
 use super::KernelFn;
 
 #[derive(Clone)]

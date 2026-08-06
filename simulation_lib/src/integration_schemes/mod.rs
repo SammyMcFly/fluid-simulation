@@ -1,4 +1,4 @@
-/// Integration schemes
+//! Integration schemes
 use crate::fluid::Fluid3D;
 use serde::Deserialize;
 

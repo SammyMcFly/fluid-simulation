@@ -1,7 +1,7 @@
-/// # Core SPH simulation
-///
-/// Contains the simulated system, the information of the individual samples
-/// and provides the methods for propagating the system in time.
+//! # Core SPH simulation
+//!
+//! Contains the simulated system, the information of the individual samples
+//! and provides the methods for propagating the system in time.
 pub mod boundary_handling;
 pub mod kernel;
 mod non_pressure_accelerations;

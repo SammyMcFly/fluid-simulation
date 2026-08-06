@@ -1,4 +1,4 @@
-/// macros.rs
+//! macros.rs
 
 #[cfg(not(feature = "parallel"))]
 macro_rules! for_each {

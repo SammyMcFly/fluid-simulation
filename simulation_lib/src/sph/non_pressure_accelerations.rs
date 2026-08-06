@@ -1,4 +1,4 @@
-/// Acceleration module
+//! Acceleration module
 use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;

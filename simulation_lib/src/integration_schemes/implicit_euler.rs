@@ -1,10 +1,9 @@
-/// Implicit Euler integration scheme
+//! Implicit Euler integration scheme
+use crate::fluid::{Fluid3D, Len};
 use crate::for_each;
 use crate::integration_schemes::IntegrationScheme;
-use crate::fluid::{Fluid3D, Len};
 use nalgebra::Vector3;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
-
 
 #[derive(Default)]
 pub struct ImplicitEuler {

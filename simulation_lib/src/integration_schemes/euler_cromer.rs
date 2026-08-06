@@ -1,4 +1,4 @@
-/// Euler-Cromer integration scheme
+//! Euler-Cromer integration scheme
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::fluid::Fluid3D;

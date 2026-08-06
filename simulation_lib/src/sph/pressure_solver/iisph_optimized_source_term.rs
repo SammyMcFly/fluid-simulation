@@ -1,4 +1,4 @@
-/// Implicit imcompressible SPH (SESPH) pressure solver with "optimized source term"
+//! Implicit imcompressible SPH (SESPH) pressure solver with "optimized source term"
 use nalgebra::Matrix3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;

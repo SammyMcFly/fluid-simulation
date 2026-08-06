@@ -1,5 +1,5 @@
-/// Module provides the necessary entities for an efficient
-/// neighbor search implementation
+//! Module provides the necessary entities for an efficient
+//! neighbor search implementation
 use nalgebra::Point3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;

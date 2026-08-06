@@ -1,8 +1,8 @@
-/// Spatial hashing neighbor search algorithm
+//! Spatial hashing neighbor search algorithm
 use nalgebra::{Point3, Vector3};
-use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
 use crate::for_each;
 use crate::neighbor_search::{NeighborSearch, distance};
@@ -91,8 +91,7 @@ impl SpatialHashing {
                     if let Some(neighbors) = source_cells.get(&hash) {
                         for &neighbor in neighbors {
                             // Distance check
-                            if distance(&sample_positions[neighbor], position) < range
-                            {
+                            if distance(&sample_positions[neighbor], position) < range {
                                 particles_in_kernel_range.push(neighbor);
                             }
                         }
@@ -159,7 +158,6 @@ impl NeighborSearch for SpatialHashing {
         neighbor_list.flatten();
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -230,9 +228,7 @@ mod tests {
     #[test]
     fn map_int_to_uint_is_injective() {
         // No two different inputs should map to the same output
-        let values: Vec<u64> = (-100..=100)
-            .map(SpatialHashing::map_int_to_uint)
-            .collect();
+        let values: Vec<u64> = (-100..=100).map(SpatialHashing::map_int_to_uint).collect();
         let mut unique = values.clone();
         unique.sort();
         unique.dedup();
@@ -318,9 +314,8 @@ mod tests {
         let positions = vec![pos(0.0, 0.0, 0.0), pos(0.5, 0.0, 0.0)];
         SpatialHashing::populate(&mut map, &positions, 1.0);
 
-        let result = SpatialHashing::get_particles_in_range(
-            &map, &positions[0], &positions, 1.0, 1.0,
-        );
+        let result =
+            SpatialHashing::get_particles_in_range(&map, &positions[0], &positions, 1.0, 1.0);
         assert!(result.contains(&0)); // self
         assert!(result.contains(&1)); // close neighbor
     }
@@ -331,10 +326,9 @@ mod tests {
         let positions = vec![pos(0.0, 0.0, 0.0), pos(10.0, 0.0, 0.0)];
         SpatialHashing::populate(&mut map, &positions, 1.0);
 
-        let result = SpatialHashing::get_particles_in_range(
-            &map, &positions[0], &positions, 1.0, 2.0,
-        );
-        assert!(result.contains(&0));  // self
+        let result =
+            SpatialHashing::get_particles_in_range(&map, &positions[0], &positions, 1.0, 2.0);
+        assert!(result.contains(&0)); // self
         assert!(!result.contains(&1)); // too far
     }
 
@@ -345,9 +339,8 @@ mod tests {
         let positions = vec![pos(0.0, 0.0, 0.0), pos(2.0, 0.0, 0.0)];
         SpatialHashing::populate(&mut map, &positions, 1.0);
 
-        let result = SpatialHashing::get_particles_in_range(
-            &map, &positions[0], &positions, 1.0, 2.0,
-        );
+        let result =
+            SpatialHashing::get_particles_in_range(&map, &positions[0], &positions, 1.0, 2.0);
         assert!(!result.contains(&1)); // exactly at range → excluded (strict <)
     }
 
@@ -357,9 +350,8 @@ mod tests {
         let positions = vec![pos(-1.0, -1.0, -1.0), pos(-1.5, -1.0, -1.0)];
         SpatialHashing::populate(&mut map, &positions, 1.0);
 
-        let result = SpatialHashing::get_particles_in_range(
-            &map, &positions[0], &positions, 1.0, 1.0,
-        );
+        let result =
+            SpatialHashing::get_particles_in_range(&map, &positions[0], &positions, 1.0, 1.0);
         assert!(result.contains(&1));
     }
 }

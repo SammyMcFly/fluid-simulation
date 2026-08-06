@@ -1195,12 +1195,10 @@ impl AppModel {
         if self.is_recording() || self.is_rendering() {
             tracing::info!("recording");
             self.dialog_page = Some(action);
-            Task::none()
         } else {
             tracing::info!("not recording");
             return self.perform(action);
         }
-        // }
         Task::none()
     }
 

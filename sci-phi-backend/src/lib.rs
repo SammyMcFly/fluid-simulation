@@ -1,3 +1,4 @@
+//! Backend for the Sci-Phi fluid simulation application.
 use crossbeam::channel::{Receiver, Sender};
 use simulation_lib::measurement::{MeasurementSeries, RecordingStatus};
 use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};

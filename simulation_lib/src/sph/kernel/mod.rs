@@ -1,5 +1,5 @@
-/// Kernel functions
-///
+//! Kernel functions
+//!
 use nalgebra::Vector3;
 use serde::Deserialize;
 

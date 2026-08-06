@@ -1,4 +1,4 @@
-/// Triangle mesh library
+//! Triangle mesh library
 use bincode::{Decode, Encode};
 use nalgebra::{Isometry3, Matrix4, Point3, Rotation3, UnitQuaternion, Vector3};
 use parry3d_f64::math::Vec3;

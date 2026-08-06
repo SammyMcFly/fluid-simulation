@@ -1,4 +1,4 @@
-/// Implicit frictional boundary handling via volume maps
+//! Implicit frictional boundary handling via volume maps
 use crate::for_each;
 use crate::neighbor_search::NeighborSearch;
 use crate::render_info::{BoundaryMeshColoring, BoundaryVisualization};
@@ -32,7 +32,6 @@ pub struct VolumeMaps {
 
 impl VolumeMaps {
     const INTEGRATION_ORDER: usize = 30;
-    const VOLUME_DISCARD_THRESHOLD: f64 = 1e-10;
 
     // pub fn add_fluid(&mut self, mesh: MeshHandle, isometry: Isometry3<f64>, scale: Vector3<f64>) {
     //     self.fluid_instances.push(FluidInstance { mesh, isometry, scale });

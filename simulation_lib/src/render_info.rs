@@ -1,6 +1,6 @@
-/// simulation info module
-///
-/// Contains info structs about a simulation and a time step
+//! simulation info module
+//!
+//! Contains info structs about a simulation and a time step
 use crate::measurement::Measurement;
 use crate::setup::input::Parameters;
 use crate::setup::input::Procedures;

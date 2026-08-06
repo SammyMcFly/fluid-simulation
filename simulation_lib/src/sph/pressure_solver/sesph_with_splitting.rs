@@ -1,4 +1,4 @@
-/// State equation SPH (SESPH) or weakly compressible SPH (WCSPH) pressure solver
+//! State equation SPH (SESPH) or weakly compressible SPH (WCSPH) pressure solver
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 

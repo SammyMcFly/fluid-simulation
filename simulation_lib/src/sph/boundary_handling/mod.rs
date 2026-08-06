@@ -1,4 +1,4 @@
-/// Boundary handling module
+//! Boundary handling module
 use nalgebra::{Point3, Vector3};
 use serde::Deserialize;
 

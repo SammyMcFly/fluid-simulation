@@ -1,4 +1,4 @@
-/// Implicit imcompressible SPH (SESPH) pressure self
+//! Implicit imcompressible SPH (SESPH) pressure self
 use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;

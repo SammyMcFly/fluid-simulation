@@ -1,6 +1,6 @@
+//! Implicit frictional boundary handling via volume maps
 use bincode::Decode;
 use bincode::Encode;
-/// Implicit frictional boundary handling via volume maps
 use nalgebra::{Point3, Vector3};
 use parry3d_f64::shape::TriMesh;
 use serde::Deserialize;
