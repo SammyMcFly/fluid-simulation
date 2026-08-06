@@ -463,7 +463,6 @@ impl BoundaryHandling for VolumeMaps {
             }
 
             for j in 0..(r.v_pos.len() / 4) {
-                let global_start = num_samples;
                 let local_start = 4 * j;
                 let base = local_start;
                 for k in 0..4 {
