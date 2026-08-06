@@ -1,7 +1,7 @@
 use crossbeam::channel::{Receiver, Sender};
 use simulation_lib::measurement::{MeasurementSeries, RecordingStatus};
 use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
-use simulation_lib::setup::input::{Parameters, Procedures, Scene};
+use simulation_lib::setup::input::{ParameterFile, Scene};
 use simulation_lib::setup::new_boxed_system3d;
 use simulation_lib::sph::{Checkpoint, SPHSystem};
 use std::rc::Rc;
@@ -44,13 +44,15 @@ impl Simulation {
     fn load(
         simulation_load_info: &SimulationLoadInfo,
     ) -> Result<(TimeStepInfo, Simulation), Box<dyn std::error::Error + Send + Sync>> {
-        let procedures = Procedures::from_file(&simulation_load_info.params_file_path)?;
-        let params = Parameters::from_file(&simulation_load_info.params_file_path)?;
+        let ParameterFile {
+            procedures,
+            parameters,
+        } = ParameterFile::from_file(&simulation_load_info.params_file_path)?;
         let scene = Scene::from_file(&simulation_load_info.scene_file_path)?;
 
         let initial_system = new_boxed_system3d(
             &procedures,
-            &params,
+            &parameters,
             &scene,
             simulation_load_info.state_file_path.as_deref(),
         )?;
@@ -61,7 +63,7 @@ impl Simulation {
 
         let sim_info = SimulationParameters::new(
             &procedures,
-            &params,
+            &parameters,
             [
                 scene.light.position[0] as f32,
                 scene.light.position[1] as f32,
