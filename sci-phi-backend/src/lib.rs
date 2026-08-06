@@ -60,6 +60,7 @@ impl Simulation {
         let checkpoints = vec![Rc::new(Checkpoint::from_sph_system(&*initial_system))];
 
         let sim_info = SimulationParameters::new(
+            &procedures,
             &params,
             [
                 scene.light.position[0] as f32,

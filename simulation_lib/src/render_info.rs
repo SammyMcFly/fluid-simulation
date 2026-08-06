@@ -1,11 +1,14 @@
-use crate::measurement::Measurement;
-use crate::setup::input::Parameters;
-use crate::sph::SPHSystem;
-use crate::utilities::triangle_mesh::RenderMesh;
-use bincode::{Decode, Encode};
 /// simulation info module
 ///
 /// Contains info structs about a simulation and a time step
+use crate::measurement::Measurement;
+use crate::setup::input::Parameters;
+use crate::setup::input::Procedures;
+use crate::sph::SPHSystem;
+use crate::sph::boundary_handling::BoundaryHandlingVariant;
+use crate::utilities::triangle_mesh::RenderMesh;
+
+use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
@@ -20,10 +23,13 @@ pub struct SimulationParameters {
     pub is_measured: bool,
     /// Flag that is true if simulation state are stored in a file (recorded), else false
     pub is_recorded: bool,
+    /// Boundary type: explicitly sampled boundary or implicit boundary
+    pub explicitly_sampled_boundary: bool,
 }
 
 impl SimulationParameters {
     pub fn new(
+        procedures: &Procedures,
         params: &Parameters,
         light_position: [f32; 3],
         is_measured: bool,
@@ -35,6 +41,10 @@ impl SimulationParameters {
             buffer_length_limit: params.buffer_length_limit,
             is_measured,
             is_recorded,
+            explicitly_sampled_boundary: matches!(
+                procedures.boundary_handling,
+                BoundaryHandlingVariant::StaticSampleBoundary
+            ),
         }
     }
 }

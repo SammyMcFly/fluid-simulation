@@ -1086,6 +1086,14 @@ impl AppModel {
     ) -> Option<Task<cosmic::Action<Message>>> {
         match msg {
             WorkerMessage::TimeStepReady(ts_info) => {
+                // Check if boundary visualization option request is met
+                if self.sim_settings.boundary_vis
+                    != BoundaryVisOption::from_template(&ts_info.boundary)
+                {
+                    return Some(
+                        self.request_action(PendingAction::ReloadWithCurrentVisualization),
+                    );
+                }
                 // Accumulate measurement
                 self.plotting_measurement_series
                     .push_back(ts_info.measurement.clone());
@@ -1111,6 +1119,13 @@ impl AppModel {
                     .set_length_limit(sim_info.buffer_length_limit);
                 self.frame = FrameControl::default();
 
+                let boundary_viz_option = self
+                    .sim_settings
+                    .update_boundary_viz_option(sim_info.explicitly_sampled_boundary);
+                if self.sim_settings.boundary_vis != boundary_viz_option {
+                    self.sim_settings.boundary_vis = boundary_viz_option;
+                }
+
                 // Request buffer fill
                 let _ = self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
                     sim_info.buffer_length_limit,
@@ -1122,6 +1137,13 @@ impl AppModel {
                 self.instances
                     .set_length_limit(sim_info.buffer_length_limit);
                 self.frame.reset();
+
+                let boundary_viz_option = self
+                    .sim_settings
+                    .update_boundary_viz_option(sim_info.explicitly_sampled_boundary);
+                if self.sim_settings.boundary_vis != boundary_viz_option {
+                    self.sim_settings.boundary_vis = boundary_viz_option;
+                }
 
                 let _ = self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
                     sim_info.buffer_length_limit,
@@ -1176,8 +1198,10 @@ impl AppModel {
             Task::none()
         } else {
             tracing::info!("not recording");
-            self.perform(action)
+            return self.perform(action);
         }
+        // }
+        Task::none()
     }
 
     fn is_recording(&self) -> bool {

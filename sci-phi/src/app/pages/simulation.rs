@@ -41,11 +41,17 @@ pub struct SimulationSettings {
     // Localized label caches
     pub fluid_vis_labels: Vec<String>,
     pub quantity_labels: Vec<String>,
-    pub boundary_vis_labels: Vec<String>,
+    pub boundary_vis_enabled_options: Vec<BoundaryVisOption>,
+    pub boundary_vis_enabled_labels: Vec<String>,
 }
 
 impl Default for SimulationSettings {
     fn default() -> Self {
+        let boundary_vis_enabled_options = BoundaryVisOption::ALL;
+        let boundary_vis_enabled_labels = boundary_vis_enabled_options
+            .iter()
+            .map(|o| o.label())
+            .collect();
         Self {
             fluid_vis: FluidVisOption::SamplesQuantity,
             fluid_quantity: QuantityOption::Speed,
@@ -68,7 +74,8 @@ impl Default for SimulationSettings {
             invert_time: false,
             fluid_vis_labels: FluidVisOption::ALL.iter().map(|o| o.label()).collect(),
             quantity_labels: QuantityOption::ALL.iter().map(|o| o.label()).collect(),
-            boundary_vis_labels: BoundaryVisOption::ALL.iter().map(|o| o.label()).collect(),
+            boundary_vis_enabled_options: boundary_vis_enabled_options.into(),
+            boundary_vis_enabled_labels,
         }
     }
 }
@@ -87,6 +94,43 @@ impl From<&TimeStepInfo> for SimulationSettings {
 impl SimulationSettings {
     pub fn set_radius(&mut self, radius: f32) {
         self.particle_radius = radius;
+    }
+
+    pub fn update_boundary_viz_option(
+        &mut self,
+        explicitly_sampled_boundary: bool,
+    ) -> BoundaryVisOption {
+        self.boundary_vis_enabled_options = BoundaryVisOption::ALL
+            .into_iter()
+            .filter(|o| Self::is_available(explicitly_sampled_boundary, *o))
+            .collect();
+        self.boundary_vis_enabled_labels = self
+            .boundary_vis_enabled_options
+            .iter()
+            .map(|o| o.label())
+            .collect();
+        if !explicitly_sampled_boundary {
+            match self.boundary_vis {
+                BoundaryVisOption::SamplesUniform | BoundaryVisOption::SamplesBoundaryId => {
+                    BoundaryVisOption::MeshOriginal
+                }
+                _ => self.boundary_vis,
+            }
+        } else {
+            self.boundary_vis
+        }
+    }
+
+    pub fn is_available(
+        explicitly_sampled_boundary: bool,
+        boundary_viz_option: BoundaryVisOption,
+    ) -> bool {
+        match boundary_viz_option {
+            BoundaryVisOption::SamplesUniform | BoundaryVisOption::SamplesBoundaryId => {
+                explicitly_sampled_boundary
+            }
+            _ => true,
+        }
     }
 
     pub fn build_fluid_template(&self) -> FluidVisualization {
@@ -282,7 +326,8 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
         }
 
         // ─── Boundary ─────────────────────────────────────────
-        let boundary_selected = BoundaryVisOption::ALL
+        let boundary_selected = self
+            .boundary_vis_enabled_options
             .iter()
             .position(|o| *o == self.boundary_vis);
         let boundary_section = widget::settings::section()
@@ -294,7 +339,7 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
             .add(
                 widget::settings::item::builder(fl!("settings", "boundary")).control(
                     widget::dropdown(
-                        &self.boundary_vis_labels,
+                        &self.boundary_vis_enabled_labels,
                         boundary_selected,
                         Message::SetBoundaryVisualization,
                     ),
@@ -562,7 +607,7 @@ impl FluidVisOption {
         match v {
             FluidVisualization::TriangleMesh { coloring, .. } => match coloring {
                 FluidMeshColoring::Uniform => Self::TriangleMeshUniform,
-                FluidMeshColoring::FluidId { .. } => Self::TriangleMeshFluidId,
+                FluidMeshColoring::FluidId => Self::TriangleMeshFluidId,
             },
             FluidVisualization::Samples { coloring, .. } => match coloring {
                 FluidSampleColoring::Uniform => Self::SamplesUniform,
