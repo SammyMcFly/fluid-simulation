@@ -224,7 +224,7 @@ impl Simulation {
     fn save_state(
         &mut self,
         time_step_number: u64,
-        file_path: &std::path::PathBuf,
+        file_path: &std::path::Path,
     ) -> Result<(), String> {
         let last_checkpoint = self.checkpoints
             [usize::try_from(time_step_number / Self::N).expect("Value too large for usize")]
