@@ -375,34 +375,42 @@ impl BoundaryHandling for VolumeMaps {
                 };
 
                 for b in boundaries {
-                    let (signed_distance, signed_distance_gradient, volume) = match (
-                        b.signed_distance_field.function(pos),
-                        b.signed_distance_field.gradient(pos),
-                        b.volume_map.function(pos),
-                    ) {
-                        (Ok(sd), Ok(sdg), Ok(vol)) => (sd, sdg, vol),
-                        _ => continue,
+                    let signed_distance = if let Ok(sd) = b.signed_distance_field.function(pos)
+                        && sd < within_range
+                    {
+                        sd
+                    } else {
+                        continue;
                     };
 
-                    // Clamp volume to [0, v_max] range to avoid negative volumes due to cubic serendipity interpolation
-                    let v_max = 4.0 / 3.0 * std::f64::consts::PI * within_range.powi(3);
-                    let volume = volume.clamp(0.0, v_max);
+                    let signed_distance_gradient = if let Ok(sdg) =
+                        b.signed_distance_field.gradient(pos)
+                    { // Skip particles with unphysical of signed distance gradient: For SDF the eikonal condition should hold: ‖∇d‖ ≈ 1
+                        if sdg.norm() > 0.5 && sdg.norm() < 2.0 {
+                            sdg
+                        } else {
+                            #[cfg(feature = "logging")]
+                            warn!(
+                                "Skipping particle with unphysical signed distance gradient: ‖∇d‖ = {}",
+                                sdg.norm()
+                            );
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    };
 
-                    // Skip particles with very small volume or negative volume due to cubic serendipity interpolation
-                    if volume < 1e-10 {
+                    let volume = if let Ok(v) = b.volume_map.function(pos)
+                        && v > 1e-10
+                    { // Skip particles with very small volume or negative volume due to cubic serendipity interpolation
+                        v
+                    } else {
                         continue;
-                    }
-                    // Skip particles with unphysical of signed distance gradient: For SDF the eikonal condition should hold: ‖∇d‖ ≈ 1
-                    if signed_distance_gradient.norm() < 0.5
-                        || signed_distance_gradient.norm() > 2.0
-                    {
-                        #[cfg(feature = "logging")]
-                        warn!(
-                            "Skipping particle with unphysical signed distance gradient: ‖∇d‖ = {}",
-                            signed_distance_gradient.norm()
-                        );
-                        continue;
-                    }
+                    };
+
+                    // Clamp volume to v_max range to avoid excessive volumes due to cubic serendipity interpolation
+                    let v_max = 4.0 / 3.0 * std::f64::consts::PI * within_range.powi(3);
+                    let volume = volume.min(v_max);
 
                     // let d = signed_distance.abs();
                     let d = (signed_distance + 0.25 * rest_density_grid_spacing)
