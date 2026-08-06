@@ -6,7 +6,7 @@ A physics-based **Smoothed Particle Hydrodynamics (SPH)** fluid simulation frame
 
 This workspace implements a 3D SPH fluid solver with an interactive wgpu-based renderer. The simulation runs on a dedicated worker thread while the frontend handles rendering and user input. Simulations can be recorded and replayed with the included player application.
 
-The following image shows the user interface of `sci-phi`.
+The following image shows the user interface of `sci-phi` and a simulation of two fluids with different rest densities contained in a ball.
 
 <div align="center">
   <img src="./sci-phi/img/ui.png" alt="ui" style="max-width: 100%; height: auto;" />
@@ -14,14 +14,31 @@ The following image shows the user interface of `sci-phi`.
 
 ## Workspace Crates
 
+| Crate | Type | Purpose | Docs |
+|-------|------|---------|------|
+| [`simulation_lib`](./simulation_lib) | lib | SPH physics core: kernels, integration schemes, pressure solvers, neighbor search, boundary handling, measurements, surface reconstruction | [README](./simulation_lib/README.md) |
+| [`rendering_lib`](./rendering_lib) | lib | wgpu/iced viewport: `SimulationViewport`, particle impostors, surface meshes, sensor planes, colormaps, screenshots | [README](./rendering_lib/README.md) |
+| [`sci-phi-backend`](./sci-phi-backend) | lib | Worker loop for live simulation: simulation composition, checkpoints, recording, channel API | [README](./sci-phi-backend/README.md) |
+| [`sci-phi`](./sci-phi) | bin | Main frontend (libcosmic): UI, camera & visualization controls, CLI | [README](./sci-phi/README.md) |
+| [`sci-phi-player-backend`](./sci-phi-player-backend) | lib | Stateless worker loop for playback: recording parsing, screenshot export, channel API | [README](./sci-phi-player-backend/README.md) |
+| [`sci-phi-player`](./sci-phi-player) | bin | Playback frontend for recorded simulations | [README](./sci-phi-player/README.md) |
+
+### Dependency graph
+
+```text
+  sci-phi (bin)                        sci-phi-player (bin)
+      │  │                                  │  │
+      │  └──► sci-phi-backend               │  └──► sci-phi-player-backend
+      │              │                      │                │
+      └──► rendering_lib ◄──────────────────┘                │
+                   │                                         │
+                   └──────────► simulation_lib ◄─────────────┘
 ```
-├── sci-phi/                # Main simulation binary (this crate)
-├── sci-phi-backend/        # backend library with worker function and communication API 
-├── sci-phi-player/         # Playback-only binary
-├── sci-phi-player-backend/ # backend library for `sci-phi-player`
-├── rendering_lib/          # 3D rendering library (FluidRenderer, FluidViewport, etc.)
-└── simulation_lib/         # SPH simulation library
-```
+
+`rendering_lib` knows nothing about any frontend or backend crate: screenshot jobs are
+delegated to the respective `WorkerCommand` enum through the generic
+`ScreenshotCommand` trait.
+
 ## Related Tools
 
 | Tool | Description |
@@ -42,10 +59,10 @@ The `.csv` measurement files are produced by the `--measurement-file` flag.
 
 ## Architecture
 
-The simulation core is generic over three traits:
+The simulation core is generic over five traits:
 
 ```text
-System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
+System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling>
 ```
 
 | Trait | Responsibility | Examples |
@@ -53,6 +70,11 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 | `KernelFn` | SPH smoothing kernel (W, ∇W) | `CubicBSpline` |
 | `IntegrationScheme` | Time integration of positions/velocities | `EulerCromer`, `Verlet`, `TakePredicted` |
 | `PressureSolver` | Compute pressure field and apply acceleration | `SESPH`, `IISPH`, `IISPHwOST` |
+| `NeighborSearch` | Neighbor queries in O(n·k) | `SpatialHashing` |
+| `BoundaryHandling` | Boundary forces and boundary volumes | `StaticSampleBoundary` |
+
+For details see [`simulation_lib/README.md`](./simulation_lib/README.md);
+for the rendering side see [`rendering_lib/README.md`](./rendering_lib/README.md).
 
 ## Features
 
@@ -80,7 +102,7 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver>
 
 ### Rendering
 
-- Real-time 3D particle visualization via **wgpu**
+- 3D particle visualization via **wgpu** (see [`rendering_lib`](./rendering_lib/README.md))
 - libcosmic UI
 - Instanced billboard-sphere rendering with Phong lighting
 - Interactive camera (orbit, pan, zoom) with smooth per-frame
@@ -205,26 +227,30 @@ cargo run --release -p sci-phi-player -- [OPTIONS] [RECORDING]
 | `--finish-time <T>` | `-f` | Pause playback at time T |
 | `--log <LEVEL>` | `-l` | Log level (default: `INFO`) |-->
 
-
 ## Dependencies
 
 | Crate | Purpose |
 |-------|---------|
 | `nalgebra` | Linear algebra (Vector3, Matrix3) |
-| `cgmath` | Linear algebra for graphics |
+| `cgmath` / `glam` | Linear algebra for graphics |
 | `libcosmic` | UI framework with wgpu reexport for rendering |
 | `clap` | CLI argument parsing |
 | `crossbeam` | Thread communication channels |
 | `serde` / `bincode` / `toml` / `tobj` / `ron` / `csv` / `image` | Serialization and file I/O |
 | `rayon` | Data parallelism |
-| `rustc_hash` | Fast hashing for spatial grid |
+| `rustc-hash` | Fast hashing for spatial grid |
 | `parry3d-f64` | Triangle mesh handling |
 | `splashsurf_lib` | Surface reconstruction |
 | `gauss-quad` | Gaussian quadrature for numerical integration |
 | `tracing` / `tracing-subscriber` | Structured logging |
 | `rfd` | Native file dialogs |
 | `i18n-embed` / `i18n-embed-fl` | Localization |
- 
+| `thiserror` | Error handling |
+| `dyn-clone` | Dynamic cloning of trait objects |
+| `bytemuck` | GPU buffer data casting |
+| `num-traits` | Generic numeric handling |
+| `pollster` | Blocking on async wgpu operations |
+| `tokio` / `open` / `rust-embed` | libcosmic runtime dependencies |
 
 <!-- ## License
 

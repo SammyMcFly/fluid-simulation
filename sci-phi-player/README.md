@@ -126,4 +126,20 @@ The application uses the [libcosmic](https://github.com/pop-os/libcosmic) toolki
 | `tracing` / `tracing-subscriber` | Structured logging |
 | `rendering_lib` | wgpu-based 3D rendering via shader widget (workspace crate) |
 | `simulation_lib` | SPH simulation backend (workspace crate) |
-| `image` | PNG export for screenshots |
+| `sci-phi-player-backend` | Player backend logic (workspace crate) |
+| `nalgebra` / `cgmath` | Linear algebra |
+| `num-traits` | Generic number handling |
+| `rustc-hash` | Faster hash map for uniform grid |
+| `rfd` | Native file dialogs |
+| `serde` | Parsing/serializing file content |
+| `ron` | Storing structs in RON format |
+| `csv` | Storing measurement data |
+| `toml` | Loading `.toml` config files |
+| `bincode` | Writing to binary files |
+| `tobj` | Loading sphere mesh for visualization |
+| `bytemuck` | Casting data for GPU buffers (wgpu) |
+| `pollster` | Blocking on async wgpu operations |
+| `i18n-embed` / `i18n-embed-fl` | Localization (libcosmic dependency) |
+| `rust-embed` | Embedding assets (libcosmic dependency) |
+| `open` | Opening links/files (libcosmic dependency) |
+| `tokio` | Async runtime (libcosmic dependency) |
