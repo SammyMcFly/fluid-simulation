@@ -33,7 +33,7 @@ pub fn distance(from: &Point3<f64>, to: &Point3<f64>) -> f64 {
 }
 
 /// Struct that stores neighbors of samples in a flat array
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct NeighborList {
     /// Flat neighbor list: indices of neighboring samples
     indices: Vec<usize>,
@@ -41,6 +41,12 @@ pub struct NeighborList {
     offsets: Vec<usize>,
     /// Unflattened neighbor list which is necessary for parallelization
     unflattened_indices: Vec<Vec<usize>>,
+}
+
+impl Default for NeighborList {
+    fn default() -> Self {
+        Self::new(0)
+    }
 }
 
 impl NeighborList {

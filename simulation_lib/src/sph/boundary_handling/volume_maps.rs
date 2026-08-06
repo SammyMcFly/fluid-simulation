@@ -664,7 +664,7 @@ struct StaticBoundary {
     pub render_mesh_id: u32,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct NeighborList {
     positions: Vec<Point3<f64>>,
     velocities: Vec<Vector3<f64>>,
@@ -678,6 +678,12 @@ struct NeighborList {
     unflattened_velocities: Vec<Vec<Vector3<f64>>>,
     unflattened_volumes: Vec<Vec<f64>>,
     unflattened_indices: Vec<Vec<usize>>,
+}
+
+impl Default for NeighborList {
+    fn default() -> Self {
+        Self::new(0)
+    }
 }
 
 impl NeighborList {
