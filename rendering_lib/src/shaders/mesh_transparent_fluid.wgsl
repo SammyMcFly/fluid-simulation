@@ -26,13 +26,19 @@ struct VertexOutput {
     @location(2) color: vec4<f32>,
 };
 
+/// Sim frame (x, y, z) -> render frame (x, z, -y). Orthogonal (det = +1),
+/// so it's valid for normals too.
+fn swizzle(v: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(v.x, v.z, -v.y);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.world_position = in.position;
-    out.world_normal = in.normal;
+    out.world_position = swizzle(in.position);
+    out.world_normal = swizzle(in.normal);
     out.color = in.color;
-    out.clip_position = camera.view_proj * vec4(in.position, 1.0);
+    out.clip_position = camera.view_proj * vec4(out.world_position, 1.0);
     return out;
 }
 
@@ -40,7 +46,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.world_normal);
     let view_dir = normalize(camera.view_pos.xyz - in.world_position);
-    let light_dir = normalize(light.position - in.world_position);
+    let light_dir = normalize(swizzle(light.position) - in.world_position);
 
     // Fresnel (Schlick, IOR ~1.33 → R0 ≈ 0.02)
     let r0 = 0.02;

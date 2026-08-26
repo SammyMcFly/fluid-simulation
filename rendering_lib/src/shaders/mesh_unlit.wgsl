@@ -19,11 +19,18 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
 };
 
+/// Sim frame (x, y, z) -> render frame (x, z, -y). Orthogonal (det = +1),
+/// so it's valid for normals too.
+fn swizzle(v: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(v.x, v.z, -v.y);
+}
+
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.color = in.color;
-    out.clip_position = camera.view_proj * vec4(in.position, 1.0);
+    out.clip_position = camera.view_proj * vec4(swizzle(in.position), 1.0);
     return out;
 }
 

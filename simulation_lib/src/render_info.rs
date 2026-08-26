@@ -9,6 +9,7 @@ use crate::sph::boundary_handling::BoundaryHandlingVariant;
 use crate::utilities::triangle_mesh::RenderMesh;
 
 use bincode::{Decode, Encode};
+use nalgebra::Isometry3;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
@@ -209,7 +210,7 @@ pub enum ScalarQuantity {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum BoundaryVisualization {
     TriangleMesh {
-        meshes: Vec<RenderMesh>,
+        meshes: Vec<(RenderMesh, RenderPose)>,
         coloring: BoundaryMeshColoring,
     },
     Samples {
@@ -221,6 +222,31 @@ pub enum BoundaryVisualization {
 impl BoundaryVisualization {
     fn from_system(system: &dyn SPHSystem, selector: &Self) -> Self {
         system.get_boundary_visualization(selector)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct RenderPose {
+    pub translation: [f32; 3],
+    /// Quaternion as (i, j, k, w)
+    pub rotation: [f32; 4],
+}
+
+impl RenderPose {
+    pub const IDENTITY: Self = Self {
+        translation: [0.0, 0.0, 0.0],
+        rotation: [0.0, 0.0, 0.0, 1.0],
+    };
+}
+
+impl From<Isometry3<f64>> for RenderPose {
+    fn from(isometry: Isometry3<f64>) -> Self {
+        let t = isometry.translation.vector;
+        let q = isometry.rotation.into_inner();
+        Self {
+            translation: [t.x as f32, t.y as f32, t.z as f32],
+            rotation: [q.i as f32, q.j as f32, q.k as f32, q.w as f32],
+        }
     }
 }
 

@@ -125,10 +125,11 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                             &r_vec,
                             params.kernel_support_radius,
                         );
+                    let force = mass[id] * acceleration;
                     if b.is_dynamic() {
                         local_forces.push(ForceOntoBoundary {
                             id: i,
-                            force: -mass[id] * acceleration,
+                            force: -force,
                             force_location: *b.pos_now(boundary_neighbor),
                         });
                     }

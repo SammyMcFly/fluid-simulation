@@ -5,8 +5,8 @@ use simulation_lib::utilities::triangle_mesh::RenderMesh;
 
 use crate::colormap::{self, Colormap};
 use crate::model::ColoredMeshVertex;
-use crate::pipeline::BillboardInstance;
-use crate::primitive::{BoundarySceneData, FluidSceneData, SceneData};
+use crate::pipeline::{BillboardInstance, MeshPoseInstance};
+use crate::primitive::{BoundaryMeshDraw, BoundarySceneData, FluidSceneData, SceneData};
 
 pub fn build_scene_data(
     time_step: &TimeStepInfo,
@@ -59,7 +59,7 @@ fn build_fluid(
                 .zip(colors.iter())
                 .filter(|(pos, _)| cut.cut(pos))
                 .map(|(pos, color)| BillboardInstance {
-                    center: [pos[0], pos[2], -pos[1]],
+                    center: *pos,
                     radius,
                     color: *color,
                 })
@@ -108,17 +108,7 @@ fn build_fluid_meshes(
         };
 
         let base = vertices.len() as u32;
-
-        vertices.extend(mesh.vertices.iter().map(|v| ColoredMeshVertex {
-            position: [
-                v.position[0] as f32,
-                v.position[2] as f32,
-                -v.position[1] as f32,
-            ],
-            normal: [v.normal[0] as f32, v.normal[2] as f32, -v.normal[1] as f32],
-            color,
-        }));
-
+        vertices.extend(convert_vertices(mesh, color));
         indices.extend(mesh.indices.iter().map(|&i| i + base));
     }
 
@@ -157,7 +147,7 @@ fn build_boundary(
                 .zip(colors.iter())
                 .filter(|(pos, _)| cut.cut(pos) || !cut_boundary)
                 .map(|(pos, color)| BillboardInstance {
-                    center: [pos[0], pos[2], -pos[1]],
+                    center: *pos,
                     radius,
                     color: *color,
                 })
@@ -171,32 +161,26 @@ fn build_boundary(
         }
         BoundaryVisualization::TriangleMesh { meshes, coloring } => {
             let colors = resolve_boundary_mesh_coloring(coloring, colormap, bounbary_alpha);
-            let (vert_chunks, idx_chunks): (Vec<Vec<ColoredMeshVertex>>, Vec<Vec<_>>) = meshes
+            let draws: Vec<BoundaryMeshDraw> = meshes
                 .iter()
                 .zip(colors.iter())
-                .map(|(m, c)| mesh_to_cpu(m, *c))
-                .unzip();
+                .filter_map(|((mesh, pose), color)| {
+                    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+                        return None;
+                    }
+                    Some(BoundaryMeshDraw {
+                        vertices: convert_vertices(mesh, *color),
+                        indices: mesh.indices.clone(),
+                        pose: MeshPoseInstance::from(pose),
+                    })
+                })
+                .collect();
 
-            let vertices: Vec<_> = vert_chunks.into_iter().flatten().collect();
-            let indices: Vec<_> = idx_chunks.into_iter().flatten().collect();
-            if vertices.is_empty() {
+            if draws.is_empty() {
                 BoundarySceneData::None
             } else {
-                BoundarySceneData::Mesh { vertices, indices }
+                BoundarySceneData::Mesh { meshes: draws }
             }
-        }
-    }
-}
-
-fn build_mesh_data(mesh: &RenderMesh, color: [f32; 4], transparent: bool) -> FluidSceneData {
-    let (vertices, indices) = mesh_to_cpu(mesh, color);
-    if vertices.is_empty() {
-        FluidSceneData::None
-    } else {
-        FluidSceneData::Mesh {
-            vertices,
-            indices,
-            transparent,
         }
     }
 }
@@ -258,8 +242,8 @@ fn build_sensor_plane_data(
             .zip(colors.iter())
         {
             all_vertices.push(ColoredMeshVertex {
-                position: [pos[0], pos[2], -pos[1]],
-                normal: [normal[0], normal[2], -normal[1]],
+                position: *pos,
+                normal: *normal,
                 color: *color,
             });
         }
@@ -285,24 +269,19 @@ fn build_sensor_plane_data(
     }
 }
 
-fn mesh_to_cpu(mesh: &RenderMesh, color: [f32; 4]) -> (Vec<ColoredMeshVertex>, Vec<u32>) {
-    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
-        return (Vec::new(), Vec::new());
-    }
-    let vertices = mesh
-        .vertices
+fn convert_vertices(mesh: &RenderMesh, color: [f32; 4]) -> Vec<ColoredMeshVertex> {
+    mesh.vertices
         .iter()
         .map(|v| ColoredMeshVertex {
             position: [
                 v.position[0] as f32,
+                v.position[1] as f32,
                 v.position[2] as f32,
-                -v.position[1] as f32,
             ],
-            normal: [v.normal[0] as f32, v.normal[2] as f32, -v.normal[1] as f32],
+            normal: [v.normal[0] as f32, v.normal[1] as f32, v.normal[2] as f32],
             color,
         })
-        .collect();
-    (vertices, mesh.indices.clone())
+        .collect()
 }
 
 fn resolve_fluid_sample_coloring(

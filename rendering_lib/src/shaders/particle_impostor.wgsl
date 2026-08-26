@@ -25,6 +25,12 @@ struct VertexOutput {
     @location(4) color: vec4<f32>,
 };
 
+/// Sim frame (x, y, z) -> render frame (x, z, -y). Orthogonal (det = +1),
+/// so it's valid for normals too.
+fn swizzle(v: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(v.x, v.z, -v.y);
+}
+
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
@@ -32,6 +38,8 @@ fn vs_main(
     @location(1) radius: f32,
     @location(2) color: vec4<f32>,
 ) -> VertexOutput {
+    let center = swizzle(center);
+
     // Generate camera-facing quad from vertex index (2 triangles = 6 vertices)
     let quad = array<vec2<f32>, 6>(
         vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0),
@@ -81,7 +89,7 @@ fn fs_main(in: VertexOutput) -> FragOutput {
     let ambient_strength = 0.1;
     let ambient_color = light.color * ambient_strength;
 
-    let light_dir = normalize(light.position - world_pos);
+    let light_dir = normalize(swizzle(light.position) - world_pos);
     let diffuse_strength = max(dot(world_normal, light_dir), 0.0);
     let diffuse_color = light.color * diffuse_strength;
 

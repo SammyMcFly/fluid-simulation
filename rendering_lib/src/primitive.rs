@@ -14,6 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::camera::CameraUniform;
 use crate::lighting::LightUniform;
 use crate::model::ColoredMeshVertex;
+use crate::pipeline::BoundaryMesh;
+use crate::pipeline::MeshPoseInstance;
 use crate::pipeline::PendingScreenshot;
 use crate::pipeline::PendingScreenshotTarget;
 use crate::pipeline::ScreenshotCommand;
@@ -58,14 +60,16 @@ pub enum FluidSceneData {
 
 #[derive(Debug, Clone)]
 pub enum BoundarySceneData {
-    Particles {
-        instances: Vec<BillboardInstance>,
-    },
-    Mesh {
-        vertices: Vec<ColoredMeshVertex>,
-        indices: Vec<u32>,
-    },
+    Particles { instances: Vec<BillboardInstance> },
+    Mesh { meshes: Vec<BoundaryMeshDraw> },
     None,
+}
+
+#[derive(Debug, Clone)]
+pub struct BoundaryMeshDraw {
+    pub vertices: Vec<ColoredMeshVertex>,
+    pub indices: Vec<u32>,
+    pub pose: MeshPoseInstance,
 }
 
 // ─── ScreenshotRequest ────────────────────────────────────────
@@ -137,65 +141,64 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                     }
                 }
                 ScreenshotState::MapPending { .. } => {
-                    if pipeline.staging_mapped.load(Ordering::Acquire) {
-                        if let Some(buffer) = &pipeline.staging_buffer {
-                            let old = std::mem::replace(&mut *state, ScreenshotState::Idle);
-                            if let ScreenshotState::MapPending { pending } = old {
-                                let slice = buffer.slice(..);
-                                let mapped = slice.get_mapped_range();
+                    if let Some(buffer) = &pipeline.staging_buffer
+                        && pipeline.staging_mapped.load(Ordering::Acquire)
+                    {
+                        let old = std::mem::replace(&mut *state, ScreenshotState::Idle);
+                        if let ScreenshotState::MapPending { pending } = old {
+                            let slice = buffer.slice(..);
+                            let mapped = slice.get_mapped_range();
 
-                                let row_bytes = (pending.width * 4) as usize;
-                                let padded_bpr = pipeline.staging_padded_bpr as usize;
-                                let mut rgba = vec![0u8; row_bytes * pending.height as usize];
+                            let row_bytes = (pending.width * 4) as usize;
+                            let padded_bpr = pipeline.staging_padded_bpr as usize;
+                            let mut rgba = vec![0u8; row_bytes * pending.height as usize];
 
-                                for y in 0..pending.height as usize {
-                                    let src = &mapped[y * padded_bpr..y * padded_bpr + row_bytes];
-                                    let dst = &mut rgba[y * row_bytes..(y + 1) * row_bytes];
-                                    dst.copy_from_slice(src);
+                            for y in 0..pending.height as usize {
+                                let src = &mapped[y * padded_bpr..y * padded_bpr + row_bytes];
+                                let dst = &mut rgba[y * row_bytes..(y + 1) * row_bytes];
+                                dst.copy_from_slice(src);
+                            }
+
+                            drop(mapped);
+                            buffer.unmap();
+                            pipeline.staging_mapped.store(false, Ordering::Release);
+
+                            // Swizzle BGRA → RGBA if needed
+                            if pipeline.surface_format == wgpu::TextureFormat::Bgra8Unorm
+                                || pipeline.surface_format == wgpu::TextureFormat::Bgra8UnormSrgb
+                            {
+                                for pixel in rgba.chunks_exact_mut(4) {
+                                    pixel.swap(0, 2);
                                 }
+                            }
 
-                                drop(mapped);
-                                buffer.unmap();
-                                pipeline.staging_mapped.store(false, Ordering::Release);
-
-                                // Swizzle BGRA → RGBA if needed
-                                if pipeline.surface_format == wgpu::TextureFormat::Bgra8Unorm
-                                    || pipeline.surface_format
-                                        == wgpu::TextureFormat::Bgra8UnormSrgb
-                                {
-                                    for pixel in rgba.chunks_exact_mut(4) {
-                                        pixel.swap(0, 2);
-                                    }
-                                }
-
-                                // Dispatch to worker
-                                if let Some(sender) = &self.worker_sender {
-                                    match pending.target {
-                                        PendingScreenshotTarget::Directory {
+                            // Dispatch to worker
+                            if let Some(sender) = &self.worker_sender {
+                                match pending.target {
+                                    PendingScreenshotTarget::Directory {
+                                        frame_index,
+                                        directory,
+                                    } => {
+                                        let _ = sender.send(W::write_rendering(
+                                            rgba,
+                                            pending.width,
+                                            pending.height,
                                             frame_index,
                                             directory,
-                                        } => {
-                                            let _ = sender.send(W::write_rendering(
-                                                rgba,
-                                                pending.width,
-                                                pending.height,
-                                                frame_index,
-                                                directory,
-                                            ));
-                                        }
-                                        PendingScreenshotTarget::ExplicitPath { path } => {
-                                            let _ = sender.send(W::save_screenshot_to_file(
-                                                rgba,
-                                                pending.width,
-                                                pending.height,
-                                                path,
-                                            ));
-                                        }
+                                        ));
+                                    }
+                                    PendingScreenshotTarget::ExplicitPath { path } => {
+                                        let _ = sender.send(W::save_screenshot_to_file(
+                                            rgba,
+                                            pending.width,
+                                            pending.height,
+                                            path,
+                                        ));
                                     }
                                 }
-
-                                self.screenshot_consumed.store(true, Ordering::Release);
                             }
+
+                            self.screenshot_consumed.store(true, Ordering::Release);
                         }
                     }
                 }
@@ -208,7 +211,7 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
         if pipeline
             .depth_texture
             .as_ref()
-            .map_or(true, |d| d.width != width || d.height != height)
+            .is_none_or(|d| d.width != width || d.height != height)
         {
             pipeline.depth_texture = Some(DepthTexture::new(device, width, height));
         }
@@ -302,97 +305,94 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                 matches!(*state, ScreenshotState::Idle)
             };
 
-            if should_capture {
-                if let (Some(offscreen_view), Some(offscreen_depth)) =
-                    (&pipeline.offscreen_view, &pipeline.offscreen_depth)
+            if let (Some(offscreen_view), Some(offscreen_depth)) =
+                (&pipeline.offscreen_view, &pipeline.offscreen_depth)
+                && should_capture
+            {
+                // Render to offscreen
                 {
-                    // Render to offscreen
-                    {
-                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("Offscreen Render Pass"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: offscreen_view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                                        r: self.background_color[0] as f64,
-                                        g: self.background_color[1] as f64,
-                                        b: self.background_color[2] as f64,
-                                        a: self.background_color[3] as f64,
-                                    }),
-                                    store: wgpu::StoreOp::Store,
-                                },
-                                depth_slice: None,
-                            })],
-                            depth_stencil_attachment: Some(
-                                wgpu::RenderPassDepthStencilAttachment {
-                                    view: &offscreen_depth.view,
-                                    depth_ops: Some(wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(1.0),
-                                        store: wgpu::StoreOp::Store,
-                                    }),
-                                    stencil_ops: None,
-                                },
-                            ),
-                            ..Default::default()
-                        });
-
-                        self.draw_scene(&mut pass, pipeline);
-                    }
-
-                    // Copy offscreen → staging
-                    if let (Some(texture), Some(buffer)) =
-                        (&pipeline.offscreen_texture, &pipeline.staging_buffer)
-                    {
-                        let width = pipeline.screenshot_width;
-                        let height = pipeline.screenshot_height;
-
-                        encoder.copy_texture_to_buffer(
-                            wgpu::TexelCopyTextureInfo {
-                                texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d::ZERO,
-                                aspect: wgpu::TextureAspect::All,
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Offscreen Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: offscreen_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: self.background_color[0] as f64,
+                                    g: self.background_color[1] as f64,
+                                    b: self.background_color[2] as f64,
+                                    a: self.background_color[3] as f64,
+                                }),
+                                store: wgpu::StoreOp::Store,
                             },
-                            wgpu::TexelCopyBufferInfo {
-                                buffer,
-                                layout: wgpu::TexelCopyBufferLayout {
-                                    offset: 0,
-                                    bytes_per_row: Some(pipeline.staging_padded_bpr),
-                                    rows_per_image: Some(height),
-                                },
-                            },
-                            wgpu::Extent3d {
-                                width,
-                                height,
-                                depth_or_array_layers: 1,
-                            },
-                        );
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &offscreen_depth.view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        ..Default::default()
+                    });
 
-                        // Build target
-                        let target = match &request.target {
-                            ScreenshotTarget::SingleFile { path } => {
-                                PendingScreenshotTarget::ExplicitPath { path: path.clone() }
-                            }
-                            ScreenshotTarget::RenderingFrame {
-                                frame_index,
-                                output_dir,
-                            } => PendingScreenshotTarget::Directory {
-                                frame_index: *frame_index,
-                                directory: output_dir.clone(),
-                            },
-                        };
+                    self.draw_scene(&mut pass, pipeline);
+                }
 
-                        // Transition: Idle → CopyIssued
-                        let mut state = pipeline.screenshot_state.lock().unwrap();
-                        *state = ScreenshotState::CopyIssued {
-                            pending: PendingScreenshot {
-                                width,
-                                height,
-                                target,
+                // Copy offscreen → staging
+                if let (Some(texture), Some(buffer)) =
+                    (&pipeline.offscreen_texture, &pipeline.staging_buffer)
+                {
+                    let width = pipeline.screenshot_width;
+                    let height = pipeline.screenshot_height;
+
+                    encoder.copy_texture_to_buffer(
+                        wgpu::TexelCopyTextureInfo {
+                            texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyBufferInfo {
+                            buffer,
+                            layout: wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(pipeline.staging_padded_bpr),
+                                rows_per_image: Some(height),
                             },
-                        };
-                    }
+                        },
+                        wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+
+                    // Build target
+                    let target = match &request.target {
+                        ScreenshotTarget::SingleFile { path } => {
+                            PendingScreenshotTarget::ExplicitPath { path: path.clone() }
+                        }
+                        ScreenshotTarget::RenderingFrame {
+                            frame_index,
+                            output_dir,
+                        } => PendingScreenshotTarget::Directory {
+                            frame_index: *frame_index,
+                            directory: output_dir.clone(),
+                        },
+                    };
+
+                    // Transition: Idle → CopyIssued
+                    let mut state = pipeline.screenshot_state.lock().unwrap();
+                    *state = ScreenshotState::CopyIssued {
+                        pending: PendingScreenshot {
+                            width,
+                            height,
+                            target,
+                        },
+                    };
                 }
             }
         }
@@ -480,24 +480,53 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
                     pipeline.scene.boundary_particle_count = instances.len() as u32;
                 }
             }
-            BoundarySceneData::Mesh { vertices, indices } => {
-                if !vertices.is_empty() && !indices.is_empty() {
-                    pipeline.scene.boundary_mesh_vertex_buffer = Some(device.create_buffer_init(
-                        &wgpu::util::BufferInitDescriptor {
+            BoundarySceneData::Mesh { meshes } => {
+                for draw in meshes {
+                    if draw.vertices.is_empty() || draw.indices.is_empty() {
+                        continue;
+                    }
+                    let vertex_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Boundary Mesh VB"),
-                            contents: bytemuck::cast_slice(vertices),
+                            contents: bytemuck::cast_slice(&draw.vertices),
                             usage: wgpu::BufferUsages::VERTEX,
-                        },
-                    ));
-                    pipeline.scene.boundary_mesh_index_buffer = Some(device.create_buffer_init(
-                        &wgpu::util::BufferInitDescriptor {
+                        });
+                    let index_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Boundary Mesh IB"),
-                            contents: bytemuck::cast_slice(indices),
+                            contents: bytemuck::cast_slice(&draw.indices),
                             usage: wgpu::BufferUsages::INDEX,
-                        },
-                    ));
-                    pipeline.scene.boundary_mesh_index_count = indices.len() as u32;
+                        });
+                    let instance_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Boundary Mesh Pose"),
+                            contents: bytemuck::bytes_of(&draw.pose),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                    pipeline.scene.boundary_meshes.push(BoundaryMesh {
+                        vertex_buffer,
+                        index_buffer,
+                        index_count: draw.indices.len() as u32,
+                        instance_buffer,
+                    });
                 }
+                // if !vertices.is_empty() && !indices.is_empty() {
+                //     pipeline.scene.boundary_mesh_vertex_buffer = Some(device.create_buffer_init(
+                //         &wgpu::util::BufferInitDescriptor {
+                //             label: Some("Boundary Mesh VB"),
+                //             contents: bytemuck::cast_slice(vertices),
+                //             usage: wgpu::BufferUsages::VERTEX,
+                //         },
+                //     ));
+                //     pipeline.scene.boundary_mesh_index_buffer = Some(device.create_buffer_init(
+                //         &wgpu::util::BufferInitDescriptor {
+                //             label: Some("Boundary Mesh IB"),
+                //             contents: bytemuck::cast_slice(indices),
+                //             usage: wgpu::BufferUsages::INDEX,
+                //         },
+                //     ));
+                //     pipeline.scene.boundary_mesh_index_count = indices.len() as u32;
+                // }
             }
             BoundarySceneData::None => {}
         }
@@ -570,86 +599,84 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
         pass.draw_indexed(0..pipeline.light_mesh.num_indices, 0, 0..1);
 
         // Fluid particles
-        if let Some(buf) = &pipeline.scene.particle_buffer {
-            if pipeline.scene.particle_count > 0 {
-                pass.set_pipeline(&pipeline.particle_pipeline);
-                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-                pass.set_vertex_buffer(0, buf.slice(..));
-                pass.draw(0..6, 0..pipeline.scene.particle_count);
-            }
+        if let Some(buf) = &pipeline.scene.particle_buffer
+            && pipeline.scene.particle_count > 0
+        {
+            pass.set_pipeline(&pipeline.particle_pipeline);
+            pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+            pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..6, 0..pipeline.scene.particle_count);
         }
 
         // Sensor plane
         if let (Some(vb), Some(ib)) = (
             &pipeline.scene.sensor_plane_vertex_buffer,
             &pipeline.scene.sensor_plane_index_buffer,
-        ) {
-            if pipeline.scene.sensor_plane_index_count > 0 {
-                pass.set_pipeline(&pipeline.mesh_unlit_pipeline);
-                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                // no light_bind_group – pipeline layout has only Camera
-                pass.set_vertex_buffer(0, vb.slice(..));
-                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..pipeline.scene.sensor_plane_index_count, 0, 0..1);
-            }
+        ) && pipeline.scene.sensor_plane_index_count > 0
+        {
+            pass.set_pipeline(&pipeline.mesh_unlit_pipeline);
+            pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+            // no light_bind_group – pipeline layout has only Camera
+            pass.set_vertex_buffer(0, vb.slice(..));
+            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..pipeline.scene.sensor_plane_index_count, 0, 0..1);
         }
 
         // Fluid mesh
         if let (Some(vb), Some(ib)) = (
             &pipeline.scene.mesh_vertex_buffer,
             &pipeline.scene.mesh_index_buffer,
-        ) {
-            if pipeline.scene.mesh_index_count > 0 {
-                if pipeline.scene.mesh_transparent {
-                    pass.set_pipeline(&pipeline.mesh_transparent_fluid_backface_pipeline);
-                    pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                    pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-                    pass.set_vertex_buffer(0, vb.slice(..));
-                    pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-
-                    pass.set_pipeline(&pipeline.mesh_transparent_fluid_pipeline);
-                    pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
-                } else {
-                    pass.set_pipeline(&pipeline.mesh_opaque_pipeline);
-                    pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                    pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-                    pass.set_vertex_buffer(0, vb.slice(..));
-                    pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
-                }
-            }
-        }
-
-        // Boundary particles
-        if let Some(buf) = &pipeline.scene.boundary_particle_buffer {
-            if pipeline.scene.boundary_particle_count > 0 {
-                pass.set_pipeline(&pipeline.particle_transparent_pipeline);
-                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-                pass.set_vertex_buffer(0, buf.slice(..));
-                pass.draw(0..6, 0..pipeline.scene.boundary_particle_count);
-            }
-        }
-
-        // Boundary mesh
-        if let (Some(vb), Some(ib)) = (
-            &pipeline.scene.boundary_mesh_vertex_buffer,
-            &pipeline.scene.boundary_mesh_index_buffer,
-        ) {
-            if pipeline.scene.boundary_mesh_index_count > 0 {
-                // Pass 1: only backside (cull front)
-                pass.set_pipeline(&pipeline.mesh_transparent_backface_pipeline);
+        ) && pipeline.scene.mesh_index_count > 0
+        {
+            if pipeline.scene.mesh_transparent {
+                pass.set_pipeline(&pipeline.mesh_transparent_fluid_backface_pipeline);
                 pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
                 pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..pipeline.scene.boundary_mesh_index_count, 0, 0..1);
 
-                // Pass 2: only front (cull back)
-                pass.set_pipeline(&pipeline.mesh_transparent_pipeline);
-                pass.draw_indexed(0..pipeline.scene.boundary_mesh_index_count, 0, 0..1);
+                pass.set_pipeline(&pipeline.mesh_transparent_fluid_pipeline);
+                pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
+            } else {
+                pass.set_pipeline(&pipeline.mesh_opaque_pipeline);
+                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
+                pass.set_vertex_buffer(0, vb.slice(..));
+                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
             }
+        }
+
+        // Boundary particles
+        if let Some(buf) = &pipeline.scene.boundary_particle_buffer
+            && pipeline.scene.boundary_particle_count > 0
+        {
+            pass.set_pipeline(&pipeline.particle_transparent_pipeline);
+            pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+            pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..6, 0..pipeline.scene.boundary_particle_count);
+        }
+
+        // Boundary mesh
+        for mesh in &pipeline.scene.boundary_meshes {
+            if mesh.index_count == 0 {
+                continue;
+            }
+            pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+            pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
+            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(1, mesh.instance_buffer.slice(..));
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+            // Pass 1: backface
+            pass.set_pipeline(&pipeline.mesh_transparent_backface_pipeline);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+
+            // Pass 2: frontface
+            pass.set_pipeline(&pipeline.mesh_transparent_pipeline);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
     }
 }

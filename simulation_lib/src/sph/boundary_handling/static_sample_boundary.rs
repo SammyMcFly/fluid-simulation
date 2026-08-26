@@ -180,11 +180,12 @@ impl BoundaryHandling for SampleBoundary {
                     },
                 };
                 BoundaryVisualization::TriangleMesh {
-                    meshes: self
-                        .boundaries
-                        .iter()
-                        .map(|b| b.render_mesh().clone())
-                        .collect(),
+                    // meshes: self
+                    //     .boundaries
+                    //     .iter()
+                    //     .map(|b| (b.render_mesh_local().clone(), b.render_pose()))
+                    //     .collect(),
+                    meshes: Vec::new(),
                     coloring,
                 }
             }

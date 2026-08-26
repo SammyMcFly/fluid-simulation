@@ -52,6 +52,7 @@ impl DepthTexture {
 
 /// GPU buffers for the current scene (particles, meshes, etc.)
 /// These change when new simulation data arrives.
+#[derive(Default)]
 pub struct SceneGpuBuffers {
     pub particle_buffer: Option<wgpu::Buffer>,
     pub particle_count: u32,
@@ -61,33 +62,10 @@ pub struct SceneGpuBuffers {
     pub mesh_index_buffer: Option<wgpu::Buffer>,
     pub mesh_index_count: u32,
     pub mesh_transparent: bool,
-    pub boundary_mesh_vertex_buffer: Option<wgpu::Buffer>,
-    pub boundary_mesh_index_buffer: Option<wgpu::Buffer>,
-    pub boundary_mesh_index_count: u32,
+    pub boundary_meshes: Vec<BoundaryMesh>,
     pub sensor_plane_vertex_buffer: Option<wgpu::Buffer>,
     pub sensor_plane_index_buffer: Option<wgpu::Buffer>,
     pub sensor_plane_index_count: u32,
-}
-
-impl Default for SceneGpuBuffers {
-    fn default() -> Self {
-        Self {
-            particle_buffer: None,
-            particle_count: 0,
-            boundary_particle_buffer: None,
-            boundary_particle_count: 0,
-            mesh_vertex_buffer: None,
-            mesh_index_buffer: None,
-            mesh_index_count: 0,
-            mesh_transparent: false,
-            boundary_mesh_vertex_buffer: None,
-            boundary_mesh_index_buffer: None,
-            boundary_mesh_index_count: 0,
-            sensor_plane_vertex_buffer: None,
-            sensor_plane_index_buffer: None,
-            sensor_plane_index_count: 0,
-        }
-    }
 }
 
 // ─── Light Indicator Mesh ─────────────────────────────────────
@@ -96,6 +74,15 @@ pub struct LightMesh {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
+}
+
+// --- Boundary Mesh --------------------------------------------
+
+pub struct BoundaryMesh {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub index_count: u32,
+    pub instance_buffer: wgpu::Buffer,
 }
 
 // ─── Screenshot -------------──────────────────────────────────
@@ -276,6 +263,7 @@ impl shader::Pipeline for SimulationRenderer {
             Some(wgpu::Face::Back),
             false,
             false,
+            false,
         );
         let mesh_transparent_pipeline = Self::create_mesh_pipeline(
             device,
@@ -285,6 +273,7 @@ impl shader::Pipeline for SimulationRenderer {
             Some(wgpu::Face::Back),
             true,
             false,
+            true,
         );
         let mesh_transparent_backface_pipeline = Self::create_mesh_pipeline(
             device,
@@ -294,6 +283,7 @@ impl shader::Pipeline for SimulationRenderer {
             Some(wgpu::Face::Front),
             true,
             false,
+            true,
         );
         let mesh_transparent_fluid_pipeline = Self::create_mesh_pipeline(
             device,
@@ -303,6 +293,7 @@ impl shader::Pipeline for SimulationRenderer {
             Some(wgpu::Face::Back),
             true,
             true,
+            false,
         );
         let mesh_transparent_fluid_backface_pipeline = Self::create_mesh_pipeline(
             device,
@@ -312,6 +303,7 @@ impl shader::Pipeline for SimulationRenderer {
             Some(wgpu::Face::Front),
             true,
             true,
+            false,
         );
         let mesh_unlit_pipeline =
             Self::create_unlit_mesh_pipeline(device, format, &camera_bind_group_layout);
@@ -420,7 +412,6 @@ impl SimulationRenderer {
         })
     }
 
-    // Neue Methode in impl SimulationRenderer:
     fn create_particle_pipeline_transparent(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -494,6 +485,7 @@ impl SimulationRenderer {
         cull_mode: Option<wgpu::Face>,
         transparent: bool,
         fluid: bool,
+        instanced: bool,
     ) -> wgpu::RenderPipeline {
         let shader_src = if transparent && fluid {
             include_str!("shaders/mesh_transparent_fluid.wgsl")
@@ -535,13 +527,21 @@ impl SimulationRenderer {
             Some(wgpu::BlendState::REPLACE)
         };
 
+        let colored_desc = ColoredMeshVertex::desc();
+        let pose_desc = MeshPoseInstance::layout();
+        let buffers: Vec<wgpu::VertexBufferLayout> = if instanced {
+            vec![colored_desc, pose_desc]
+        } else {
+            vec![colored_desc]
+        };
+
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Mesh Pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[ColoredMeshVertex::desc()],
+                buffers: &buffers,
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -765,6 +765,54 @@ impl BillboardInstance {
                     format: wgpu::VertexFormat::Float32x4,
                 },
             ],
+        }
+    }
+}
+
+// --- MeshPoseInstance ---
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MeshPoseInstance {
+    pub translation: [f32; 3],
+    pub _pad0: f32,
+    /// Quaternion (i, j, k, w)
+    pub rotation: [f32; 4],
+}
+
+impl MeshPoseInstance {
+    pub const IDENTITY: Self = Self {
+        translation: [0.0; 3],
+        _pad0: 0.0,
+        rotation: [0.0, 0.0, 0.0, 1.0],
+    };
+
+    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: 16,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
+
+impl From<&simulation_lib::render_info::RenderPose> for MeshPoseInstance {
+    fn from(p: &simulation_lib::render_info::RenderPose) -> Self {
+        Self {
+            translation: p.translation,
+            _pad0: 0.0,
+            rotation: p.rotation,
         }
     }
 }

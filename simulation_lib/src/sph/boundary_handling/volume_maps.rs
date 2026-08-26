@@ -1,7 +1,7 @@
 //! Implicit frictional boundary handling via volume maps
 use crate::for_each;
 use crate::neighbor_search::NeighborSearch;
-use crate::render_info::{BoundaryMeshColoring, BoundaryVisualization};
+use crate::render_info::{BoundaryMeshColoring, BoundaryVisualization, RenderPose};
 use crate::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
 use crate::sph::boundary_handling::{
     Boundary, BoundaryHandling, ForceOntoBoundary, RequestMode, RigidBodyMotion,
@@ -11,7 +11,7 @@ use crate::utilities::discretization::{
     CubicSerendipityDiscretization, EvaluationError, gauss_legendre_integrate,
 };
 use crate::utilities::euler_deg_to_quaternion;
-use crate::utilities::triangle_mesh::{MeshContainer, RenderMesh, RenderVertex};
+use crate::utilities::triangle_mesh::{MeshContainer, RenderMesh};
 
 use nalgebra::{Isometry3, Point3, Vector3};
 use num_traits::Zero;
@@ -28,14 +28,72 @@ use tracing::{debug, info, warn};
 #[derive(Debug, Default, Clone)]
 pub struct VolumeMaps {
     boundaries: Vec<BoundaryType>,
-    // boundary_neighbor_list: NeighborList,
-    // boundary_neighbor_list_viscosity: NeighborList,
-    // pub static_boundaries: Vec<StaticBoundary>,
-    // pub dynamic_boundaries: Vec<DynamicBoundary>,
+}
+
+struct DiscretizedBoundaryFields {
+    signed_distance_field: CubicSerendipityDiscretization,
+    volume_map: CubicSerendipityDiscretization,
 }
 
 impl VolumeMaps {
     const INTEGRATION_ORDER: usize = 30;
+
+    fn max_possible_volume(radius: f64) -> f64 {
+        4.0 / 3.0 * std::f64::consts::PI * radius.powi(3)
+    }
+
+    fn discretize(
+        trimesh: &TriMesh,
+        dx: f64,
+        kernel_support_radius: f64,
+    ) -> DiscretizedBoundaryFields {
+        #[cfg(feature = "logging")]
+        info!("Start cubic serendipity discretization.");
+        let identity = Pose::identity();
+        let aabb = trimesh.aabb(&identity);
+        let aabb_min = Point3::new(aabb.mins.x, aabb.mins.y, aabb.mins.z);
+        let aabb_max = Point3::new(aabb.maxs.x, aabb.maxs.y, aabb.maxs.z);
+
+        let padding_sd = 3.1 * kernel_support_radius;
+        let sd_field = TriangleMeshWrapper::new(trimesh);
+
+        let sdfn = CubicSerendipityDiscretization::new(
+            aabb_min - Vector3::new(padding_sd, padding_sd, padding_sd),
+            aabb_max + Vector3::new(padding_sd, padding_sd, padding_sd),
+            Some(-padding_sd),
+            Some(padding_sd),
+            dx,
+            &|p| sd_field.signed_distance(p),
+        );
+        let sd_field_wrapped = SDFnWrapper::new(&sdfn);
+
+        #[cfg(feature = "logging")]
+        info!("Finished cubic serendipity discretization.");
+        #[cfg(feature = "logging")]
+        info!("Start volume integration.");
+
+        let padding_vm = 2. * kernel_support_radius + dx / 6.0; // add dx / 6.0 so that the central difference can be evaluated with h = dx / 6.0
+        let vm = CubicSerendipityDiscretization::new(
+            aabb_min - Vector3::new(padding_vm, padding_vm, padding_vm),
+            aabb_max + Vector3::new(padding_vm, padding_vm, padding_vm),
+            Some(0.),
+            None,
+            dx,
+            &|p| {
+                sd_field_wrapped
+                    .volume(p, kernel_support_radius, Self::INTEGRATION_ORDER)
+                    .map(|v| v.clamp(0.0, Self::max_possible_volume(kernel_support_radius)))
+            },
+        );
+
+        #[cfg(feature = "logging")]
+        info!("Finished volume integration.");
+
+        DiscretizedBoundaryFields {
+            signed_distance_field: sdfn,
+            volume_map: vm,
+        }
+    }
 }
 
 impl BoundaryHandling for VolumeMaps {
@@ -61,64 +119,12 @@ impl BoundaryHandling for VolumeMaps {
             &boundary.scale,
         );
         let trimesh = mesh.trimesh();
-        let identity = Pose::identity();
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let aabb_min = Point3::new(
-            trimesh.aabb(&identity).mins.x,
-            trimesh.aabb(&identity).mins.y,
-            trimesh.aabb(&identity).mins.z,
-        );
-        let aabb_max = Point3::new(
-            trimesh.aabb(&identity).maxs.x,
-            trimesh.aabb(&identity).maxs.y,
-            trimesh.aabb(&identity).maxs.z,
-        );
-
-        let padding_sd = 3.1 * kernel_support_radius;
-        let sd_field = TriangleMeshWrapper::new(trimesh);
-
-        #[cfg(feature = "logging")]
-        info!("Start cubic serendipity discretization.");
-
-        let sdfn = CubicSerendipityDiscretization::new(
-            aabb_min - Vector3::new(padding_sd, padding_sd, padding_sd),
-            aabb_max + Vector3::new(padding_sd, padding_sd, padding_sd),
-            Some(-padding_sd),
-            Some(padding_sd),
-            dx,
-            &|p| sd_field.signed_distance(p),
-        );
-        let sd_field = SDFnWrapper::new(&sdfn);
-
-        #[cfg(feature = "logging")]
-        info!("Finished cubic serendipity discretization.");
-        #[cfg(feature = "logging")]
-        info!("Start volume integration.");
-
-        // cubic serendipity gradient padding
-        // let padding_vm = 2. * kernel_support_radius;
-        // central difference padding
-        let padding_vm = 2. * kernel_support_radius + dx / 6.0;
-        let v_max = 4.0 / 3.0 * std::f64::consts::PI * kernel_support_radius.powi(3);
-        let vm = CubicSerendipityDiscretization::new(
-            aabb_min - Vector3::new(padding_vm, padding_vm, padding_vm),
-            aabb_max + Vector3::new(padding_vm, padding_vm, padding_vm),
-            Some(0.),
-            None,
-            dx,
-            &|p| {
-                sd_field
-                    .volume(p, kernel_support_radius, Self::INTEGRATION_ORDER)
-                    .map(|v| v.clamp(0.0, v_max))
-            },
-        );
-
-        #[cfg(feature = "logging")]
-        info!("Finished volume integration.");
+        let fields = Self::discretize(trimesh, dx, kernel_support_radius);
 
         let boundary = BoundaryType::StaticBoundary {
-            signed_distance_field: sdfn,
-            volume_map: vm,
+            signed_distance_field: fields.signed_distance_field,
+            volume_map: fields.volume_map,
             render_mesh: mesh.render_mesh(boundary.render_vertex_normals).clone(),
             render_mesh_id: boundary.boundary_id,
             boundary_neighbor_list: NeighborList::default(),
@@ -157,61 +163,12 @@ impl BoundaryHandling for VolumeMaps {
             mass_props.local_com[2],
         ) + Vector3::from(boundary.translation);
         // discretize the mesh
-        let identity = Pose::identity();
-        let dx = rest_density_grid_spacing * 8.; // TODO
-        let aabb_min = Point3::new(
-            trimesh.aabb(&identity).mins.x,
-            trimesh.aabb(&identity).mins.y,
-            trimesh.aabb(&identity).mins.z,
-        );
-        let aabb_max = Point3::new(
-            trimesh.aabb(&identity).maxs.x,
-            trimesh.aabb(&identity).maxs.y,
-            trimesh.aabb(&identity).maxs.z,
-        );
-
-        let padding_sd = 3.1 * kernel_support_radius;
-        let sd_field = TriangleMeshWrapper::new(trimesh);
-
-        #[cfg(feature = "logging")]
-        info!("Start cubic serendipity discretization.");
-
-        let sdfn = CubicSerendipityDiscretization::new(
-            aabb_min - Vector3::new(padding_sd, padding_sd, padding_sd),
-            aabb_max + Vector3::new(padding_sd, padding_sd, padding_sd),
-            Some(-padding_sd),
-            Some(padding_sd),
-            dx,
-            &|p| sd_field.signed_distance(p),
-        );
-        let sd_field = SDFnWrapper::new(&sdfn);
-
-        #[cfg(feature = "logging")]
-        info!("Finished cubic serendipity discretization.");
-        #[cfg(feature = "logging")]
-        info!("Start volume integration.");
-
-        let padding_vm = 2. * kernel_support_radius;
-        let v_max = 4.0 / 3.0 * std::f64::consts::PI * kernel_support_radius.powi(3);
-        let vm = CubicSerendipityDiscretization::new(
-            aabb_min - Vector3::new(padding_vm, padding_vm, padding_vm),
-            aabb_max + Vector3::new(padding_vm, padding_vm, padding_vm),
-            Some(0.),
-            None,
-            dx,
-            &|p| {
-                sd_field
-                    .volume(p, kernel_support_radius, Self::INTEGRATION_ORDER)
-                    .map(|v| v.clamp(0.0, v_max))
-            },
-        );
-
-        #[cfg(feature = "logging")]
-        info!("Finished volume integration.");
+        let dx = rest_density_grid_spacing * 4.; // TODO
+        let fields = Self::discretize(trimesh, dx, kernel_support_radius);
 
         let boundary = BoundaryType::DynamicBoundary {
-            signed_distance_field: sdfn,
-            volume_map: vm,
+            signed_distance_field: fields.signed_distance_field,
+            volume_map: fields.volume_map,
             render_mesh: mesh.render_mesh(boundary.render_vertex_normals).clone(),
             render_mesh_id: boundary.boundary_id,
             state: RigidBodyMotion::new(
@@ -241,158 +198,6 @@ impl BoundaryHandling for VolumeMaps {
     ) {
     }
 
-    // fn find_boundary_samples(
-    //     &mut self,
-    //     _neighbor_search: &mut impl NeighborSearch,
-    //     within_range: f64,
-    //     positions: &[Point3<f64>],
-    //     rest_density_grid_spacing: f64,
-    // ) {
-    //     let num_samples = positions.len();
-    //     self.boundary_neighbor_list.resize(num_samples);
-    //     self.boundary_neighbor_list_viscosity.resize(num_samples);
-    //     self.boundary_neighbor_list.clear();
-    //     self.boundary_neighbor_list_viscosity.clear();
-
-    //     struct PerParticleNeighbors {
-    //         pos: Vec<Point3<f64>>,
-    //         vel: Vec<Vector3<f64>>,
-    //         vol: Vec<f64>,
-    //         v_pos: Vec<Point3<f64>>,
-    //         v_vel: Vec<Vector3<f64>>,
-    //         v_vol: Vec<f64>,
-    //     }
-
-    //     let boundaries = &self.boundaries;
-
-    //     #[cfg(not(feature = "parallel"))]
-    //     let pos_iter = positions.iter();
-    //     #[cfg(feature = "parallel")]
-    //     let pos_iter = positions.par_iter();
-    //     let results: Vec<PerParticleNeighbors> = pos_iter
-    //         .map(|pos| {
-    //             let mut r = PerParticleNeighbors {
-    //                 pos: Vec::new(),
-    //                 vel: Vec::new(),
-    //                 vol: Vec::new(),
-    //                 v_pos: Vec::new(),
-    //                 v_vel: Vec::new(),
-    //                 v_vol: Vec::new(),
-    //             };
-
-    //             for b in boundaries {
-
-    //                 let signed_distance = if let Ok(sd) = b.signed_distance_field.function(pos)
-    //                     && sd < within_range
-    //                 {
-    //                     sd
-    //                 } else {
-    //                     continue;
-    //                 };
-
-    //                 let signed_distance_gradient = if let Ok(sdg) =
-    //                     b.signed_distance_field.gradient(pos)
-    //                 { // Skip particles with unphysical of signed distance gradient: For SDF the eikonal condition should hold: ‖∇d‖ ≈ 1
-    //                     if sdg.norm() > 0.5 && sdg.norm() < 2.0 {
-    //                         sdg
-    //                     } else {
-    //                         #[cfg(feature = "logging")]
-    //                         warn!(
-    //                             "Skipping particle with unphysical signed distance gradient: ‖∇d‖ = {}",
-    //                             sdg.norm()
-    //                         );
-    //                         continue;
-    //                     }
-    //                 } else {
-    //                     continue;
-    //                 };
-
-    //                 let volume = if let Ok(v) = b.volume_map.function(pos)
-    //                     && v > 0.
-    //                 { // Skip particles with very small volume or negative volume due to cubic serendipity interpolation
-    //                     v
-    //                 } else {
-    //                     continue;
-    //                 };
-
-    //                 // Clamp volume to v_max range to avoid excessive volumes due to cubic serendipity interpolation
-    //                 let v_max = 4.0 / 3.0 * std::f64::consts::PI * within_range.powi(3);
-    //                 let volume = volume.min(v_max);
-
-    //                 // let d = signed_distance.abs();
-    //                 let d = (signed_distance + 0.25 * rest_density_grid_spacing)
-    //                     .max(rest_density_grid_spacing);
-    //                 let point_on_boundary =
-    //                     pos - signed_distance_gradient / signed_distance_gradient.norm() * d;
-
-    //                 r.pos.push(point_on_boundary);
-    //                 r.vel.push(Vector3::zero());
-    //                 r.vol.push(volume);
-
-    //                 #[cfg(feature = "logging")]
-    //                 debug!(
-    //                     "pos: {}, sd: {}, sdg: {:?}, vol: {}, point_ob: {:?}",
-    //                     pos, signed_distance, signed_distance_gradient, volume, point_on_boundary
-    //                 );
-
-    //                 let vec_p_to_boundary = point_on_boundary - pos;
-    //                 let mut vec_temp = Vector3::new(1., 0., 0.);
-    //                 if (vec_p_to_boundary / vec_p_to_boundary.norm())
-    //                     .dot(&vec_temp)
-    //                     .abs()
-    //                     > 0.9
-    //                 {
-    //                     vec_temp = Vector3::new(0., 1., 0.);
-    //                 }
-    //                 let t1 = vec_p_to_boundary.cross(&vec_temp);
-    //                 let t2 = vec_p_to_boundary.cross(&t1);
-    //                 let t1 = t1 / t1.norm();
-    //                 let t2 = t2 / t2.norm();
-    //                 let d = 0.5 * within_range;
-
-    //                 r.v_pos.extend_from_slice(&[
-    //                     point_on_boundary + d * t1,
-    //                     point_on_boundary - d * t1,
-    //                     point_on_boundary + d * t2,
-    //                     point_on_boundary - d * t2,
-    //                 ]);
-    //                 r.v_vel.extend(std::iter::repeat_n(Vector3::zero(), 4));
-    //                 r.v_vol.extend_from_slice(&[0.25 * volume; 4]);
-    //             }
-    //             r
-    //         })
-    //         .collect();
-
-    //     // Sequential write-back
-    //     let (neighbor_pos, neighbor_vel, neighbor_vol, neighbor_indices) =
-    //         self.boundary_neighbor_list.neighbors_mut();
-    //     let (neighbor_v_pos, neighbor_v_vel, neighbor_v_vol, neighbor_v_indices) =
-    //         self.boundary_neighbor_list_viscosity.neighbors_mut();
-
-    //     for (i, r) in results.iter().enumerate() {
-    //         for (j, ((pos, vel), vol)) in r.pos.iter().zip(&r.vel).zip(&r.vol).enumerate() {
-    //             neighbor_pos[i].push(*pos);
-    //             neighbor_vel[i].push(*vel);
-    //             neighbor_vol[i].push(*vol);
-    //             neighbor_indices[i].push(j);
-    //         }
-
-    //         for j in 0..(r.v_pos.len() / 4) {
-    //             let local_start = 4 * j;
-    //             let base = local_start;
-    //             for k in 0..4 {
-    //                 neighbor_v_pos[i].push(r.v_pos[4 * j + k]);
-    //                 neighbor_v_vel[i].push(r.v_vel[4 * j + k]);
-    //                 neighbor_v_vol[i].push(r.v_vol[4 * j + k]);
-    //             }
-    //             neighbor_v_indices[i].extend_from_slice(&[base, base + 1, base + 2, base + 3]);
-    //         }
-    //     }
-
-    //     self.boundary_neighbor_list.flatten(0);
-    //     self.boundary_neighbor_list_viscosity
-    //         .flatten(self.boundary_neighbor_list.len());
-    // }
     fn find_boundary_samples(
         &mut self,
         _neighbor_search: &mut impl NeighborSearch,
@@ -466,8 +271,7 @@ impl BoundaryHandling for VolumeMaps {
                     };
 
                     // Clamp volume to v_max range to avoid excessive volumes due to cubic serendipity interpolation
-                    let v_max = 4.0 / 3.0 * std::f64::consts::PI * within_range.powi(3);
-                    let volume = volume.min(v_max);
+                    let volume = volume.min(Self::max_possible_volume(within_range));
 
                     // let d = signed_distance.abs();
                     let d = (signed_distance + 0.25 * rest_density_grid_spacing)
@@ -600,7 +404,7 @@ impl BoundaryHandling for VolumeMaps {
                     meshes: self
                         .boundaries
                         .iter()
-                        .map(|b| b.render_mesh_world())
+                        .map(|b| (b.render_mesh_local().clone(), b.render_pose()))
                         .collect(),
                     coloring,
                 }
@@ -1017,39 +821,16 @@ impl BoundaryType {
         }
     }
 
-    /// Render mesh transformed into the current WORLD-space pose.
-    ///
-    /// Static boundaries already have their geometry baked into world space
-    /// at construction time. Dynamic boundaries store their render mesh in
-    /// the body/local frame (centered at the center of mass), so the
-    /// current rigid-body pose must be reapplied every time it's requested.
-    fn render_mesh_world(&self) -> RenderMesh {
+    /// Render mesh in body-frame (for static boundaries == world space).
+    fn render_mesh_local(&self) -> &RenderMesh {
         match self {
-            Self::StaticBoundary { render_mesh, .. } => render_mesh.clone(),
-            Self::DynamicBoundary {
-                render_mesh, state, ..
-            } => {
-                let pose = state.pose();
-                let vertices = render_mesh
-                    .vertices
-                    .iter()
-                    .map(|v| {
-                        let p_local = Point3::new(v.position[0], v.position[1], v.position[2]);
-                        let n_local = Vector3::new(v.normal[0], v.normal[1], v.normal[2]);
-                        let p_world = pose.transform_point(&p_local);
-                        let n_world = pose.rotation.transform_vector(&n_local);
-                        RenderVertex {
-                            position: [p_world.x, p_world.y, p_world.z],
-                            normal: [n_world.x, n_world.y, n_world.z],
-                        }
-                    })
-                    .collect();
-                RenderMesh {
-                    vertices,
-                    indices: render_mesh.indices.clone(),
-                }
-            }
+            Self::StaticBoundary { render_mesh, .. } => render_mesh,
+            Self::DynamicBoundary { render_mesh, .. } => render_mesh,
         }
+    }
+
+    fn render_pose(&self) -> RenderPose {
+        RenderPose::from(self.pose())
     }
 
     fn render_mesh_id(&self) -> u32 {

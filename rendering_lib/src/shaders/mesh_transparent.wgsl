@@ -19,6 +19,11 @@ struct VertexInput {
     @location(2) color: vec4<f32>,
 };
 
+struct InstanceInput {
+    @location(3) translation: vec3<f32>,
+    @location(4) rotation: vec4<f32>, // quaternion (i, j, k, w)
+};
+
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
@@ -26,20 +31,38 @@ struct VertexOutput {
     @location(2) color: vec4<f32>,
 };
 
+fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
+    let qv = q.xyz;
+    let qw = q.w;
+    let c1 = cross(qv, v);
+    let c2 = cross(qv, c1);
+    return v + 2.0 * (qw * c1 + c2);
+}
+
+/// Sim frame (x, y, z) -> render frame (x, z, -y). Orthogonal (det = +1),
+/// so it's valid for normals too.
+fn swizzle(v: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(v.x, v.z, -v.y);
+}
+
 @vertex
-fn vs_main(in: VertexInput) -> VertexOutput {
+fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     var out: VertexOutput;
-    out.world_position = in.position;
-    out.world_normal = in.normal;
+
+    let world_pos_sim = quat_rotate(inst.rotation, in.position) + inst.translation;
+    let world_normal_sim = quat_rotate(inst.rotation, in.normal);
+
+    out.world_position = swizzle(world_pos_sim);
+    out.world_normal = swizzle(world_normal_sim);
     out.color = in.color;
-    out.clip_position = camera.view_proj * vec4(in.position, 1.0);
+    out.clip_position = camera.view_proj * vec4(out.world_position, 1.0);
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.world_normal);
-    let light_dir = normalize(light.position - in.world_position);
+    let light_dir = normalize(swizzle(light.position) - in.world_position);
 
     // Simple diffuse lighting
     let ambient = 0.2;

@@ -6,7 +6,7 @@ use rendering_lib::colormap::Colormap;
 use rendering_lib::cut::Cut;
 use simulation_lib::render_info::{
     BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization, FluidMeshColoring,
-    FluidSampleColoring, FluidVisualization, ScalarQuantity, TimeStepInfo,
+    FluidSampleColoring, FluidVisualization, RenderPose, ScalarQuantity, TimeStepInfo,
 };
 use simulation_lib::utilities::triangle_mesh::RenderMesh;
 
@@ -781,15 +781,15 @@ impl BoundaryVisOption {
     pub fn to_template(self) -> BoundaryVisualization {
         match self {
             Self::MeshOriginal => BoundaryVisualization::TriangleMesh {
-                meshes: vec![RenderMesh::default()],
+                meshes: vec![(RenderMesh::default(), RenderPose::IDENTITY)],
                 coloring: BoundaryMeshColoring::Original,
             },
             Self::MeshUniform => BoundaryVisualization::TriangleMesh {
-                meshes: vec![RenderMesh::default()],
+                meshes: vec![(RenderMesh::default(), RenderPose::IDENTITY)],
                 coloring: BoundaryMeshColoring::Uniform,
             },
             Self::MeshBoundaryId => BoundaryVisualization::TriangleMesh {
-                meshes: vec![RenderMesh::default()],
+                meshes: vec![(RenderMesh::default(), RenderPose::IDENTITY)],
                 coloring: BoundaryMeshColoring::BoundaryId {
                     ids: Vec::new(),
                     max_id: 0,

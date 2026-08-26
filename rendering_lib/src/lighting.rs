@@ -3,7 +3,7 @@
 
 use cgmath::Rotation3;
 
-/// Light in standard cartesian coordinates (z-up)
+/// Light in standard cartesian coordinates (z-up, sim frame).
 #[derive(Debug, Clone)]
 pub struct Light {
     pub position: [f32; 3],
@@ -20,11 +20,6 @@ impl Light {
         }
     }
 
-    /// Position in graphics coordinates (y-up swap)
-    pub fn position_in_graphics_coordinates(&self) -> [f32; 3] {
-        [self.position[0], self.position[2], -self.position[1]]
-    }
-
     pub fn update_position(&mut self, dt: f32) {
         let old_position: cgmath::Vector3<f32> = self.position.into();
         self.position = (cgmath::Quaternion::from_axis_angle(
@@ -36,6 +31,10 @@ impl Light {
 }
 
 /// GPU-ready uniform data. Layout must match the WGSL struct.
+///
+/// `position` is in SIM frame (z-up), same convention as all other
+/// geometry uniforms/buffers. Shaders are responsible for swizzling
+/// to render frame (x, z, -y) at the point of use.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LightUniform {
@@ -59,7 +58,7 @@ impl Default for LightUniform {
 impl LightUniform {
     pub fn from_light(light: &Light) -> Self {
         Self {
-            position: light.position_in_graphics_coordinates(),
+            position: light.position,
             _padding: 0,
             color: light.color,
             _padding2: 0,
@@ -67,7 +66,7 @@ impl LightUniform {
     }
 
     pub fn update(&mut self, light: &Light) {
-        self.position = light.position_in_graphics_coordinates();
+        self.position = light.position;
         self.color = light.color;
     }
 }
@@ -97,7 +96,7 @@ impl LightState {
         self.uniform.update(&self.light);
     }
 
-    /// Set light to a specific position
+    /// Set light to a specific position (sim frame, z-up)
     pub fn set_position(&mut self, position: [f32; 3]) {
         self.light.position = position;
         self.uniform.update(&self.light);

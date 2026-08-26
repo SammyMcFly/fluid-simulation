@@ -30,33 +30,22 @@ struct VertexOutput {
     @location(2) color: vec4<f32>,
 };
 
+/// Sim frame (x, y, z) -> render frame (x, z, -y). Orthogonal (det = +1),
+/// so it's valid for normals too.
+fn swizzle(v: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(v.x, v.z, -v.y);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.world_position = in.position;
-    out.world_normal = in.normal;
+    out.world_position = swizzle(in.position);
+    out.world_normal = swizzle(in.normal);
     out.color = in.color;
     out.clip_position = camera.view_proj * vec4(in.position, 1.0);
     return out;
 }
 
-// @fragment
-// fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-//     let normal = normalize(in.world_normal);
-
-//     let ambient_strength = 0.15;
-//     let ambient = light.color * ambient_strength;
-
-//     let light_dir = normalize(light.position - in.world_position);
-//     let diffuse = max(dot(normal, light_dir), 0.0) * light.color;
-
-//     let view_dir = normalize(camera.view_pos.xyz - in.world_position);
-//     let half_dir = normalize(view_dir + light_dir);
-//     let specular = pow(max(dot(normal, half_dir), 0.0), 32.0) * light.color * 0.3;
-
-//     let result = (ambient + diffuse) * in.color.rgb + specular;
-//     return vec4(result, in.color.a);
-// }
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var normal = normalize(in.world_normal);
@@ -70,7 +59,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient_strength = 0.15;
     let ambient = light.color * ambient_strength;
 
-    let light_dir = normalize(light.position - in.world_position);
+    let light_dir = normalize(swizzle(light.position) - in.world_position);
     let diffuse = max(dot(normal, light_dir), 0.0) * light.color;
 
     let half_dir = normalize(view_dir + light_dir);
