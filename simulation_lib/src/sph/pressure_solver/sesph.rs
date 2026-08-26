@@ -31,7 +31,7 @@ impl PressureSolver for SESPH {
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &impl BoundaryHandling,
+        boundary: &mut impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,

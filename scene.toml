@@ -29,20 +29,20 @@ mesh = "cube_out"
 fluid_id = 0
 translation = [11.0, 0.0, 0.0]
 rotation_euler_deg = [0.0, 0.0, 0.0]
-scale = 10.0
+scale = 7.0
 
-[[fluid]]
-mesh = "cube_out"
-fluid_id = 1
-translation = [-11.0, 0.0, 0.0]
-scale = 10.0
+# [[fluid]]
+# mesh = "cube_out"
+# fluid_id = 1
+# translation = [-11.0, 0.0, 0.0]
+# scale = 10.0
 
-[[boundary.static]]
-mesh = "sphere_in"
-boundary_id = 0
-translation = [0.0, 0.0, 0.0]
-scale = 30.0
-render_vertex_normals = "AngleWeightedPseudoNormals"
+# [[boundary.static]]
+# mesh = "sphere_in"
+# boundary_id = 0
+# translation = [0.0, 0.0, 0.0]
+# scale = 30.0
+# render_vertex_normals = "AngleWeightedPseudoNormals"
 
 # # BIG
 # [[fluid]]
@@ -65,8 +65,10 @@ render_vertex_normals = "AngleWeightedPseudoNormals"
 # scale = 40.0
 # render_vertex_normals = "AngleWeightedPseudoNormals"
 
-# [[boundary.dynamic]]
-# mesh = "cube"
-# boundary_id = 1
-# translation = [2.0, 0.0, 0.0]
-# rotation_euler_deg = [0.0, 0.0, 0.0]
+[[boundary.dynamic]]
+mesh = "cube_out"
+boundary_id = 1
+density = 450
+translation = [0.0, 0.0, 10.0]
+rotation_euler_deg = [0.0, 0.0, 0.0]
+scale = [2.0, 4.0, 10.0]

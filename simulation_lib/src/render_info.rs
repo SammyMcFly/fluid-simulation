@@ -43,7 +43,7 @@ impl SimulationParameters {
             is_recorded,
             explicitly_sampled_boundary: matches!(
                 procedures.boundary_handling,
-                BoundaryHandlingVariant::StaticSampleBoundary
+                BoundaryHandlingVariant::SampleBoundary
             ),
         }
     }

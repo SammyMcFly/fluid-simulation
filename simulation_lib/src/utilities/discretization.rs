@@ -76,92 +76,6 @@ impl CubicSerendipityDiscretization {
     /// Build the discretization: sample `f` once at every (shared) node.
     ///
     /// The function f is only discretized in space where lower_bound < f(x) < upper_bound.
-    // pub fn new<F: Fn(&Point3<f64>) -> Result<f64, EvaluationError>>(
-    //     x_min: Point3<f64>,
-    //     x_max: Point3<f64>,
-    //     lower_bound: Option<f64>,
-    //     upper_bound: Option<f64>,
-    //     dx: f64,
-    //     f: &F,
-    // ) -> Self {
-    //     let n = [
-    //         ((x_max[0] - x_min[0]) / dx).round() as usize,
-    //         ((x_max[1] - x_min[1]) / dx).round() as usize,
-    //         ((x_max[2] - x_min[2]) / dx).round() as usize,
-    //     ];
-    //     let ref_nodes = Self::reference_nodes();
-    //     let offsets: Vec<[usize; 3]> = ref_nodes
-    //         .iter()
-    //         .map(|&p_ref| {
-    //             [
-    //                 Self::to_offset(p_ref.x),
-    //                 Self::to_offset(p_ref.y),
-    //                 Self::to_offset(p_ref.z),
-    //             ]
-    //         })
-    //         .collect();
-
-    //     let mut values = HashMap::new();
-    //     // fine-lattice physical position: x_min + (lattice/3)*dx
-    //     for cz in 0..n[2] {
-    //         for cy in 0..n[1] {
-    //             for cx in 0..n[0] {
-    //                 let base = [3 * cx, 3 * cy, 3 * cz];
-
-    //                 let mut newly_computed: Vec<([usize; 3], f64)> = Vec::new();
-    //                 let mut node_values: Vec<f64> = Vec::new();
-    //                 let mut eval_error = false;
-    //                 for off in &offsets {
-    //                     let key = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
-    //                     let v = if let Some(&v) = values.get(&key) {
-    //                         v
-    //                     } else {
-    //                         let p = Point3::new(
-    //                             x_min[0] + key[0] as f64 / 3.0 * dx,
-    //                             x_min[1] + key[1] as f64 / 3.0 * dx,
-    //                             x_min[2] + key[2] as f64 / 3.0 * dx,
-    //                         );
-    //                         match f(&p) {
-    //                             Ok(v) => {
-    //                                 newly_computed.push((key, v));
-    //                                 v
-    //                             }
-    //                             Err(_) => {
-    //                                 eval_error = true;
-    //                                 break;
-    //                             }
-    //                         }
-    //                     };
-    //                     node_values.push(v);
-    //                 }
-
-    //                 if eval_error {
-    //                     continue;
-    //                 }
-
-    //                 let prune_low = lower_bound.is_some_and(|t| node_values.iter().all(|&v| v < t));
-    //                 let prune_high =
-    //                     upper_bound.is_some_and(|t| node_values.iter().all(|&v| v > t));
-
-    //                 if !prune_low && !prune_high {
-    //                     for (key, val) in newly_computed {
-    //                         values.insert(key, val);
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     Self {
-    //         x_min,
-    //         x_max,
-    //         dx,
-    //         n,
-    //         ref_nodes,
-    //         offsets,
-    //         values,
-    //     }
-    // }
     pub fn new<F: Fn(&Point3<f64>) -> Result<f64, EvaluationError> + Sync>(
         x_min: Point3<f64>,
         x_max: Point3<f64>,
@@ -488,38 +402,72 @@ impl CubicSerendipityDiscretization {
             .sum())
     }
 
-    /// Evaluate the interpolant anywhere in the grid.
-    pub fn gradient(&self, p: &Point3<f64>) -> Result<Vector3<f64>, EvaluationError> {
-        let c = self.get_cube_idx(p)?;
-        let base = [3 * c[0], 3 * c[1], 3 * c[2]];
+    // /// Evaluate the interpolant anywhere in the grid.
+    // pub fn gradient(&self, p: &Point3<f64>) -> Result<Vector3<f64>, EvaluationError> {
+    //     let c = self.get_cube_idx(p)?;
+    //     let base = [3 * c[0], 3 * c[1], 3 * c[2]];
 
-        if self.offsets.iter().any(|off| {
-            !self
-                .values
-                .contains_key(&[base[0] + off[0], base[1] + off[1], base[2] + off[2]])
-        }) {
-            return Err(EvaluationError::PrunedCell);
+    //     if self.offsets.iter().any(|off| {
+    //         !self
+    //             .values
+    //             .contains_key(&[base[0] + off[0], base[1] + off[1], base[2] + off[2]])
+    //     }) {
+    //         return Err(EvaluationError::PrunedCell);
+    //     }
+
+    //     let o = [
+    //         self.x_min[0] + c[0] as f64 * self.dx,
+    //         self.x_min[1] + c[1] as f64 * self.dx,
+    //         self.x_min[2] + c[2] as f64 * self.dx,
+    //     ];
+    //     let xi = 2.0 * (p[0] - o[0]) / self.dx - 1.0;
+    //     let eta = 2.0 * (p[1] - o[1]) / self.dx - 1.0;
+    //     let zeta = 2.0 * (p[2] - o[2]) / self.dx - 1.0;
+
+    //     let shp = Self::shape_function_gradients(&self.ref_nodes, xi, eta, zeta);
+
+    //     Ok(self
+    //         .offsets
+    //         .iter()
+    //         .zip(&shp)
+    //         .map(|(off, &ni)| {
+    //             let key = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
+    //             2. / self.dx * self.values[&key] * ni
+    //         })
+    //         .sum())
+    // }
+
+    /// Numerical derivative along one axis via central difference,
+    /// falling back to one-sided difference near domain/pruned-cell boundaries.
+    fn directional_derivative(
+        &self,
+        p: &Point3<f64>,
+        axis: usize,
+        h: f64,
+    ) -> Result<f64, EvaluationError> {
+        let mut p_plus = *p;
+        let mut p_minus = *p;
+        p_plus[axis] += h;
+        p_minus[axis] -= h;
+
+        match (self.function(&p_plus), self.function(&p_minus)) {
+            (Ok(f_plus), Ok(f_minus)) => Ok((f_plus - f_minus) / (2.0 * h)),
+            (Ok(_), Err(e)) => Err(e),
+            (Err(e), Ok(_)) => Err(e),
+            (Err(e), Err(_)) => Err(e),
         }
+    }
 
-        let o = [
-            self.x_min[0] + c[0] as f64 * self.dx,
-            self.x_min[1] + c[1] as f64 * self.dx,
-            self.x_min[2] + c[2] as f64 * self.dx,
-        ];
-        let xi = 2.0 * (p[0] - o[0]) / self.dx - 1.0;
-        let eta = 2.0 * (p[1] - o[1]) / self.dx - 1.0;
-        let zeta = 2.0 * (p[2] - o[2]) / self.dx - 1.0;
+    /// Evaluate the gradient anywhere in the grid using central differences.
+    pub fn gradient(&self, p: &Point3<f64>) -> Result<Vector3<f64>, EvaluationError> {
+        // Step size: half the internal node spacing (dx / 3) is a natural choice
+        // since that's the resolution of the underlying discretization.
+        let h = self.dx / 6.0;
 
-        let shp = Self::shape_function_gradients(&self.ref_nodes, xi, eta, zeta);
-
-        Ok(self
-            .offsets
-            .iter()
-            .zip(&shp)
-            .map(|(off, &ni)| {
-                let key = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
-                2. / self.dx * self.values[&key] * ni
-            })
-            .sum())
+        Ok(Vector3::new(
+            self.directional_derivative(p, 0, h)?,
+            self.directional_derivative(p, 1, h)?,
+            self.directional_derivative(p, 2, h)?,
+        ))
     }
 }

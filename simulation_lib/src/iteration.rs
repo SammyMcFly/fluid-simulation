@@ -1,4 +1,4 @@
-//! macros.rs
+//! iteration.rs
 
 #[cfg(not(feature = "parallel"))]
 macro_rules! for_each {
@@ -114,4 +114,44 @@ macro_rules! for_each {
     }};
 }
 
+#[cfg(not(feature = "parallel"))]
+macro_rules! for_each_collect {
+    // 1 mutable field, mit lokalem Collector
+    (
+        mut [$m1:expr],
+        ref [$($ref_name:ident = $ref_expr:expr),* $(,)?],
+        |$id:ident, $a:ident, $local:ident| $body:expr
+    ) => {{
+        $(let $ref_name = &$ref_expr;)*
+        let mut $local = Vec::new();
+        $m1.iter_mut()
+            .enumerate()
+            .for_each(|($id, $a)| { $body });
+        $local
+    }};
+}
+
+#[cfg(feature = "parallel")]
+macro_rules! for_each_collect {
+    // 1 mutable field, mit lokalem Collector (fold + reduce)
+    (
+        mut [$m1:expr],
+        ref [$($ref_name:ident = $ref_expr:expr),* $(,)?],
+        |$id:ident, $a:ident, $local:ident| $body:expr
+    ) => {{
+        $(let $ref_name = &$ref_expr;)*
+        $m1.par_iter_mut()
+            .enumerate()
+            .fold(Vec::new, |mut $local, ($id, $a)| {
+                $body;
+                $local
+            })
+            .reduce(Vec::new, |mut a, mut b| {
+                a.append(&mut b);
+                a
+            })
+    }};
+}
+
 pub(crate) use for_each;
+pub(crate) use for_each_collect;

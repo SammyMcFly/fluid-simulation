@@ -31,7 +31,7 @@ impl PressureSolver for SESPHwSplitting {
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &impl BoundaryHandling,
+        boundary: &mut impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
@@ -114,23 +114,25 @@ impl SESPHwSplitting {
                             ));
                 }
                 // add density for every boundary neighbor (mirror mass of moving sample onto boundary sample)
-                for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
-                    let r_vec = vector(
-                        boundary.pos_now(boundary_neighbor),
-                        &pos_now[id],
-                    );
-                    accu += boundary.volume(boundary_neighbor)
-                        * mass[id]/params.rest_volume
-                        * K::kernel_function(
-                            &r_vec,
-                            params.kernel_support_radius,
-                        )
-                        + params.time_increment
-                            * vel_pred[id]
-                                .dot(&K::kernel_gradient(
-                                    &r_vec,
-                                    params.kernel_support_radius,
-                                ));
+                for b in boundary.iter() {
+                    for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
+                        let r_vec = vector(
+                            b.pos_now(boundary_neighbor),
+                            &pos_now[id],
+                        );
+                        accu += b.volume(boundary_neighbor)
+                            * mass[id]/params.rest_volume
+                            * K::kernel_function(
+                                &r_vec,
+                                params.kernel_support_radius,
+                            )
+                            + params.time_increment
+                                * vel_pred[id]
+                                    .dot(&K::kernel_gradient(
+                                        &r_vec,
+                                        params.kernel_support_radius,
+                                    ));
+                    }
                 }
                 *density_pred = accu;
                 // if cfg!(feature = "logging") {

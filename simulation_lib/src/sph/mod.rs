@@ -120,6 +120,8 @@ impl<
 
         self.integrator
             .integrate(&mut self.fluid, self.parameters.time_increment);
+        self.boundary
+            .step_forward_in_time(self.parameters.time_increment);
 
         self.time_steps_propagated += 1;
         // Update
@@ -597,11 +599,11 @@ impl<
     /// Calculate non-pressure accelerations and add them to each particles acceleration
     fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
-        add_gravity_acceleration(&mut self.fluid);
+        add_gravity_acceleration(&mut self.fluid, &mut self.boundary);
         // add viscosity acceleration
         add_viscosity_acceleration::<K>(
             &mut self.fluid,
-            &self.boundary,
+            &mut self.boundary,
             &self.fluid_neighbor_list,
             &self.parameters,
         );
@@ -613,13 +615,13 @@ impl<
     // #[cfg(feature = "local_pressure")]
     fn calc_acceleration(&mut self) {
         // reset acceleration
-        reset_acceleration(&mut self.fluid);
+        reset_acceleration::<B>(&mut self.fluid);
         // add non-pressure acceleration
         self.add_non_pressure_acceleration();
         // compute pressure
         self.pressure_solver.solve_and_add_acceleration::<K>(
             &mut self.fluid,
-            &self.boundary,
+            &mut self.boundary,
             &self.fluid_neighbor_list,
             &self.parameters,
             &mut self.properties,

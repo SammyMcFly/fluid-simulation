@@ -109,15 +109,12 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                         mesh_id: b.boundary_id,
                     })
                     .clone();
-                // apply transformation
-                mesh.transform(&b.translation, &b.rotation_euler_deg, &b.scale);
 
-                boundary.add_boundary(
+                boundary.add_static_boundary(
                     &mut mesh,
-                    b.boundary_id,
+                    b,
                     params.rest_density_grid_spacing,
                     params.kernel_support_radius,
-                    b.render_vertex_normals,
                 );
             }
             for b in &scene.boundary.dynamic {
@@ -128,15 +125,12 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                         mesh_id: b.boundary_id,
                     })
                     .clone();
-                // apply transformation
-                mesh.transform(&b.translation, &b.rotation_euler_deg, &b.scale);
 
-                boundary.add_boundary(
+                boundary.add_dynamic_boundary(
                     &mut mesh,
-                    b.boundary_id,
+                    b,
                     params.rest_density_grid_spacing,
                     params.kernel_support_radius,
-                    b.render_vertex_normals,
                 );
             }
             if boundary.is_empty() {
@@ -199,8 +193,8 @@ pub fn new_boxed_system3d(
     macro_rules! with_boundary {
         ($K:ty, $I:ty, $P:ty, $N:ty) => {
             match procs.boundary_handling {
-                BoundaryHandlingVariant::StaticSampleBoundary => {
-                    create!(params, scene, state, $K, $I, $P, $N, StaticSampleBoundary)
+                BoundaryHandlingVariant::SampleBoundary => {
+                    create!(params, scene, state, $K, $I, $P, $N, SampleBoundary)
                 }
                 BoundaryHandlingVariant::VolumeMaps => {
                     create!(params, scene, state, $K, $I, $P, $N, VolumeMaps)

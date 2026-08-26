@@ -411,10 +411,10 @@ pub struct StaticBoundaryDef {
     pub render_vertex_normals: VertexNormalRenderOption,
 }
 
-/// Placement of a dynamic boundary, given as a `[[boundary.dynamic]]` entry.
+/// Dynamic boundary that acts as a rigid body, given as a `[[boundary.dynamic]]` entry.
 ///
-/// Same fields as [`StaticBoundaryDef`], but the geometry may move during the
-/// simulation, so its samples are updated every time step.
+/// Same fields as [`StaticBoundaryDef`], but the geometry is capable of performing rigid body
+/// movemnts during the simulation interacting with the simulated fluid.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DynamicBoundaryDef {
@@ -425,15 +425,29 @@ pub struct DynamicBoundaryDef {
     /// and rendering.
     pub boundary_id: u32,
 
+    /// Density of the rigid body which is used to calculate the total mass
+    /// and the inertia tensor.
+    pub density: f64,
+
     /// Initial translation applied to the mesh as `[x, y, z]`.
     /// Defaults to `[0.0, 0.0, 0.0]`.
     #[serde(default)]
     pub translation: [f64; 3],
 
-    /// Initial rotation applied to the mesh as Euler angles in **degrees**.
+    /// Initial rotation around the center of mass of the mesh applied to the mesh as Euler angles in **degrees**.
     /// Defaults to `[0.0, 0.0, 0.0]`.
     #[serde(default)]
     pub rotation_euler_deg: [f64; 3],
+
+    /// Initial linear velocity of rigid body.
+    /// Defaults to `[0.0, 0.0, 0.0]`.
+    #[serde(default)]
+    pub velocity: [f64; 3],
+
+    /// Initial angular velocity of rigid body.
+    /// Defaults to `[0.0, 0.0, 0.0]`.
+    #[serde(default)]
+    pub angular_velocity: [f64; 3],
 
     /// Scaling applied to the mesh, defaulting to `[1.0, 1.0, 1.0]`.
     ///

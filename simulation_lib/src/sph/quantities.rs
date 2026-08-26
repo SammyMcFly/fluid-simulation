@@ -42,16 +42,18 @@ pub fn get_volume<K: KernelFn>(
                     );
             }
             // add volume contribution from boundary
-            for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
-                let r_vec = vector(
-                    boundary.pos_now(boundary_neighbor),
-                    &position_eval[id],
-                );
-                accu += boundary.volume(boundary_neighbor)
-                    * K::kernel_function(
-                        &r_vec,
-                        params.kernel_support_radius,
+            for b in boundary.iter() {
+                for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
+                    let r_vec = vector(
+                        b.pos_now(boundary_neighbor),
+                        &position_eval[id],
                     );
+                    accu += b.volume(boundary_neighbor)
+                        * K::kernel_function(
+                            &r_vec,
+                            params.kernel_support_radius,
+                        );
+                }
             }
             *id_volume = params.rest_volume / accu;
         }
@@ -96,17 +98,19 @@ pub fn get_speed<K: KernelFn>(
                     );
             }
             // add contribution from boundary
-            for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
-                let r_vec = vector(
-                    &pos_now_eval[id],
-                    boundary.pos_now(boundary_neighbor),
-                );
-                accu += *boundary.vel_now(boundary_neighbor)
-                    * boundary.volume(boundary_neighbor)
-                    * K::kernel_function(
-                        &r_vec,
-                        params.kernel_support_radius,
+            for b in boundary.iter() {
+                for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
+                    let r_vec = vector(
+                        &pos_now_eval[id],
+                        b.pos_now(boundary_neighbor),
                     );
+                    accu += *b.vel_now(boundary_neighbor)
+                        * b.volume(boundary_neighbor)
+                        * K::kernel_function(
+                            &r_vec,
+                            params.kernel_support_radius,
+                        );
+                }
             }
             *id_speed = accu.norm();
         }

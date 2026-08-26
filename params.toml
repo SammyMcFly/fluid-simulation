@@ -4,7 +4,7 @@ kernel_function = "CubicBSpline3D" # CubicBSpline
 integration_scheme = "EulerCromer" #
 pressure_solver = "IISPH" #
 neighbor_search = "SpatialHashing" # SpatialHashing, Octree
-boundary_handling = "VolumeMaps" # StaticSampleBoundary, VolumeMaps
+boundary_handling = "VolumeMaps" # SampleBoundary, VolumeMaps
 
 [parameters] # General parameters
 buffer_length_limit = 1000
@@ -21,15 +21,15 @@ boundary_rest_volume_weighting = 1.0 # gamma
 stiffness = 15000000.0 # k
 # global pressure
 # solver_iterations = 5 # deprecated
-target_density_error = 0.1 # in percent
+target_density_error = 0.05 # in percent
 relaxation_factor = 0.5 # omega
-min_diagonal_element = 1e-15 # epsilon
+min_diagonal_element = 1e-10 # epsilon
 
 # constant time step
 time_increment = 0.006
 # cfl time step
-max_time_increment = 0.01
-cfl_number = 0.4
+# max_time_increment = 0.01
+# cfl_number = 0.4
 
 [[parameters.fluid]]
 id = 0

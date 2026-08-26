@@ -31,7 +31,7 @@ impl PressureSolver for IISPHwOST {
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid3D,
-        boundary: &impl BoundaryHandling,
+        boundary: &mut impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
         _properties: &mut CurrentSystemProperties,
@@ -144,18 +144,20 @@ impl PressureSolver for IISPHwOST {
                                 ),
                             );
                     }
-                    for &boundary_neighbor in boundary.get_neighbors(id, RequestMode::Normal) {
-                        let r_vec = vector(
-                            boundary.pos_now(boundary_neighbor),
-                            &pos_now[id],
-                        );
-                        jac_vel -= boundary.volume(boundary_neighbor)
-                            * (vel_pred[id]
-                                - boundary.vel_now(boundary_neighbor))
-                            .outer(&K::kernel_gradient(
-                                &r_vec,
-                                params.kernel_support_radius,
-                            ));
+                    for b in boundary.iter() {
+                        for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
+                            let r_vec = vector(
+                                b.pos_now(boundary_neighbor),
+                                &pos_now[id],
+                            );
+                            jac_vel -= b.volume(boundary_neighbor)
+                                * (vel_pred[id]
+                                    - b.vel_now(boundary_neighbor))
+                                .outer(&K::kernel_gradient(
+                                    &r_vec,
+                                    params.kernel_support_radius,
+                                ));
+                        }
                     }
                     // calculate new velocity and intermediately store it as pressure_acc_f to avoid race condition on .vel().pred()
                     // particle.pressure_acc_f[id] = vel_pred[id] + jac_vel*(new_pos - pos_pred[id]); // original "optimized source term" approach
