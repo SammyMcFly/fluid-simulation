@@ -121,9 +121,9 @@ struct RigidBodyMotion {
     angular_momentum: Vector3<f64>,
     force: Vector3<f64>,
     torque: Vector3<f64>,
-    // // derived variables
-    // inertia_tensor_inv_world: Option<Matrix3<f64>>,
-    // angular_velocity: Option<Vector3<f64>>,
+    // Derived variables
+    inertia_tensor_inv_world: Matrix3<f64>,
+    angular_velocity: Vector3<f64>,
 }
 
 pub struct ForceOntoBoundary {
@@ -144,7 +144,7 @@ impl RigidBodyMotion {
     ) -> Self {
         let r = orientation.to_rotation_matrix();
         let inertia_tensor_world = r.matrix() * inertia_tensor_body * r.matrix().transpose();
-        Self {
+        let mut motion = Self {
             mass,
             inertia_tensor_inv_body,
             center_of_mass,
@@ -153,9 +153,27 @@ impl RigidBodyMotion {
             angular_momentum: inertia_tensor_world * angular_velocity,
             force: Vector3::zeros(),
             torque: Vector3::zeros(),
-            // inertia_tensor_inv_world: None,
-            // angular_velocity: Some(angular_velocity),
-        }
+            // Placeholder values, immediately overwritten by `update_derived`
+            // below — avoids duplicating the correct initialization logic.
+            inertia_tensor_inv_world: Matrix3::identity(),
+            angular_velocity: Vector3::zeros(),
+        };
+        motion.update_derived();
+        motion
+    }
+
+    /// Recomputes `inertia_tensor_inv_world` and `angular_velocity` from the
+    /// current `orientation`/`angular_momentum`.
+    ///
+    /// Must be called after every change to either field — currently in
+    /// `new`, `step_forward_in_time` and `restore_from_checkpoint` — since
+    /// `inertia_tensor_inv_world()`/`angular_velocity()` return the cached
+    /// values directly without checking staleness.
+    fn update_derived(&mut self) {
+        let r = self.orientation.to_rotation_matrix();
+        self.inertia_tensor_inv_world =
+            r.matrix() * self.inertia_tensor_inv_body * r.matrix().transpose();
+        self.angular_velocity = self.inertia_tensor_inv_world * self.angular_momentum;
     }
 
     /// Current rigid-body pose: body/local frame -> world frame.
@@ -187,12 +205,11 @@ impl RigidBodyMotion {
 
     /// Inverse inertia tensor in WORLD frame: I_world^-1 = R * I_body^-1 * R^T
     fn inertia_tensor_inv_world(&self) -> Matrix3<f64> {
-        let r = self.orientation.to_rotation_matrix();
-        r.matrix() * self.inertia_tensor_inv_body * r.matrix().transpose()
+        self.inertia_tensor_inv_world
     }
 
     pub fn angular_velocity(&self) -> Vector3<f64> {
-        self.inertia_tensor_inv_world() * self.angular_momentum
+        self.angular_velocity
     }
 
     pub fn velocity_at_cm(&self) -> Vector3<f64> {
@@ -202,7 +219,7 @@ impl RigidBodyMotion {
     pub fn velocity_at_point(&self, p_world: &Point3<f64>) -> Vector3<f64> {
         self.linear_velocity
             + self
-                .angular_velocity()
+                .angular_velocity
                 .cross(&(p_world - self.center_of_mass))
     }
 
@@ -225,14 +242,18 @@ impl RigidBodyMotion {
 
         // Angular: dL/dt = torque (exact, no correction term needed in world frame)
         self.angular_momentum += self.torque * dt;
+        self.angular_velocity = self.inertia_tensor_inv_world * self.angular_momentum;
 
         // Integrate orientation quaternion: dq/dt = 0.5 * (0, omega) * q
-        let omega_quat = Quaternion::from_parts(0.0, self.angular_velocity());
+        let omega_quat = Quaternion::from_parts(0.0, self.angular_velocity);
         let q_dot = omega_quat * self.orientation.into_inner() * 0.5;
         let new_q = self.orientation.into_inner() + q_dot * dt;
         self.orientation = UnitQuaternion::from_quaternion(new_q);
 
         self.reset_forces();
+        // `orientation` and `angular_momentum` both just changed above —
+        // refresh the cached derived quantities before they're read again.
+        self.update_derived();
     }
 
     pub fn get_checkpoint(&self) -> RigidBodyMotionCheckpoint {
@@ -253,6 +274,9 @@ impl RigidBodyMotion {
         self.angular_momentum = state.angular_momentum;
         self.force = state.force;
         self.torque = state.torque;
+        // `orientation`/`angular_momentum` were just overwritten from the
+        // checkpoint — refresh the cache to match.
+        self.update_derived();
     }
 }
 
