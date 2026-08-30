@@ -1,5 +1,12 @@
 use simulation_lib::render_info::SensorPlaneData;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CutAxis {
+    X,
+    Y,
+    Z,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cut {
     pub x_active: bool,
@@ -44,19 +51,57 @@ impl Cut {
         x_ok && y_ok && z_ok
     }
 
-    pub fn x_flip(&mut self) {
-        self.x_inverse = !self.x_inverse;
-        self.x_inv *= -1.;
+    pub fn toggle(&mut self, axis: CutAxis) {
+        match axis {
+            CutAxis::X => self.x_active = !self.x_active,
+            CutAxis::Y => self.y_active = !self.y_active,
+            CutAxis::Z => self.z_active = !self.z_active,
+        }
     }
 
-    pub fn y_flip(&mut self) {
-        self.y_inverse = !self.y_inverse;
-        self.y_inv *= -1.;
+    pub fn flip(&mut self, axis: CutAxis) {
+        match axis {
+            CutAxis::X => {
+                self.x_inverse = !self.x_inverse;
+                self.x_inv *= -1.;
+            }
+            CutAxis::Y => {
+                self.y_inverse = !self.y_inverse;
+                self.y_inv *= -1.;
+            }
+            CutAxis::Z => {
+                self.z_inverse = !self.z_inverse;
+                self.z_inv *= -1.;
+            }
+        }
     }
 
-    pub fn z_flip(&mut self) {
-        self.z_inverse = !self.z_inverse;
-        self.z_inv *= -1.;
+    pub fn add_cut_bound(&mut self, axis: CutAxis, delta: f32) {
+        match axis {
+            CutAxis::X => {
+                self.x_bound += delta;
+            }
+            CutAxis::Y => {
+                self.y_bound += delta;
+            }
+            CutAxis::Z => {
+                self.z_bound += delta;
+            }
+        }
+    }
+
+    pub fn set_cut_bound(&mut self, axis: CutAxis, value: f32) {
+        match axis {
+            CutAxis::X => {
+                self.x_bound = value;
+            }
+            CutAxis::Y => {
+                self.y_bound = value;
+            }
+            CutAxis::Z => {
+                self.z_bound = value;
+            }
+        }
     }
 
     /// Returns sample grids for each active cut plane.

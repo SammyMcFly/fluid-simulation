@@ -9,6 +9,7 @@ use crate::fl;
 use pages::simulation::SimulationSettings;
 use playback::{FrameControl, InstanceStore, PlaybackControls, StagingResult};
 use rendering_lib::colormap::Colormap;
+use rendering_lib::cut::CutAxis;
 use rendering_lib::primitive::ScreenshotTarget;
 
 use cosmic::app::context_drawer;
@@ -104,18 +105,10 @@ pub enum Message {
     ApplyColorMappingMax,
     ToggleHideBoundary,
     SetBoundaryAlpha(f32),
-    ToggleCutX,
-    ToggleCutZ,
-    ToggleCutY,
-    FlipCutY,
-    FlipCutX,
-    FlipCutZ,
-    CutXBoundChanged(f32),
-    CutYBoundChanged(f32),
-    CutZBoundChanged(f32),
-    CutXBoundInput(String),
-    CutYBoundInput(String),
-    CutZBoundInput(String),
+    ToggleCut(CutAxis),
+    FlipCut(CutAxis),
+    CutBoundChanged(CutAxis, f32),
+    CutBoundInput(CutAxis, String),
     ToggleCutBoundary,
     ToggleDiscardPast,
     DiscardNow,
@@ -725,63 +718,46 @@ impl cosmic::Application for AppModel {
                 self.sim_settings.boundary_alpha = a;
                 self.rebuild_scene();
             }
-            Message::ToggleCutX => {
-                self.sim_settings.cut.x_active = !self.sim_settings.cut.x_active;
+            Message::ToggleCut(axis) => {
+                self.sim_settings.cut.toggle(axis);
                 self.rebuild_scene();
             }
-            Message::ToggleCutY => {
-                self.sim_settings.cut.y_active = !self.sim_settings.cut.y_active;
+            Message::FlipCut(axis) => {
+                self.sim_settings.cut.flip(axis);
                 self.rebuild_scene();
             }
-            Message::ToggleCutZ => {
-                self.sim_settings.cut.z_active = !self.sim_settings.cut.z_active;
-                self.rebuild_scene();
-            }
-            Message::FlipCutX => {
-                self.sim_settings.cut.x_flip();
-                self.rebuild_scene();
-            }
-            Message::FlipCutY => {
-                self.sim_settings.cut.y_flip();
-                self.rebuild_scene();
-            }
-            Message::FlipCutZ => {
-                self.sim_settings.cut.z_flip();
-                self.rebuild_scene();
-            }
-            Message::CutXBoundChanged(delta) => {
-                self.sim_settings.cut.x_bound += delta;
-                self.sim_settings.cut_x_input = format!("{:.1}", self.sim_settings.cut.x_bound);
-                self.rebuild_scene();
-            }
-            Message::CutYBoundChanged(delta) => {
-                self.sim_settings.cut.y_bound += delta;
-                self.sim_settings.cut_y_input = format!("{:.1}", self.sim_settings.cut.y_bound);
-                self.rebuild_scene();
-            }
-            Message::CutZBoundChanged(delta) => {
-                self.sim_settings.cut.z_bound += delta;
-                self.sim_settings.cut_z_input = format!("{:.1}", self.sim_settings.cut.z_bound);
-                self.rebuild_scene();
-            }
-            Message::CutXBoundInput(value) => {
-                self.sim_settings.cut_x_input = value.clone();
-                if let Ok(v) = value.parse::<f32>() {
-                    self.sim_settings.cut.x_bound = v;
-                    self.rebuild_scene();
+            Message::CutBoundChanged(axis, delta) => {
+                self.sim_settings.cut.add_cut_bound(axis, delta);
+                match axis {
+                    CutAxis::X => {
+                        self.sim_settings.cut_x_input =
+                            format!("{:.1}", self.sim_settings.cut.x_bound);
+                    }
+                    CutAxis::Y => {
+                        self.sim_settings.cut_y_input =
+                            format!("{:.1}", self.sim_settings.cut.y_bound);
+                    }
+                    CutAxis::Z => {
+                        self.sim_settings.cut_z_input =
+                            format!("{:.1}", self.sim_settings.cut.z_bound);
+                    }
                 }
+                self.rebuild_scene();
             }
-            Message::CutYBoundInput(value) => {
-                self.sim_settings.cut_y_input = value.clone();
-                if let Ok(v) = value.parse::<f32>() {
-                    self.sim_settings.cut.y_bound = v;
-                    self.rebuild_scene();
+            Message::CutBoundInput(axis, value) => {
+                match axis {
+                    CutAxis::X => {
+                        self.sim_settings.cut_x_input = value.clone();
+                    }
+                    CutAxis::Y => {
+                        self.sim_settings.cut_y_input = value.clone();
+                    }
+                    CutAxis::Z => {
+                        self.sim_settings.cut_z_input = value.clone();
+                    }
                 }
-            }
-            Message::CutZBoundInput(value) => {
-                self.sim_settings.cut_z_input = value.clone();
                 if let Ok(v) = value.parse::<f32>() {
-                    self.sim_settings.cut.z_bound = v;
+                    self.sim_settings.cut.set_cut_bound(axis, v);
                     self.rebuild_scene();
                 }
             }
@@ -789,7 +765,6 @@ impl cosmic::Application for AppModel {
                 self.sim_settings.cut_boundary = !self.sim_settings.cut_boundary;
                 self.rebuild_scene();
             }
-
             Message::ToggleDiscardPast => {
                 self.sim_settings.discard_past = !self.sim_settings.discard_past;
                 self.playback.discard_past = self.sim_settings.discard_past;

@@ -3,7 +3,7 @@ use cosmic::iced::{Alignment, Length};
 use cosmic::widget;
 use cosmic::{Renderer, Theme, theme};
 use rendering_lib::colormap::Colormap;
-use rendering_lib::cut::Cut;
+use rendering_lib::cut::{Cut, CutAxis};
 use simulation_lib::render_info::{
     BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization, FluidMeshColoring,
     FluidSampleColoring, FluidVisualization, ScalarQuantity, TimeStepInfo,
@@ -237,10 +237,10 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
                 self.cut.x_bound,
                 self.cut.x_inverse,
                 &self.cut_x_input,
-                Message::ToggleCutX,
-                Message::FlipCutX,
-                Message::CutXBoundChanged,
-                Message::CutXBoundInput,
+                Message::ToggleCut(CutAxis::X),
+                Message::FlipCut(CutAxis::X),
+                |delta| Message::CutBoundChanged(CutAxis::X, delta),
+                |value| Message::CutBoundInput(CutAxis::X, value),
             ))
             .add(cut_row(
                 "y",
@@ -248,10 +248,10 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
                 self.cut.y_bound,
                 self.cut.y_inverse,
                 &self.cut_y_input,
-                Message::ToggleCutY,
-                Message::FlipCutY,
-                Message::CutYBoundChanged,
-                Message::CutYBoundInput,
+                Message::ToggleCut(CutAxis::Y),
+                Message::FlipCut(CutAxis::Y),
+                |delta| Message::CutBoundChanged(CutAxis::Y, delta),
+                |value| Message::CutBoundInput(CutAxis::Y, value),
             ))
             .add(cut_row(
                 "z",
@@ -259,10 +259,10 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
                 self.cut.z_bound,
                 self.cut.z_inverse,
                 &self.cut_z_input,
-                Message::ToggleCutZ,
-                Message::FlipCutZ,
-                Message::CutZBoundChanged,
-                Message::CutZBoundInput,
+                Message::ToggleCut(CutAxis::Z),
+                Message::FlipCut(CutAxis::Z),
+                |delta| Message::CutBoundChanged(CutAxis::Z, delta),
+                |value| Message::CutBoundInput(CutAxis::Z, value),
             ))
             .add(
                 widget::settings::item::builder(fl!("settings", "cut-boundary"))

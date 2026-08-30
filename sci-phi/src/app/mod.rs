@@ -23,6 +23,7 @@ use cosmic::widget::segmented_button::Entity;
 use cosmic::widget::{self, about::About, icon, menu, nav_bar, row};
 use cosmic::{prelude::*, theme};
 use rendering_lib::colormap::Colormap;
+use rendering_lib::cut::CutAxis;
 use rendering_lib::primitive::ScreenshotTarget;
 use rendering_lib::{CameraState, LightState, SimulationViewport, ViewportEvent, build_scene_data};
 use sci_phi_backend::commands::WorkerCommand;
@@ -127,18 +128,10 @@ pub enum Message {
     SetBoundaryVisualization(usize),
     ToggleHideBoundary,
     SetBoundaryAlpha(f32),
-    ToggleCutX,
-    ToggleCutZ,
-    ToggleCutY,
-    FlipCutY,
-    FlipCutX,
-    FlipCutZ,
-    CutXBoundChanged(f32),
-    CutYBoundChanged(f32),
-    CutZBoundChanged(f32),
-    CutXBoundInput(String),
-    CutYBoundInput(String),
-    CutZBoundInput(String),
+    ToggleCut(CutAxis),
+    FlipCut(CutAxis),
+    CutBoundChanged(CutAxis, f32),
+    CutBoundInput(CutAxis, String),
     ToggleCutBoundary,
     ToggleDiscardPast,
     DiscardNow,
@@ -909,90 +902,52 @@ impl cosmic::Application for AppModel {
                 self.sim_settings.boundary_alpha = a;
                 self.rebuild_scene();
             }
-            Message::ToggleCutX => {
-                self.sim_settings.cut.x_active = !self.sim_settings.cut.x_active;
-                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
-                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
-                } else {
-                    self.rebuild_scene();
-                }
-            }
-            Message::ToggleCutY => {
-                self.sim_settings.cut.y_active = !self.sim_settings.cut.y_active;
-                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
-                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
-                } else {
-                    self.rebuild_scene();
-                }
-            }
-            Message::ToggleCutZ => {
-                self.sim_settings.cut.z_active = !self.sim_settings.cut.z_active;
-                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
-                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
-                } else {
-                    self.rebuild_scene();
-                }
-            }
-            Message::FlipCutX => {
-                self.sim_settings.cut.x_flip();
-                self.rebuild_scene();
-            }
-            Message::FlipCutY => {
-                self.sim_settings.cut.y_flip();
-                self.rebuild_scene();
-            }
-            Message::FlipCutZ => {
-                self.sim_settings.cut.z_flip();
-                self.rebuild_scene();
-            }
-            Message::CutXBoundChanged(delta) => {
-                self.sim_settings.cut.x_bound += delta;
-                self.sim_settings.cut_x_input = format!("{:.1}", self.sim_settings.cut.x_bound);
+            Message::ToggleCut(axis) => {
+                self.sim_settings.cut.toggle(axis);
                 if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
                     return self.request_action(PendingAction::ReloadWithCurrentVisualization);
                 }
                 self.rebuild_scene();
             }
-            Message::CutYBoundChanged(delta) => {
-                self.sim_settings.cut.y_bound += delta;
-                self.sim_settings.cut_y_input = format!("{:.1}", self.sim_settings.cut.y_bound);
-                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
-                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
-                }
+            Message::FlipCut(axis) => {
+                self.sim_settings.cut.flip(axis);
                 self.rebuild_scene();
             }
-            Message::CutZBoundChanged(delta) => {
-                self.sim_settings.cut.z_bound += delta;
-                self.sim_settings.cut_z_input = format!("{:.1}", self.sim_settings.cut.z_bound);
-                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
-                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
-                }
-                self.rebuild_scene();
-            }
-            Message::CutXBoundInput(value) => {
-                self.sim_settings.cut_x_input = value.clone();
-                if let Ok(v) = value.parse::<f32>() {
-                    self.sim_settings.cut.x_bound = v;
-                    if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
-                        return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+            Message::CutBoundChanged(axis, delta) => {
+                self.sim_settings.cut.add_cut_bound(axis, delta);
+                match axis {
+                    CutAxis::X => {
+                        self.sim_settings.cut_x_input =
+                            format!("{:.1}", self.sim_settings.cut.x_bound);
                     }
-                    self.rebuild_scene();
-                }
-            }
-            Message::CutYBoundInput(value) => {
-                self.sim_settings.cut_y_input = value.clone();
-                if let Ok(v) = value.parse::<f32>() {
-                    self.sim_settings.cut.y_bound = v;
-                    if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
-                        return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                    CutAxis::Y => {
+                        self.sim_settings.cut_y_input =
+                            format!("{:.1}", self.sim_settings.cut.y_bound);
                     }
-                    self.rebuild_scene();
+                    CutAxis::Z => {
+                        self.sim_settings.cut_z_input =
+                            format!("{:.1}", self.sim_settings.cut.z_bound);
+                    }
                 }
+                if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
+                    return self.request_action(PendingAction::ReloadWithCurrentVisualization);
+                }
+                self.rebuild_scene();
             }
-            Message::CutZBoundInput(value) => {
-                self.sim_settings.cut_z_input = value.clone();
+            Message::CutBoundInput(axis, value) => {
+                match axis {
+                    CutAxis::X => {
+                        self.sim_settings.cut_x_input = value.clone();
+                    }
+                    CutAxis::Y => {
+                        self.sim_settings.cut_y_input = value.clone();
+                    }
+                    CutAxis::Z => {
+                        self.sim_settings.cut_z_input = value.clone();
+                    }
+                }
                 if let Ok(v) = value.parse::<f32>() {
-                    self.sim_settings.cut.z_bound = v;
+                    self.sim_settings.cut.set_cut_bound(axis, v);
                     if self.sim_settings.fluid_vis == FluidVisOption::SensorPlane {
                         return self.request_action(PendingAction::ReloadWithCurrentVisualization);
                     }
@@ -1003,7 +958,6 @@ impl cosmic::Application for AppModel {
                 self.sim_settings.cut_boundary = !self.sim_settings.cut_boundary;
                 self.rebuild_scene();
             }
-
             Message::ToggleDiscardPast => {
                 self.sim_settings.discard_past = !self.sim_settings.discard_past;
                 self.playback.discard_past = self.sim_settings.discard_past;
