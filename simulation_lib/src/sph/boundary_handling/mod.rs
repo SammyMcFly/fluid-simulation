@@ -203,10 +203,10 @@ impl RigidBodyMotion {
         self.pose().rotation.transform_vector(v_local)
     }
 
-    /// Inverse inertia tensor in WORLD frame: I_world^-1 = R * I_body^-1 * R^T
-    fn inertia_tensor_inv_world(&self) -> Matrix3<f64> {
-        self.inertia_tensor_inv_world
-    }
+    // /// Inverse inertia tensor in WORLD frame: I_world^-1 = R * I_body^-1 * R^T
+    // fn inertia_tensor_inv_world(&self) -> Matrix3<f64> {
+    //     self.inertia_tensor_inv_world
+    // }
 
     pub fn angular_velocity(&self) -> Vector3<f64> {
         self.angular_velocity

@@ -8,33 +8,23 @@ cube_in = "/mnt/Code/fluid-simulation/cube_face_normals_inwards.obj"
 sphere_out = "/mnt/Code/fluid-simulation/sphere_face_normals_outwards.obj"
 sphere_in = "/mnt/Code/fluid-simulation/sphere_face_normals_inwards.obj"
 
-# EXAMPLE
+# LARGE BALL
 [[fluid]]
 mesh = "cube_out"
 fluid_id = 0
-translation = [0.0, 0.0, 0.0]
+translation = [16.0, 0.0, 0.0]
 rotation_euler_deg = [0.0, 0.0, 0.0]
-scale = 10.0
+scale = 15.0
 
-[[boundary.dynamic]]
-mesh = "sphere_out"
-boundary_id = 0
-density = 1800
-translation = [0.0, 10.0, 0.0]
-scale = 2.0
-render_vertex_normals = "AngleWeightedPseudoNormals"
-
-[[boundary.dynamic]]
+[[fluid]]
 mesh = "cube_out"
-boundary_id = 1
-density = 450
-translation = [0.0, 0.0, 10.0]
-rotation_euler_deg = [0.0, 0.0, 0.0]
-scale = [2.0, 4.0, 10.0]
+fluid_id = 1
+translation = [-16.0, 0.0, 0.0]
+scale = 15.0
 
 [[boundary.static]]
 mesh = "sphere_in"
 boundary_id = 0
 translation = [0.0, 0.0, 0.0]
-scale = 30.0
+scale = 40.0
 render_vertex_normals = "AngleWeightedPseudoNormals"
