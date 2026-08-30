@@ -67,10 +67,11 @@ pub fn save_screenshot_into_directory(
     height: u32,
     frame_index: usize,
     output_dir: &Path,
+    overwrite: bool,
 ) -> Result<(), FileIoError> {
     let filename = format!("frame_{:06}.png", frame_index);
     let file_path = output_dir.join(filename);
-    save_screenshot_to_file(rgba_data, width, height, &file_path)
+    save_screenshot_to_file(rgba_data, width, height, &file_path, overwrite)
 }
 
 pub fn save_screenshot_to_file(
@@ -78,12 +79,13 @@ pub fn save_screenshot_to_file(
     width: u32,
     height: u32,
     file_path: &std::path::PathBuf,
+    overwrite: bool,
 ) -> Result<(), FileIoError> {
     let output_dir = file_path.parent().ok_or(FileIoError::NoParentDirectory)?;
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)?;
         info!("Created directory: {}", output_dir.display());
-    } else if file_path.exists() {
+    } else if file_path.exists() && !overwrite {
         // Throw an error if file already exist
         error!("File already exists: {}", file_path.display());
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());

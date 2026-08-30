@@ -97,11 +97,12 @@ pub fn save_screenshot_into_directory(
     width: u32,
     height: u32,
     frame_index: usize,
-    output_dir: &std::path::PathBuf,
+    output_dir: &Path,
+    overwrite: bool,
 ) -> Result<(), FileIoError> {
     let filename = format!("frame_{:06}.png", frame_index);
     let file_path = output_dir.join(filename);
-    save_screenshot_to_file(rgba_data, width, height, &file_path)
+    save_screenshot_to_file(rgba_data, width, height, &file_path, overwrite)
 }
 
 pub fn save_screenshot_to_file(
@@ -109,12 +110,13 @@ pub fn save_screenshot_to_file(
     width: u32,
     height: u32,
     file_path: &std::path::PathBuf,
+    overwrite: bool,
 ) -> Result<(), FileIoError> {
     let output_dir = file_path.parent().ok_or(FileIoError::NoParentDirectory)?;
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)?;
         info!("Created directory: {}", output_dir.display());
-    } else if file_path.exists() {
+    } else if file_path.exists() && !overwrite {
         // Throw an error if file already exist
         error!("File already exists: {}", file_path.display());
         return Err(FileIoError::FileAlreadyExists(file_path.clone()));
@@ -187,6 +189,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     height,
                     frame_index,
                     directory,
+                    overwrite,
                 } => {
                     if let Err(e) = save_screenshot_into_directory(
                         &data,
@@ -194,6 +197,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                         height,
                         frame_index,
                         &directory,
+                        overwrite,
                     ) {
                         error!("Screenshot failed: {e}");
                         let _ = to_ui.send(WorkerMessage::Error(format!("Screenshot failed: {e}")));
@@ -207,7 +211,8 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     height,
                     file_path,
                 } => {
-                    if let Err(e) = save_screenshot_to_file(&data, width, height, &file_path) {
+                    if let Err(e) = save_screenshot_to_file(&data, width, height, &file_path, false)
+                    {
                         error!("Screenshot failed: {e}");
                         let _ = to_ui.send(WorkerMessage::Error(format!("Screenshot failed: {e}")));
                     } else {

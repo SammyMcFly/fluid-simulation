@@ -104,6 +104,7 @@ pub struct PendingScreenshot {
     pub width: u32,
     pub height: u32,
     pub target: PendingScreenshotTarget,
+    pub id: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -111,6 +112,7 @@ pub enum PendingScreenshotTarget {
     Directory {
         frame_index: usize,
         directory: std::path::PathBuf,
+        overwrite: bool,
     },
     ExplicitPath {
         path: PathBuf,
@@ -124,6 +126,7 @@ pub trait ScreenshotCommand: Debug + Send + 'static {
         height: u32,
         frame_index: usize,
         directory: std::path::PathBuf,
+        overwrite: bool,
     ) -> Self;
 
     fn save_screenshot_to_file(data: Vec<u8>, width: u32, height: u32, file_path: PathBuf) -> Self;
@@ -168,6 +171,11 @@ pub struct SimulationRenderer {
     pub screenshot_width: u32,
     pub screenshot_height: u32,
     pub screenshot_state: Mutex<ScreenshotState>,
+    /// ID of the last screenshot request that was fully captured and dispatched.
+    /// Prevents re-capturing the same still-pending `ScreenshotRequest` if the
+    /// state machine finishes (returns to `Idle`) before the app has observed
+    /// completion and issued a new request.
+    pub last_completed_screenshot_id: Option<u64>,
 }
 
 impl shader::Pipeline for SimulationRenderer {
@@ -351,6 +359,7 @@ impl shader::Pipeline for SimulationRenderer {
             screenshot_width: 0,
             screenshot_height: 0,
             screenshot_state: Mutex::new(ScreenshotState::default()),
+            last_completed_screenshot_id: None,
         }
     }
 }

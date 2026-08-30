@@ -11,6 +11,7 @@ pub enum WorkerCommand {
         height: u32,
         frame_index: usize,
         directory: std::path::PathBuf,
+        overwrite: bool,
     },
     /// Save screenshot to an explicit full file path
     SaveScreenshotToFile {
@@ -29,6 +30,7 @@ impl ScreenshotCommand for WorkerCommand {
         height: u32,
         frame_index: usize,
         directory: std::path::PathBuf,
+        overwrite: bool,
     ) -> Self {
         WorkerCommand::WriteRendering {
             data,
@@ -36,6 +38,7 @@ impl ScreenshotCommand for WorkerCommand {
             height,
             frame_index,
             directory,
+            overwrite,
         }
     }
     fn save_screenshot_to_file(data: Vec<u8>, width: u32, height: u32, file_path: PathBuf) -> Self {

@@ -23,7 +23,7 @@ use cosmic::widget::segmented_button::Entity;
 use cosmic::widget::{self, about::About, icon, menu, nav_bar, row};
 use cosmic::{prelude::*, theme};
 use rendering_lib::colormap::Colormap;
-use rendering_lib::primitive::{ScreenshotRequest, ScreenshotTarget};
+use rendering_lib::primitive::ScreenshotTarget;
 use rendering_lib::{CameraState, LightState, SimulationViewport, ViewportEvent, build_scene_data};
 use sci_phi_backend::commands::WorkerCommand;
 use sci_phi_backend::messages::WorkerMessage;
@@ -56,6 +56,7 @@ pub struct AppModel {
     /// The simulation setting context page.
     sim_settings: SimulationSettings,
     render_template: TimeStepInfo,
+    pending_visualization_reload: bool,
     /// The plotting settings context page.
     plot_settings: PlottingSettings,
     /// The about page for this app.
@@ -274,6 +275,7 @@ impl cosmic::Application for AppModel {
             context_page: ContextPage::default(),
             sim_settings: SimulationSettings::from(&with_info),
             render_template: with_info,
+            pending_visualization_reload: false,
             plot_settings: PlottingSettings::default(),
             about,
             inspector: inspector::Inspector::new(
@@ -482,6 +484,12 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::DialogCancel => {
+                if matches!(
+                    self.dialog_page,
+                    Some(PendingAction::ReloadWithCurrentVisualization)
+                ) {
+                    self.pending_visualization_reload = false;
+                }
                 self.dialog_page = None;
             }
             Message::LaunchUrl(url) => match open::that_detached(&url) {
@@ -521,9 +529,8 @@ impl cosmic::Application for AppModel {
                 .map(cosmic::Action::App);
             }
             Message::ScreenshotPathChosen(path, unpause) => {
-                self.simulation_page.request_screenshot(ScreenshotRequest {
-                    target: ScreenshotTarget::SingleFile { path },
-                });
+                self.simulation_page
+                    .request_screenshot(ScreenshotTarget::SingleFile { path });
                 if unpause {
                     self.playback.play();
                 }
@@ -644,13 +651,21 @@ impl cosmic::Application for AppModel {
                 };
 
                 // If rendering completed capture, mark ready for next frame
-                if let Some(ref mut rendering) = self.rendering {
-                    if rendering.active
-                        && rendering.awaiting_capture
-                        && self.simulation_page.is_screenshot_done()
+                if let Some(ref mut rendering) = self.rendering
+                    && rendering.active
+                    && rendering.awaiting_capture
+                    && self.simulation_page.is_screenshot_done()
+                {
+                    rendering.awaiting_capture = false;
+                    if let Some((ts, frame_index, is_overwrite)) =
+                        rendering.awaiting_capture_info.take()
                     {
-                        rendering.awaiting_capture = false;
-                        rendering.frame_counter += 1;
+                        rendering.last_completed = Some((ts, frame_index));
+                        // Overwrite captures reuse an existing index; only normal captures
+                        // advance the counter.
+                        if !is_overwrite {
+                            rendering.frame_counter = frame_index + 1;
+                        }
                     }
                 }
 
@@ -747,13 +762,17 @@ impl cosmic::Application for AppModel {
                             }
                         }
                         if rendering.active && !rendering.awaiting_capture {
-                            self.simulation_page.request_screenshot(ScreenshotRequest {
-                                target: ScreenshotTarget::RenderingFrame {
-                                    frame_index: rendering.frame_counter,
+                            let frame_index = rendering.frame_counter;
+                            self.simulation_page.request_screenshot(
+                                ScreenshotTarget::RenderingFrame {
+                                    frame_index,
                                     output_dir: PathBuf::default(),
+                                    overwrite: false,
                                 },
-                            });
+                            );
                             rendering.awaiting_capture = true;
+                            rendering.awaiting_capture_info =
+                                Some((ts_info.time_step_number, frame_index, false));
                         }
                         if let Some(finish_time) = rendering.finish_time
                             && finish_time < ts_info.measurement.time
@@ -1090,20 +1109,48 @@ impl AppModel {
                 if self.sim_settings.boundary_vis
                     != BoundaryVisOption::from_template(&ts_info.boundary)
                 {
-                    return Some(
-                        self.request_action(PendingAction::ReloadWithCurrentVisualization),
-                    );
+                    if !self.pending_visualization_reload {
+                        self.pending_visualization_reload = true;
+                        return Some(
+                            self.request_action(PendingAction::ReloadWithCurrentVisualization),
+                        );
+                    }
+                    // Stale message, still in the old format, produced before the backend
+                    // processed our reload request. Discard silently instead of
+                    // re-triggering another rewind.
+                    return None;
                 }
+                self.pending_visualization_reload = false;
                 // Accumulate measurement
                 self.plotting_measurement_series
                     .push_back(ts_info.measurement.clone());
 
+                let ts_number = ts_info.time_step_number;
                 match self.instances.insert(*ts_info) {
                     InsertionResult::TooOld => {
                         self.frame.count_discarded_time_steps(1, true);
                     }
                     InsertionResult::ReplacedCurrent => {
                         self.rebuild_scene();
+                        // If rendering is active and this is exactly the time step whose
+                        // frame was already written under the old visualization, recapture
+                        // it now with the new one, overwriting the existing file.
+                        if let Some(rendering) = &mut self.rendering
+                            && rendering.active
+                            && !rendering.awaiting_capture
+                            && let Some((last_ts, frame_index)) = rendering.last_completed
+                            && last_ts == ts_number
+                        {
+                            self.simulation_page.request_screenshot(
+                                ScreenshotTarget::RenderingFrame {
+                                    frame_index,
+                                    output_dir: PathBuf::default(),
+                                    overwrite: true,
+                                },
+                            );
+                            rendering.awaiting_capture = true;
+                            rendering.awaiting_capture_info = Some((ts_number, frame_index, true));
+                        }
                     }
                     _ => {}
                 }
@@ -1192,7 +1239,14 @@ impl AppModel {
     }
 
     fn request_action(&mut self, action: PendingAction) -> Task<cosmic::Action<Message>> {
-        if self.is_recording() || self.is_rendering() {
+        let needs_confirmation = match action {
+            PendingAction::ReloadWithCurrentVisualization => self.is_recording(),
+            PendingAction::Close | PendingAction::Reload => {
+                self.is_recording() || self.is_rendering()
+            }
+        };
+
+        if needs_confirmation {
             tracing::info!("recording");
             self.dialog_page = Some(action);
         } else {
@@ -1237,13 +1291,15 @@ impl AppModel {
     }
 
     fn reload_with_current_visualization(&mut self) -> Task<cosmic::Action<Message>> {
-        // Stop rendering
-        if let Some(rendering) = &self.rendering
-            && rendering.active
-        {
-            warn!("Rendering interrupted");
+        self.pending_visualization_reload = true;
+        // Rendering läuft einfach weiter; keine Unterbrechung mehr nötig, da
+        // bereits geschriebene Frames durch `TooOld` ohnehin nie erneut angefasst
+        // werden. Nur ein laufender Capture wird abgebrochen, da er noch die alte
+        // Visualisierung zeigen würde.
+        if let Some(rendering) = &mut self.rendering {
+            rendering.awaiting_capture = false;
+            rendering.awaiting_capture_info = None;
         }
-        self.rendering = None;
         // discard future instances
         self.instances.discard_future();
         // continue from first time step in instance buffer
@@ -1535,6 +1591,14 @@ pub struct RenderingState {
     /// Finish time
     pub finish_time: Option<f64>,
     pub finished_once: bool,
+
+    /// (time_step_number, frame_index) of the most recently completed capture.
+    pub last_completed: Option<(u64, usize)>,
+    /// (time_step_number, frame_index, is_overwrite) of the capture currently in
+    /// flight. `is_overwrite` decides whether `frame_counter` advances on
+    /// completion (normal capture) or stays put (recapture of an already-written
+    /// frame after a visualization change).
+    pub awaiting_capture_info: Option<(u64, usize, bool)>,
 }
 
 impl RenderingState {

@@ -83,12 +83,21 @@ pub enum ScreenshotTarget {
     RenderingFrame {
         frame_index: usize,
         output_dir: PathBuf,
+        /// If `true`, overwrite an existing file at this `frame_index` instead of
+        /// treating its existence as an error. Used when a visualization change
+        /// mid-render causes the current frame to be recaptured with the new
+        /// settings.
+        overwrite: bool,
     },
 }
 
 #[derive(Debug, Clone)]
 pub struct ScreenshotRequest {
     pub target: ScreenshotTarget,
+    /// Monotonically increasing ID, unique per call to `request_screenshot`.
+    /// Used to detect and skip re-captures of an already-completed request
+    /// that the app hasn't cleared yet (see `SimulationViewport::request_screenshot`).
+    pub id: u64,
 }
 
 // ─── FluidFrame ───────────────────────────────────────────────
@@ -178,6 +187,7 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                                     PendingScreenshotTarget::Directory {
                                         frame_index,
                                         directory,
+                                        overwrite,
                                     } => {
                                         let _ = sender.send(W::write_rendering(
                                             rgba,
@@ -185,6 +195,7 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                                             pending.height,
                                             frame_index,
                                             directory,
+                                            overwrite,
                                         ));
                                     }
                                     PendingScreenshotTarget::ExplicitPath { path } => {
@@ -197,7 +208,7 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                                     }
                                 }
                             }
-
+                            pipeline.last_completed_screenshot_id = Some(pending.id);
                             self.screenshot_consumed.store(true, Ordering::Release);
                         }
                     }
@@ -303,6 +314,7 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
             let should_capture = {
                 let state = pipeline.screenshot_state.lock().unwrap();
                 matches!(*state, ScreenshotState::Idle)
+                    && pipeline.last_completed_screenshot_id != Some(request.id)
             };
 
             if let (Some(offscreen_view), Some(offscreen_depth)) =
@@ -378,9 +390,11 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                         ScreenshotTarget::RenderingFrame {
                             frame_index,
                             output_dir,
+                            overwrite,
                         } => PendingScreenshotTarget::Directory {
                             frame_index: *frame_index,
                             directory: output_dir.clone(),
+                            overwrite: *overwrite,
                         },
                     };
 
@@ -391,6 +405,7 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                             width,
                             height,
                             target,
+                            id: request.id,
                         },
                     };
                 }

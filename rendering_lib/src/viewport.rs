@@ -14,8 +14,8 @@ use crossbeam::channel::Sender;
 use crate::camera::{CameraState, Key};
 use crate::lighting::LightState;
 use crate::pipeline::ScreenshotCommand;
-use crate::primitive::ScreenshotRequest;
 use crate::primitive::{SceneData, SimulationFrame};
+use crate::primitive::{ScreenshotRequest, ScreenshotTarget};
 
 // ─── Messages from Viewport ──────────────────────────────────
 
@@ -63,6 +63,7 @@ pub struct SimulationViewport<W: ScreenshotCommand> {
     /// The app sets this to `false` when requesting a new screenshot,
     /// and the primitive sets it to `true` after the data is read back and dispatched.
     pub screenshot_consumed: Arc<AtomicBool>,
+    next_screenshot_id: std::sync::atomic::AtomicU64,
 }
 
 impl<W: ScreenshotCommand> SimulationViewport<W> {
@@ -81,6 +82,7 @@ impl<W: ScreenshotCommand> SimulationViewport<W> {
             screenshot_request: None,
             worker_sender: Some(worker_sender),
             screenshot_consumed: Arc::new(AtomicBool::new(true)),
+            next_screenshot_id: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -108,9 +110,10 @@ impl<W: ScreenshotCommand> SimulationViewport<W> {
         self.camera.resize(width, height);
     }
 
-    pub fn request_screenshot(&mut self, request: ScreenshotRequest) {
+    pub fn request_screenshot(&mut self, target: ScreenshotTarget) {
+        let id = self.next_screenshot_id.fetch_add(1, Ordering::Relaxed);
         self.screenshot_consumed.store(false, Ordering::Release);
-        self.screenshot_request = Some(request);
+        self.screenshot_request = Some(ScreenshotRequest { target, id });
     }
 
     /// Returns true if the last screenshot has been fully captured and dispatched

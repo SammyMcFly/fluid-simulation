@@ -239,7 +239,10 @@ impl Simulation {
             self.state_saver_system.step_forward_in_time();
             step += 1;
         }
-        match recording::save_system_state(self.system.get_serialized_fluid(), file_path) {
+        match recording::save_system_state(
+            self.state_saver_system.get_serialized_fluid(),
+            file_path,
+        ) {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("{}", e)),
         }
@@ -452,6 +455,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     width,
                     height,
                     frame_index,
+                    overwrite,
                 } => {
                     if let Some(info) = &simulation_controller.simulation_load_info
                         && let Some(rendering_dir) = &info.rendering_dir
@@ -462,6 +466,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                             height,
                             frame_index,
                             rendering_dir,
+                            overwrite,
                         ) {
                             error!("Screenshot failed: {e}");
                             let _ =
@@ -477,7 +482,8 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     height,
                     file_path,
                 } => {
-                    if let Err(e) = save_screenshot_to_file(&data, width, height, &file_path) {
+                    if let Err(e) = save_screenshot_to_file(&data, width, height, &file_path, false)
+                    {
                         error!("Screenshot failed: {e}");
                         let _ = to_ui.send(WorkerMessage::Error(format!("Screenshot failed: {e}")));
                     } else {

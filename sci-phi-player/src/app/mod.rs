@@ -9,7 +9,7 @@ use crate::fl;
 use pages::simulation::SimulationSettings;
 use playback::{FrameControl, InstanceStore, PlaybackControls, StagingResult};
 use rendering_lib::colormap::Colormap;
-use rendering_lib::primitive::{ScreenshotRequest, ScreenshotTarget};
+use rendering_lib::primitive::ScreenshotTarget;
 
 use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
@@ -440,9 +440,8 @@ impl cosmic::Application for AppModel {
                 .map(cosmic::Action::App);
             }
             Message::ScreenshotPathChosen(path, unpause) => {
-                self.simulation_page.request_screenshot(ScreenshotRequest {
-                    target: ScreenshotTarget::SingleFile { path },
-                });
+                self.simulation_page
+                    .request_screenshot(ScreenshotTarget::SingleFile { path });
                 if unpause {
                     self.playback.play();
                 }
@@ -629,12 +628,13 @@ impl cosmic::Application for AppModel {
                             }
                         }
                         if rendering.active && !rendering.awaiting_capture {
-                            self.simulation_page.request_screenshot(ScreenshotRequest {
-                                target: ScreenshotTarget::RenderingFrame {
+                            self.simulation_page.request_screenshot(
+                                ScreenshotTarget::RenderingFrame {
                                     frame_index: rendering.frame_counter,
                                     output_dir: rendering.output_dir.clone(),
+                                    overwrite: false,
                                 },
-                            });
+                            );
                             rendering.awaiting_capture = true;
                         }
                         if let Some(finish_time) = rendering.finish_time
