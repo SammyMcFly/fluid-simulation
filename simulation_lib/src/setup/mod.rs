@@ -3,20 +3,19 @@
 //!
 pub mod input;
 
-use crate::fluid::{Fluid, Len, SerFluid3D};
+use crate::fluid::{Fluid, Len};
 use crate::integration_schemes::IntegrationScheme;
 use crate::integration_schemes::*;
 use crate::neighbor_search::NeighborSearch;
 use crate::neighbor_search::*;
 use crate::setup::input::{Parameters, Procedures, Scene};
-use crate::sph::SystemParameters;
 use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::boundary_handling::*;
 use crate::sph::kernel::*;
 use crate::sph::pressure_solver::PressureSolver;
 use crate::sph::pressure_solver::*;
-use crate::sph::{SPHSystem, System};
-
+use crate::sph::{SPHSystem, SerSystemCheckpoint, System};
+use crate::sph::{SystemCheckpoint, SystemParameters};
 use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary};
 
 use std::collections::HashMap;
@@ -32,6 +31,12 @@ pub struct SystemConstructor<
     pub fluid: Fluid,
     pub boundary: B,
     pub system_parameters: SystemParameters,
+    /// Time step counter to resume from when loading a saved `--state` file;
+    /// `0` when sampling fresh fluid/boundary geometry from the scene.
+    pub initial_time_steps_propagated: u64,
+    /// Accumulated physical time to resume from when loading a saved `--state`
+    /// file; `0.` when sampling fresh geometry.
+    pub initial_current_time: f64,
     _kernel_fn: std::marker::PhantomData<K>,
     pub integrator: I,
     pub pressure_solver: P,
@@ -65,10 +70,17 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             .iter()
             .map(|f| (f.id, f.rest_density))
             .collect();
-        let fluid = if let Some(file_path) = sample_state_file_path {
-            let content = std::fs::read_to_string(file_path)?;
-            let fluid: SerFluid3D = ron::from_str(&content).unwrap();
-            fluid.into()
+        let saved_checkpoint: Option<SystemCheckpoint> =
+            if let Some(file_path) = sample_state_file_path {
+                let content = std::fs::read_to_string(file_path)?;
+                let ser_state: SerSystemCheckpoint = ron::from_str(&content)?;
+                Some(ser_state.into())
+            } else {
+                None
+            };
+
+        let fluid = if let Some(checkpoint) = &saved_checkpoint {
+            checkpoint.get_fluid().clone().into()
         } else {
             let mut fluid = Fluid::new();
             for f in &scene.fluid {
@@ -143,6 +155,24 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             params.boundary_rest_volume_weighting,
         );
 
+        // If resuming from a saved state, overwrite the boundary's dynamic state
+        // (pose/velocity) with the saved one. Done AFTER `initialize()` so that,
+        // for `SampleBoundary`, neighbor lists and pseudo volumes are already
+        // computed relative to the scene's initial pose before being
+        // overwritten.
+        if let Some(checkpoint) = &saved_checkpoint {
+            boundary.restore_from_checkpoint(checkpoint.get_boundary());
+        }
+
+        let initial_time_steps_propagated = saved_checkpoint
+            .as_ref()
+            .map(SystemCheckpoint::get_time_steps_propagated)
+            .unwrap_or(0);
+        let initial_current_time = saved_checkpoint
+            .as_ref()
+            .map(SystemCheckpoint::get_current_time)
+            .unwrap_or(0.);
+
         // init system properties
         let system_parameters = SystemParameters::new(
             #[cfg(not(feature = "cfl_time_step"))]
@@ -164,6 +194,8 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             fluid,
             boundary,
             system_parameters,
+            initial_time_steps_propagated,
+            initial_current_time,
             _kernel_fn: std::marker::PhantomData,
             integrator,
             pressure_solver,

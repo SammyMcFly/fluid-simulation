@@ -14,7 +14,7 @@ use crate::measurement::{self, Measurement};
 use crate::neighbor_search::{NeighborList, NeighborSearch};
 use crate::render_info::{BoundaryVisualization, ScalarQuantity};
 use crate::setup;
-use crate::sph::boundary_handling::BoundaryHandling;
+use crate::sph::boundary_handling::{BoundaryCheckpoint, BoundaryHandling, SerBoundaryCheckpoint};
 use crate::sph::non_pressure_accelerations::*;
 use crate::sph::quantities::{
     get_density, get_density_error, get_kinetic_energy, get_pressure, get_speed,
@@ -25,11 +25,13 @@ use kernel::KernelFn;
 use pressure_solver::PressureSolver;
 use quantities::get_volume;
 
+use bincode::{Decode, Encode};
 use dyn_clone::DynClone;
 use nalgebra::{Matrix3, Point3, Vector3};
 use num_traits::Zero;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 
 pub trait SPHSystem: DynClone {
@@ -41,15 +43,12 @@ pub trait SPHSystem: DynClone {
     /// This includes calculating all parameters of the system at the next point in time.
     fn step_forward_in_time(&mut self);
 
-    fn get_boundary_checkpoint_state(&self) -> boundary_handling::BoundaryCheckpoint;
-    fn continue_from_checkpoint(&mut self, checkpoint: Rc<Checkpoint>);
-
     /// Measure (physical) quantities at current time step
     fn take_measurement(&self) -> Measurement;
 
     fn get_fluid_ids(&self) -> Vec<u32>;
     fn get_fluid_pos(&self) -> Vec<[f32; 3]>;
-    fn get_serialized_fluid(&self) -> SerFluid3D;
+    fn get_fluid_checkpoint(&self) -> FluidCheckpoint;
     fn get_quantity_of_fluid_samples(&self, quantity: &ScalarQuantity) -> Vec<f32>;
     fn get_quantity_at_positions(
         &mut self,
@@ -61,6 +60,9 @@ pub trait SPHSystem: DynClone {
 
     fn get_boundary_visualization(&self, selector: &BoundaryVisualization)
     -> BoundaryVisualization;
+    fn get_boundary_checkpoint(&self) -> BoundaryCheckpoint;
+
+    fn continue_from_checkpoint(&mut self, checkpoint: Rc<SystemCheckpoint>);
 }
 
 dyn_clone::clone_trait_object!(SPHSystem);
@@ -101,7 +103,11 @@ impl<
 {
     fn time(&self) -> f64 {
         #[cfg(not(feature = "cfl_time_step"))]
-        return (self.time_steps_propagated as f64) * self.parameters.time_increment;
+        {
+            let steps_since_offset = self.time_steps_propagated - self.parameters.time_offset_steps;
+            return self.parameters.time_offset
+                + (steps_since_offset as f64) * self.parameters.time_increment;
+        }
         #[cfg(feature = "cfl_time_step")]
         return self.parameters.current_time;
     }
@@ -127,18 +133,6 @@ impl<
         self.update();
         // measure wall clock time for time step
         self.properties.time_step_wall_clock_time = start.elapsed().as_secs_f64();
-    }
-
-    fn get_boundary_checkpoint_state(&self) -> boundary_handling::BoundaryCheckpoint {
-        self.boundary.checkpoint_state()
-    }
-
-    fn continue_from_checkpoint(&mut self, checkpoint: Rc<Checkpoint>) {
-        self.time_steps_propagated = checkpoint.get_time_steps_propagated();
-        self.fluid = checkpoint.get_fluid().clone().into();
-        self.boundary
-            .restore_from_checkpoint(checkpoint.get_boundary());
-        self.update();
     }
 
     /// Measure (physical) quantities at current time step
@@ -193,7 +187,7 @@ impl<
             .collect()
     }
 
-    fn get_serialized_fluid(&self) -> SerFluid3D {
+    fn get_fluid_checkpoint(&self) -> FluidCheckpoint {
         self.fluid.clone().into()
     }
 
@@ -352,6 +346,22 @@ impl<
     ) -> BoundaryVisualization {
         self.boundary.get_visualization(selector)
     }
+
+    fn get_boundary_checkpoint(&self) -> BoundaryCheckpoint {
+        self.boundary.get_checkpoint()
+    }
+
+    fn continue_from_checkpoint(&mut self, checkpoint: Rc<SystemCheckpoint>) {
+        self.time_steps_propagated = checkpoint.get_time_steps_propagated();
+        #[cfg(feature = "cfl_time_step")]
+        {
+            self.parameters.current_time = checkpoint.get_current_time();
+        }
+        self.fluid = checkpoint.get_fluid().clone().into();
+        self.boundary
+            .restore_from_checkpoint(checkpoint.get_boundary());
+        self.update();
+    }
 }
 
 impl<
@@ -368,7 +378,7 @@ impl<
             fluid: constructor.fluid,
             fluid_neighbor_list: NeighborList::new(len),
             boundary: constructor.boundary,
-            time_steps_propagated: 0,
+            time_steps_propagated: constructor.initial_time_steps_propagated,
             parameters: constructor.system_parameters,
             properties: CurrentSystemProperties::default(),
             _kernel_fn: std::marker::PhantomData,
@@ -376,14 +386,18 @@ impl<
             pressure_solver: constructor.pressure_solver,
             neighbor_search: constructor.neighbor_search,
         };
-        // system.init_boundary_volume();
+        #[cfg(feature = "cfl_time_step")]
+        {
+            system.parameters.current_time = constructor.initial_current_time;
+        }
+        #[cfg(not(feature = "cfl_time_step"))]
+        {
+            system.parameters.time_offset = constructor.initial_current_time;
+            system.parameters.time_offset_steps = constructor.initial_time_steps_propagated;
+        }
         // Update uniform grid
         system.update();
         Box::new(system) as Box<dyn SPHSystem>
-    }
-
-    pub fn time(&self) -> f64 {
-        (self.time_steps_propagated as f64) * self.parameters.time_increment
     }
 
     /// Calculate 2-norm of maximum velocity of any particle
@@ -743,6 +757,15 @@ impl CurrentSystemProperties {
 #[derive(Debug, Clone)]
 pub struct SystemParameters {
     time_increment: f64,
+    /// Accumulated time at the point `time_steps_propagated` was last reset
+    /// (e.g. when resuming from a saved state). Added to the step-based
+    /// estimate in `time()` so a changed `time_increment` between runs only
+    /// affects time accounted for *after* the resume point, not retroactively.
+    #[cfg(not(feature = "cfl_time_step"))]
+    time_offset: f64,
+    /// `time_steps_propagated` value at which `time_offset` was captured.
+    #[cfg(not(feature = "cfl_time_step"))]
+    time_offset_steps: u64,
     #[cfg(feature = "cfl_time_step")]
     current_time: f64,
     #[cfg(feature = "cfl_time_step")]
@@ -779,6 +802,10 @@ impl SystemParameters {
         Self {
             #[cfg(not(feature = "cfl_time_step"))]
             time_increment,
+            #[cfg(not(feature = "cfl_time_step"))]
+            time_offset: 0.,
+            #[cfg(not(feature = "cfl_time_step"))]
+            time_offset_steps: 0,
             #[cfg(feature = "cfl_time_step")]
             time_increment: 0.,
             #[cfg(feature = "cfl_time_step")]
@@ -806,19 +833,29 @@ impl SystemParameters {
 }
 
 // pub struct Checkpointy<B: BoundaryHandling> {
-pub struct Checkpoint {
+pub struct SystemCheckpoint {
     time_steps_propagated: u64,
-    fluid: SerFluid3D,
-    boundary: boundary_handling::BoundaryCheckpoint,
+    /// Accumulated physical time, i.e. `system.time()` at capture time.
+    ///
+    /// Stored unconditionally (regardless of `cfl_time_step`) purely so that
+    /// [`SerSystemCheckpoint`] — which always needs it — can be produced from
+    /// this type via a total `From` conversion. Restoring it in
+    /// [`SPHSystem::continue_from_checkpoint`] remains conditional, since
+    /// without `cfl_time_step` `time()` is a pure function of
+    /// `time_steps_propagated` and needs no explicit restore.
+    current_time: f64,
+    fluid: FluidCheckpoint,
+    boundary: BoundaryCheckpoint,
 }
 
 // impl<B: BoundaryHandling> Checkpointy<B> {
-impl Checkpoint {
+impl SystemCheckpoint {
     pub fn from_sph_system(system: &dyn SPHSystem) -> Self {
         Self {
             time_steps_propagated: system.time_steps_propagated(),
-            fluid: system.get_serialized_fluid(),
-            boundary: system.get_boundary_checkpoint_state(),
+            current_time: system.time(),
+            fluid: system.get_fluid_checkpoint(),
+            boundary: system.get_boundary_checkpoint(),
         }
     }
 
@@ -826,11 +863,56 @@ impl Checkpoint {
         self.time_steps_propagated
     }
 
-    pub fn get_fluid(&self) -> &SerFluid3D {
+    pub fn get_current_time(&self) -> f64 {
+        self.current_time
+    }
+
+    pub fn get_fluid(&self) -> &FluidCheckpoint {
         &self.fluid
     }
 
-    pub fn get_boundary(&self) -> &boundary_handling::BoundaryCheckpoint {
+    pub fn get_boundary(&self) -> &BoundaryCheckpoint {
         &self.boundary
+    }
+}
+
+/// Serializable, on-disk representation of a full system state — fluid and boundary
+/// dynamics — suitable for saving via [`Simulation::save_state`] and resuming a
+/// simulation across separate program runs via `--state`.
+///
+/// Assumes the scene file used on load defines the same boundaries (same order,
+/// count and static/dynamic kind) as when this state was saved; only geometry-
+/// independent dynamic state is restored, analogous to [`Checkpoint::restore`].
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct SerSystemCheckpoint {
+    pub time_steps_propagated: u64,
+    /// Accumulated physical time at save time. Stored unconditionally (even
+    /// without `cfl_time_step`) so resuming with a *different* `time_increment`
+    /// than was used originally doesn't retroactively distort the time already
+    /// simulated — see `SystemParameters::time_offset`.
+    pub current_time: f64,
+    pub fluid: SerFluidCheckpoint,
+    pub boundary: SerBoundaryCheckpoint,
+}
+
+impl From<SystemCheckpoint> for SerSystemCheckpoint {
+    fn from(checkpoint: SystemCheckpoint) -> Self {
+        Self {
+            time_steps_propagated: checkpoint.time_steps_propagated,
+            current_time: checkpoint.current_time,
+            fluid: checkpoint.fluid.into(),
+            boundary: checkpoint.boundary.into(),
+        }
+    }
+}
+
+impl From<SerSystemCheckpoint> for SystemCheckpoint {
+    fn from(ser: SerSystemCheckpoint) -> Self {
+        Self {
+            time_steps_propagated: ser.time_steps_propagated,
+            current_time: ser.current_time,
+            fluid: ser.fluid.into(),
+            boundary: ser.boundary.into(),
+        }
     }
 }

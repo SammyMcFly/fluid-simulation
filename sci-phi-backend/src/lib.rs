@@ -4,7 +4,7 @@ use simulation_lib::measurement::{MeasurementSeries, RecordingStatus};
 use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
 use simulation_lib::setup::input::{ParameterFile, Scene};
 use simulation_lib::setup::new_boxed_system3d;
-use simulation_lib::sph::{Checkpoint, SPHSystem};
+use simulation_lib::sph::{SPHSystem, SystemCheckpoint};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ use crate::recording::{save_screenshot_into_directory, save_screenshot_to_file};
 struct Simulation {
     // initial_system: sph::System,
     system: Box<dyn SPHSystem>,
-    checkpoints: Vec<Rc<Checkpoint>>,
+    checkpoints: Vec<Rc<SystemCheckpoint>>,
     parameters: SimulationParameters,
     render_preset: TimeStepInfo,
     measurement_series: Option<MeasurementSeries>,
@@ -59,7 +59,7 @@ impl Simulation {
 
         let state_saver_system = dyn_clone::clone_box(&*initial_system);
 
-        let checkpoints = vec![Rc::new(Checkpoint::from_sph_system(&*initial_system))];
+        let checkpoints = vec![Rc::new(SystemCheckpoint::from_sph_system(&*initial_system))];
 
         let sim_info = SimulationParameters::new(
             &procedures,
@@ -160,7 +160,7 @@ impl Simulation {
                 .expect("Value too large for usize");
             if idx == self.checkpoints.len() {
                 self.checkpoints
-                    .push(Rc::new(Checkpoint::from_sph_system(&*self.system)));
+                    .push(Rc::new(SystemCheckpoint::from_sph_system(&*self.system)));
             }
         }
         time_step_info
@@ -249,13 +249,8 @@ impl Simulation {
             self.state_saver_system.step_forward_in_time();
             step += 1;
         }
-        match recording::save_system_state(
-            self.state_saver_system.get_serialized_fluid(),
-            file_path,
-        ) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("{}", e)),
-        }
+        let checkpoint = SystemCheckpoint::from_sph_system(&*self.state_saver_system);
+        recording::save_system_state(checkpoint.into(), file_path).map_err(|e| e.to_string())
     }
 }
 

@@ -2,7 +2,7 @@
 //!
 //!
 use image::{ImageBuffer, Rgba};
-use simulation_lib::fluid::SerFluid3D;
+use simulation_lib::sph::SerSystemCheckpoint;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -32,7 +32,7 @@ pub enum FileIoError {
 }
 
 /// Store the current state of all fluid particles to a file
-pub fn save_system_state(fluid: SerFluid3D, file_path: &Path) -> Result<(), FileIoError> {
+pub fn save_system_state(state: SerSystemCheckpoint, file_path: &Path) -> Result<(), FileIoError> {
     // convert to global path
     let file_path_parent = std::fs::canonicalize(
         file_path
@@ -53,7 +53,7 @@ pub fn save_system_state(fluid: SerFluid3D, file_path: &Path) -> Result<(), File
         return Err(FileIoError::FileAlreadyExists(global_file_path));
     }
 
-    let ron_string = ron::to_string(&fluid)?;
+    let ron_string = ron::to_string(&state)?;
     let mut file = std::fs::File::create(global_file_path)?;
     file.write_all(ron_string.as_bytes())?;
     Ok(())

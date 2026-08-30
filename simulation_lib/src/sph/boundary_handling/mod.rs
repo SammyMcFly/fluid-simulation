@@ -1,6 +1,7 @@
 //! Boundary handling module
+use bincode::{Decode, Encode};
 use nalgebra::{Isometry3, Matrix3, Point3, Quaternion, Translation3, UnitQuaternion, Vector3};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     neighbor_search::NeighborSearch,
@@ -72,7 +73,7 @@ pub trait BoundaryHandling: Send + Sync + Clone {
 
     /// Captures the dynamic state of all boundaries for later restoration via
     /// [`Self::restore_from_checkpoint`].
-    fn checkpoint_state(&self) -> BoundaryCheckpoint;
+    fn get_checkpoint(&self) -> BoundaryCheckpoint;
 
     /// Restores the dynamic state of all boundaries from a previously captured
     /// [`BoundaryCheckpointState`].
@@ -234,8 +235,8 @@ impl RigidBodyMotion {
         self.reset_forces();
     }
 
-    pub fn checkpoint_state(&self) -> RigidBodyMotionState {
-        RigidBodyMotionState {
+    pub fn get_checkpoint(&self) -> RigidBodyMotionCheckpoint {
+        RigidBodyMotionCheckpoint {
             center_of_mass: self.center_of_mass,
             orientation: self.orientation,
             linear_velocity: self.linear_velocity,
@@ -245,7 +246,7 @@ impl RigidBodyMotion {
         }
     }
 
-    pub fn restore_from_checkpoint(&mut self, state: &RigidBodyMotionState) {
+    pub fn restore_from_checkpoint(&mut self, state: &RigidBodyMotionCheckpoint) {
         self.center_of_mass = state.center_of_mass;
         self.orientation = state.orientation;
         self.linear_velocity = state.linear_velocity;
@@ -265,16 +266,16 @@ impl RigidBodyMotion {
 pub struct BoundaryCheckpoint {
     /// One entry per boundary, in the same order as the boundaries are stored
     /// internally (matching [`BoundaryHandling::iter`]).
-    pub dynamic_states: Vec<Option<RigidBodyMotionState>>,
+    pub dynamic_states: Vec<Option<RigidBodyMotionCheckpoint>>,
 }
 
-/// Serializable snapshot of a [`RigidBodyMotion`]'s time-dependent state.
+/// Snapshot of a [`RigidBodyMotion`]'s time-dependent state.
 ///
 /// Excludes [`RigidBodyMotion::mass`] and the local inverse inertia tensor, which are
 /// constant for the lifetime of a boundary and are already reconstructed correctly
 /// when the boundary is set up from the scene file.
 #[derive(Debug, Clone, Copy)]
-pub struct RigidBodyMotionState {
+pub struct RigidBodyMotionCheckpoint {
     pub center_of_mass: Point3<f64>,
     pub orientation: UnitQuaternion<f64>,
     pub linear_velocity: Vector3<f64>,
@@ -288,4 +289,79 @@ pub struct RigidBodyMotionState {
     pub force: Vector3<f64>,
     /// See [`Self::force`].
     pub torque: Vector3<f64>,
+}
+
+/// Serializable counterpart to [`BoundaryCheckpoint`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Encode, Decode)]
+pub struct SerBoundaryCheckpoint {
+    pub dynamic_states: Vec<Option<SerRigidBodyMotionCheckpoint>>,
+}
+
+impl From<BoundaryCheckpoint> for SerBoundaryCheckpoint {
+    fn from(s: BoundaryCheckpoint) -> Self {
+        Self {
+            dynamic_states: s
+                .dynamic_states
+                .into_iter()
+                .map(|d| d.map(Into::into))
+                .collect(),
+        }
+    }
+}
+
+impl From<SerBoundaryCheckpoint> for BoundaryCheckpoint {
+    fn from(s: SerBoundaryCheckpoint) -> Self {
+        Self {
+            dynamic_states: s
+                .dynamic_states
+                .into_iter()
+                .map(|d| d.map(Into::into))
+                .collect(),
+        }
+    }
+}
+
+/// Serializable counterpart to [`RigidBodyMotionState`], for persisting a boundary's
+/// dynamic state to disk (e.g. via [`crate::sph::Checkpoint`]'s serializable form).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode)]
+pub struct SerRigidBodyMotionCheckpoint {
+    pub center_of_mass: [f64; 3],
+    /// Quaternion as (i, j, k, w).
+    pub orientation: [f64; 4],
+    pub linear_velocity: [f64; 3],
+    pub angular_momentum: [f64; 3],
+    pub force: [f64; 3],
+    pub torque: [f64; 3],
+}
+
+impl From<RigidBodyMotionCheckpoint> for SerRigidBodyMotionCheckpoint {
+    fn from(s: RigidBodyMotionCheckpoint) -> Self {
+        let q = s.orientation.into_inner();
+        Self {
+            center_of_mass: s.center_of_mass.into(),
+            orientation: [q.i, q.j, q.k, q.w],
+            linear_velocity: s.linear_velocity.into(),
+            angular_momentum: s.angular_momentum.into(),
+            force: s.force.into(),
+            torque: s.torque.into(),
+        }
+    }
+}
+
+impl From<SerRigidBodyMotionCheckpoint> for RigidBodyMotionCheckpoint {
+    fn from(s: SerRigidBodyMotionCheckpoint) -> Self {
+        Self {
+            center_of_mass: Point3::from(s.center_of_mass),
+            orientation: UnitQuaternion::from_quaternion(Quaternion::new(
+                s.orientation[3], // w
+                s.orientation[0], // i
+                s.orientation[1], // j
+                s.orientation[2], // k
+            )),
+            linear_velocity: Vector3::from(s.linear_velocity),
+            angular_momentum: Vector3::from(s.angular_momentum),
+            force: Vector3::from(s.force),
+            torque: Vector3::from(s.torque),
+        }
+    }
 }

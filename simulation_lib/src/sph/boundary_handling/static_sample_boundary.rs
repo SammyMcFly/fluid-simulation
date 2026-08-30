@@ -14,7 +14,7 @@ use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::boundary_handling::ForceOntoBoundary;
 use crate::sph::boundary_handling::RequestMode;
 use crate::sph::boundary_handling::RigidBodyMotion;
-use crate::sph::boundary_handling::RigidBodyMotionState;
+use crate::sph::boundary_handling::RigidBodyMotionCheckpoint;
 // use crate::sph::boundary_handling::BoundaryParameters;
 use crate::sph::kernel::KernelFn;
 use crate::utilities::euler_deg_to_quaternion;
@@ -257,7 +257,7 @@ impl BoundaryHandling for SampleBoundary {
         }
     }
 
-    fn checkpoint_state(&self) -> BoundaryCheckpoint {
+    fn get_checkpoint(&self) -> BoundaryCheckpoint {
         BoundaryCheckpoint {
             dynamic_states: self
                 .boundaries
@@ -605,14 +605,14 @@ impl BoundaryType {
         }
     }
 
-    fn checkpoint_state(&self) -> Option<RigidBodyMotionState> {
+    fn checkpoint_state(&self) -> Option<RigidBodyMotionCheckpoint> {
         match self {
             Self::StaticBoundary { .. } => None,
-            Self::DynamicBoundary { state, .. } => Some(state.checkpoint_state()),
+            Self::DynamicBoundary { state, .. } => Some(state.get_checkpoint()),
         }
     }
 
-    fn restore_from_checkpoint(&mut self, saved: &Option<RigidBodyMotionState>) {
+    fn restore_from_checkpoint(&mut self, saved: &Option<RigidBodyMotionCheckpoint>) {
         match (&mut *self, saved) {
             (Self::DynamicBoundary { state, .. }, Some(saved)) => {
                 state.restore_from_checkpoint(saved);

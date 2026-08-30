@@ -5,7 +5,7 @@ use crate::render_info::{BoundaryMeshColoring, BoundaryVisualization, RenderPose
 use crate::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
 use crate::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
-    RigidBodyMotion, RigidBodyMotionState,
+    RigidBodyMotion, RigidBodyMotionCheckpoint,
 };
 use crate::sph::kernel::{CubicBSpline3D, KernelFn};
 use crate::utilities::discretization::{
@@ -356,7 +356,7 @@ impl BoundaryHandling for VolumeMaps {
         }
     }
 
-    fn checkpoint_state(&self) -> BoundaryCheckpoint {
+    fn get_checkpoint(&self) -> BoundaryCheckpoint {
         BoundaryCheckpoint {
             dynamic_states: self
                 .boundaries
@@ -788,14 +788,14 @@ impl BoundaryType {
         }
     }
 
-    fn checkpoint_state(&self) -> Option<RigidBodyMotionState> {
+    fn checkpoint_state(&self) -> Option<RigidBodyMotionCheckpoint> {
         match self {
             Self::StaticBoundary { .. } => None,
-            Self::DynamicBoundary { state, .. } => Some(state.checkpoint_state()),
+            Self::DynamicBoundary { state, .. } => Some(state.get_checkpoint()),
         }
     }
 
-    fn restore_from_checkpoint(&mut self, saved: &Option<RigidBodyMotionState>) {
+    fn restore_from_checkpoint(&mut self, saved: &Option<RigidBodyMotionCheckpoint>) {
         match (self, saved) {
             (Self::DynamicBoundary { state, .. }, Some(saved)) => {
                 state.restore_from_checkpoint(saved);

@@ -1,5 +1,5 @@
 //! Implicit Euler integration scheme
-use crate::fluid::{Fluid3D, Len};
+use crate::fluid::{Fluid, Len};
 use crate::for_each;
 use crate::integration_schemes::IntegrationScheme;
 use nalgebra::Vector3;
@@ -29,7 +29,7 @@ impl ImplicitEuler {
 }
 
 // impl IntegrationScheme for ImplicitEuler {
-//     fn integrate(&mut self, fluid: &mut Fluid3D, _dt: f64) {
+//     fn integrate(&mut self, fluid: &mut Fluid, _dt: f64) {
 //         self.resize_scratch(fluid.len());
 //         // Conjugate Gradient implementation
 //         // init fractions of the Jacobi matrix that belong to the springs

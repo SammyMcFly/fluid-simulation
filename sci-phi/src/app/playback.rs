@@ -180,6 +180,12 @@ impl InstanceStore {
     }
 
     pub fn insert(&mut self, time_step_info: TimeStepInfo) -> InsertionResult {
+        if self.info_buffer.is_empty() {
+            self.number_min = time_step_info.time_step_number;
+            self.number_max = time_step_info.time_step_number;
+            self.info_buffer.push(time_step_info);
+            return InsertionResult::Pushed;
+        }
         if time_step_info.time_step_number == self.number_max + 1 {
             self.number_max += 1;
             self.info_buffer.push(time_step_info);
@@ -190,25 +196,17 @@ impl InstanceStore {
         }
         if time_step_info.time_step_number >= self.number_min
             && time_step_info.time_step_number <= self.number_max
-        {
-            if self.info_buffer.is_empty() {
-                self.number_min = time_step_info.time_step_number;
-                self.number_max = time_step_info.time_step_number;
-                self.info_buffer.push(time_step_info);
-                return InsertionResult::Pushed;
-            }
-            if let Some(idx) = self
+            && let Some(idx) = self
                 .info_buffer
                 .iter()
                 .position(|info| info.time_step_number == time_step_info.time_step_number)
-            {
-                if idx == self.current_index {
-                    self.info_buffer[idx] = time_step_info;
-                    return InsertionResult::ReplacedCurrent;
-                } else {
-                    self.info_buffer[idx] = time_step_info;
-                    return InsertionResult::ReplacedOther;
-                }
+        {
+            if idx == self.current_index {
+                self.info_buffer[idx] = time_step_info;
+                return InsertionResult::ReplacedCurrent;
+            } else {
+                self.info_buffer[idx] = time_step_info;
+                return InsertionResult::ReplacedOther;
             }
         }
         // tracing::debug!(

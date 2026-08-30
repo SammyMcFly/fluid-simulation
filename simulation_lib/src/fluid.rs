@@ -320,20 +320,41 @@ impl Fluid {
     }
 }
 
-impl From<SerFluid3D> for Fluid3D {
-    fn from(ser_fluid: SerFluid3D) -> Self {
-        let len = ser_fluid.position.len();
+/// Compressed and serializable fluid, i.e. a collection of
+/// samples, in a 3-dimensional context.
+#[derive(Debug, Clone, Default)]
+pub struct FluidCheckpoint {
+    pub fluid_id: Vec<u32>,
+    pub position: Vec<Point3<f64>>,
+    pub velocity: Vec<Vector3<f64>>,
+    pub mass: Vec<f64>,
+}
+
+impl From<Fluid> for FluidCheckpoint {
+    fn from(fluid: Fluid) -> Self {
+        Self {
+            fluid_id: fluid.fluid_id,
+            position: fluid.position,
+            velocity: fluid.velocity,
+            mass: fluid.mass,
+        }
+    }
+}
+
+impl From<FluidCheckpoint> for Fluid {
+    fn from(fluid_checkpoint: FluidCheckpoint) -> Self {
+        let len = fluid_checkpoint.position.len();
         Self {
             num_active: len,
-            fluid_id: ser_fluid.fluid_id,
-            position: ser_fluid.position.iter().map(|pos| (*pos).into()).collect(),
+            fluid_id: fluid_checkpoint.fluid_id,
+            position: fluid_checkpoint.position,
             position_prev: vec![Point3::origin(); len],
             position_pred: vec![Point3::origin(); len],
-            velocity: ser_fluid.velocity.iter().map(|vel| (*vel).into()).collect(),
+            velocity: fluid_checkpoint.velocity,
             velocity_prev: vec![Vector3::zeros(); len],
             velocity_pred: vec![Vector3::zeros(); len],
             acceleration: vec![Vector3::zeros(); len],
-            mass: ser_fluid.mass,
+            mass: fluid_checkpoint.mass,
             volume: vec![0.; len],
             pressure: vec![0.; len],
         }
@@ -343,20 +364,31 @@ impl From<SerFluid3D> for Fluid3D {
 /// Compressed and serializable fluid, i.e. a collection of
 /// samples, in a 3-dimensional context.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Encode, Decode)]
-pub struct SerFluid3D {
+pub struct SerFluidCheckpoint {
     pub fluid_id: Vec<u32>,
     pub position: Vec<[f64; 3]>,
     pub velocity: Vec<[f64; 3]>,
     pub mass: Vec<f64>,
 }
 
-impl From<Fluid3D> for SerFluid3D {
-    fn from(fluid: Fluid3D) -> Self {
+impl From<FluidCheckpoint> for SerFluidCheckpoint {
+    fn from(fluid: FluidCheckpoint) -> Self {
         Self {
             fluid_id: fluid.fluid_id,
             position: fluid.position.iter().map(|pos| (*pos).into()).collect(),
             velocity: fluid.velocity.iter().map(|vel| (*vel).into()).collect(),
             mass: fluid.mass,
+        }
+    }
+}
+
+impl From<SerFluidCheckpoint> for FluidCheckpoint {
+    fn from(ser_fluid: SerFluidCheckpoint) -> Self {
+        Self {
+            fluid_id: ser_fluid.fluid_id,
+            position: ser_fluid.position.iter().map(|pos| (*pos).into()).collect(),
+            velocity: ser_fluid.velocity.iter().map(|vel| (*vel).into()).collect(),
+            mass: ser_fluid.mass,
         }
     }
 }
