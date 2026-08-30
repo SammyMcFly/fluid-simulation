@@ -510,12 +510,12 @@ impl cosmic::Application for AppModel {
 
                 // Open native file dialog asynchronously
                 return cosmic::task::future(async move {
-                    let title = fl!("file-dialog", "save-state");
-                    let filter = fl!("file-dialog", "filter-ron");
+                    let title = fl!("file-dialog", "save-screenshot");
+                    let filter = fl!("file-dialog", "filter-png");
                     let dialog = rfd::AsyncFileDialog::new()
                         .set_title(title)
-                        .add_filter(filter, &["ron"])
-                        .set_file_name("state.ron")
+                        .add_filter(filter, &["png"])
+                        .set_file_name("screenshot.png")
                         .save_file()
                         .await;
 
@@ -545,12 +545,12 @@ impl cosmic::Application for AppModel {
 
                     // Open native file dialog asynchronously
                     return cosmic::task::future(async move {
-                        let title = fl!("file-dialog", "save-screenshot");
-                        let filter = fl!("file-dialog", "filter-png");
+                        let title = fl!("file-dialog", "save-state");
+                        let filter = fl!("file-dialog", "filter-ron");
                         let dialog = rfd::AsyncFileDialog::new()
                             .set_title(title)
-                            .add_filter(filter, &["png"])
-                            .set_file_name("screenshot.png")
+                            .add_filter(filter, &["ron"])
+                            .set_file_name("state.ron")
                             .save_file()
                             .await;
 
@@ -1386,16 +1386,16 @@ impl AppModel {
                     simulation_present,
                 ),
                 icon_button(
-                    "camera-photo-symbolic",
-                    s_screen,
-                    Message::TakeScreenshot,
-                    simulation_present && !self.rendering.as_ref().is_some_and(|s| s.active),
-                ),
-                icon_button(
                     "document-save-symbolic",
                     s_state,
                     Message::SaveCurrentState,
                     simulation_present,
+                ),
+                icon_button(
+                    "camera-photo-symbolic",
+                    s_screen,
+                    Message::TakeScreenshot,
+                    simulation_present && !self.rendering.as_ref().is_some_and(|s| s.active),
                 ),
             ]
             .spacing(spacing.space_xxs),
