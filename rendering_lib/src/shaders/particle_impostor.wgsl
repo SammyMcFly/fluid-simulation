@@ -18,7 +18,7 @@ var<uniform> light: Light;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
+    @location(0) view_pos: vec3<f32>,   // actual quad-corner position in view space
     @location(1) view_center: vec3<f32>,
     @location(2) world_center: vec3<f32>,
     @location(3) radius: f32,
@@ -38,7 +38,7 @@ fn vs_main(
     @location(1) radius: f32,
     @location(2) color: vec4<f32>,
 ) -> VertexOutput {
-    let center = swizzle(center);
+    let world_center = swizzle(center);
 
     // Generate camera-facing quad from vertex index (2 triangles = 6 vertices)
     let quad = array<vec2<f32>, 6>(
@@ -48,7 +48,7 @@ fn vs_main(
     let uv = quad[vertex_index];
 
     // Sphere center in view space
-    let view_center = (camera.view * vec4(center, 1.0)).xyz;
+    let view_center = (camera.view * vec4(world_center, 1.0)).xyz;
 
     // Expand quad in view space (always faces camera)
     let expand = radius * 1.05; // slight oversizing to avoid edge clipping
@@ -56,9 +56,9 @@ fn vs_main(
 
     var out: VertexOutput;
     out.clip_position = camera.proj * vec4(view_pos, 1.0);
-    out.uv = uv * 1.05;
+    out.view_pos = view_pos;
     out.view_center = view_center;
-    out.world_center = center;
+    out.world_center = world_center;
     out.radius = radius;
     out.color = color;
     return out;
@@ -71,21 +71,33 @@ struct FragOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> FragOutput {
-    // Ray-sphere intersection: discard fragments outside the sphere
-    let dist_sq = dot(in.uv, in.uv);
-    if dist_sq > 1.0 {
+    // True perspective ray-sphere intersection: the camera sits at the origin
+    // in view space, and the ray passes through the actual (interpolated)
+    // view-space position of this fragment.
+    let ray_dir = normalize(in.view_pos);
+
+    let oc = -in.view_center; // origin (0,0,0) minus sphere center
+    let b = dot(ray_dir, oc);
+    let c = dot(oc, oc) - in.radius * in.radius;
+    let discriminant = b * b - c;
+
+    if discriminant < 0.0 {
         discard;
     }
 
-    // Compute normal on sphere surface (view space)
-    let z = sqrt(1.0 - dist_sq);
-    let view_normal = vec3(in.uv, z);
+    let t = -b - sqrt(discriminant); // nearer intersection
+    if t < 0.0 {
+        discard;
+    }
 
-    // Transform normal to world space for lighting
+    let frag_view_pos = ray_dir * t;
+    let view_normal = normalize(frag_view_pos - in.view_center);
+
+    // Transform normal and position to world space for lighting
     let world_normal = normalize((camera.inv_view * vec4(view_normal, 0.0)).xyz);
     let world_pos = in.world_center + world_normal * in.radius;
 
-    // Blinn-Phong lighting (same style as your shader.wgsl)
+    // Blinn-Phong lighting
     let ambient_strength = 0.1;
     let ambient_color = light.color * ambient_strength;
 
@@ -100,8 +112,7 @@ fn fs_main(in: VertexOutput) -> FragOutput {
 
     let result = (ambient_color + diffuse_color) * in.color.rgb + specular_color * 0.2;
 
-    // Correct depth: compute actual depth of sphere surface point
-    let frag_view_pos = in.view_center + view_normal * in.radius;
+    // Correct depth from the actual (perspective) intersection point
     let clip = camera.proj * vec4(frag_view_pos, 1.0);
 
     var out: FragOutput;
