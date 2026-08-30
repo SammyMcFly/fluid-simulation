@@ -69,6 +69,19 @@ pub trait BoundaryHandling: Send + Sync + Clone {
     fn get_fluid_depth(&self, fluid_volume: f64) -> f64;
 
     fn get_visualization(&self, selector: &BoundaryVisualization) -> BoundaryVisualization;
+
+    /// Captures the dynamic state of all boundaries for later restoration via
+    /// [`Self::restore_from_checkpoint`].
+    fn checkpoint_state(&self) -> BoundaryCheckpoint;
+
+    /// Restores the dynamic state of all boundaries from a previously captured
+    /// [`BoundaryCheckpointState`].
+    ///
+    /// The static geometry (sample count, mesh) must already match; this only
+    /// overwrites position, velocity and rigid-body state. Also recomputes
+    /// `position`/`velocity` from the restored rigid-body pose so both stay
+    /// consistent.
+    fn restore_from_checkpoint(&mut self, state: &BoundaryCheckpoint);
 }
 
 pub trait Boundary: Send + Sync {
@@ -220,4 +233,59 @@ impl RigidBodyMotion {
 
         self.reset_forces();
     }
+
+    pub fn checkpoint_state(&self) -> RigidBodyMotionState {
+        RigidBodyMotionState {
+            center_of_mass: self.center_of_mass,
+            orientation: self.orientation,
+            linear_velocity: self.linear_velocity,
+            angular_momentum: self.angular_momentum,
+            force: self.force,
+            torque: self.torque,
+        }
+    }
+
+    pub fn restore_from_checkpoint(&mut self, state: &RigidBodyMotionState) {
+        self.center_of_mass = state.center_of_mass;
+        self.orientation = state.orientation;
+        self.linear_velocity = state.linear_velocity;
+        self.angular_momentum = state.angular_momentum;
+        self.force = state.force;
+        self.torque = state.torque;
+    }
+}
+
+/// Snapshot of the dynamic state of all boundaries in a [`BoundaryHandling`]
+/// implementation, sufficient to resume rigid-body motion and fluid–boundary
+/// coupling from a specific point in time.
+///
+/// Static boundaries contribute `None`: their geometry, sample positions and volume
+/// never change, so nothing needs to be captured for them.
+#[derive(Debug, Clone, Default)]
+pub struct BoundaryCheckpoint {
+    /// One entry per boundary, in the same order as the boundaries are stored
+    /// internally (matching [`BoundaryHandling::iter`]).
+    pub dynamic_states: Vec<Option<RigidBodyMotionState>>,
+}
+
+/// Serializable snapshot of a [`RigidBodyMotion`]'s time-dependent state.
+///
+/// Excludes [`RigidBodyMotion::mass`] and the local inverse inertia tensor, which are
+/// constant for the lifetime of a boundary and are already reconstructed correctly
+/// when the boundary is set up from the scene file.
+#[derive(Debug, Clone, Copy)]
+pub struct RigidBodyMotionState {
+    pub center_of_mass: Point3<f64>,
+    pub orientation: UnitQuaternion<f64>,
+    pub linear_velocity: Vector3<f64>,
+    pub angular_momentum: Vector3<f64>,
+    /// Force accumulated for the *next* integration step.
+    ///
+    /// Populated by fluid–boundary pressure coupling during `System3D::update`, which
+    /// runs *after* [`RigidBodyMotion::step_forward_in_time`] has reset it — i.e. right
+    /// before the next step would consume it. Must be preserved, or resuming from this
+    /// checkpoint would silently drop this pending force for one step.
+    pub force: Vector3<f64>,
+    /// See [`Self::force`].
+    pub torque: Vector3<f64>,
 }

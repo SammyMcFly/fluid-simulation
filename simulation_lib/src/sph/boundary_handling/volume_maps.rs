@@ -4,7 +4,8 @@ use crate::neighbor_search::NeighborSearch;
 use crate::render_info::{BoundaryMeshColoring, BoundaryVisualization, RenderPose};
 use crate::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
 use crate::sph::boundary_handling::{
-    Boundary, BoundaryHandling, ForceOntoBoundary, RequestMode, RigidBodyMotion,
+    Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
+    RigidBodyMotion, RigidBodyMotionState,
 };
 use crate::sph::kernel::{CubicBSpline3D, KernelFn};
 use crate::utilities::discretization::{
@@ -25,75 +26,17 @@ use std::slice::SliceIndex;
 #[cfg(feature = "logging")]
 use tracing::{debug, info, warn};
 
+fn ball_volume(radius: f64) -> f64 {
+    4.0 / 3.0 * std::f64::consts::PI * radius.powi(3)
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct VolumeMaps {
     boundaries: Vec<BoundaryType>,
 }
 
-struct DiscretizedBoundaryFields {
-    signed_distance_field: CubicSerendipityDiscretization,
-    volume_map: CubicSerendipityDiscretization,
-}
-
 impl VolumeMaps {
     const INTEGRATION_ORDER: usize = 30;
-
-    fn max_possible_volume(radius: f64) -> f64 {
-        4.0 / 3.0 * std::f64::consts::PI * radius.powi(3)
-    }
-
-    fn discretize(
-        trimesh: &TriMesh,
-        dx: f64,
-        kernel_support_radius: f64,
-    ) -> DiscretizedBoundaryFields {
-        #[cfg(feature = "logging")]
-        info!("Start cubic serendipity discretization.");
-        let identity = Pose::identity();
-        let aabb = trimesh.aabb(&identity);
-        let aabb_min = Point3::new(aabb.mins.x, aabb.mins.y, aabb.mins.z);
-        let aabb_max = Point3::new(aabb.maxs.x, aabb.maxs.y, aabb.maxs.z);
-
-        let padding_sd = 3.1 * kernel_support_radius;
-        let sd_field = TriangleMeshWrapper::new(trimesh);
-
-        let sdfn = CubicSerendipityDiscretization::new(
-            aabb_min - Vector3::new(padding_sd, padding_sd, padding_sd),
-            aabb_max + Vector3::new(padding_sd, padding_sd, padding_sd),
-            Some(-padding_sd),
-            Some(padding_sd),
-            dx,
-            &|p| sd_field.signed_distance(p),
-        );
-        let sd_field_wrapped = SDFnWrapper::new(&sdfn);
-
-        #[cfg(feature = "logging")]
-        info!("Finished cubic serendipity discretization.");
-        #[cfg(feature = "logging")]
-        info!("Start volume integration.");
-
-        let padding_vm = 2. * kernel_support_radius + dx / 6.0; // add dx / 6.0 so that the central difference can be evaluated with h = dx / 6.0
-        let vm = CubicSerendipityDiscretization::new(
-            aabb_min - Vector3::new(padding_vm, padding_vm, padding_vm),
-            aabb_max + Vector3::new(padding_vm, padding_vm, padding_vm),
-            Some(0.),
-            None,
-            dx,
-            &|p| {
-                sd_field_wrapped
-                    .volume(p, kernel_support_radius, Self::INTEGRATION_ORDER)
-                    .map(|v| v.clamp(0.0, Self::max_possible_volume(kernel_support_radius)))
-            },
-        );
-
-        #[cfg(feature = "logging")]
-        info!("Finished volume integration.");
-
-        DiscretizedBoundaryFields {
-            signed_distance_field: sdfn,
-            volume_map: vm,
-        }
-    }
 }
 
 impl BoundaryHandling for VolumeMaps {
@@ -120,7 +63,7 @@ impl BoundaryHandling for VolumeMaps {
         );
         let trimesh = mesh.trimesh();
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let fields = Self::discretize(trimesh, dx, kernel_support_radius);
+        let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius);
 
         let boundary = BoundaryType::StaticBoundary {
             signed_distance_field: fields.signed_distance_field,
@@ -164,7 +107,7 @@ impl BoundaryHandling for VolumeMaps {
         ) + Vector3::from(boundary.translation);
         // discretize the mesh
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let fields = Self::discretize(trimesh, dx, kernel_support_radius);
+        let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius);
 
         let boundary = BoundaryType::DynamicBoundary {
             signed_distance_field: fields.signed_distance_field,
@@ -271,7 +214,7 @@ impl BoundaryHandling for VolumeMaps {
                     };
 
                     // Clamp volume to v_max range to avoid excessive volumes due to cubic serendipity interpolation
-                    let volume = volume.min(Self::max_possible_volume(within_range));
+                    let volume = volume.min(ball_volume(within_range));
 
                     // let d = signed_distance.abs();
                     let d = (signed_distance + 0.25 * rest_density_grid_spacing)
@@ -414,6 +357,90 @@ impl BoundaryHandling for VolumeMaps {
             }
         }
     }
+
+    fn checkpoint_state(&self) -> BoundaryCheckpoint {
+        BoundaryCheckpoint {
+            dynamic_states: self
+                .boundaries
+                .iter()
+                .map(BoundaryType::checkpoint_state)
+                .collect(),
+        }
+    }
+
+    fn restore_from_checkpoint(&mut self, state: &BoundaryCheckpoint) {
+        if self.boundaries.len() != state.dynamic_states.len() {
+            #[cfg(feature = "logging")]
+            warn!(
+                "Boundary checkpoint has {} entries, but {} boundaries exist; \
+                     skipping boundary restore.",
+                state.dynamic_states.len(),
+                self.boundaries.len()
+            );
+            return;
+        }
+        for (boundary, saved) in self.boundaries.iter_mut().zip(&state.dynamic_states) {
+            boundary.restore_from_checkpoint(saved);
+        }
+    }
+}
+
+// ─── Discretized boundary fields and helper structs ------------------------
+
+struct DiscretizedBoundaryFields {
+    signed_distance_field: CubicSerendipityDiscretization,
+    volume_map: CubicSerendipityDiscretization,
+}
+
+impl DiscretizedBoundaryFields {
+    fn new(trimesh: &TriMesh, dx: f64, kernel_support_radius: f64) -> DiscretizedBoundaryFields {
+        #[cfg(feature = "logging")]
+        info!("Start cubic serendipity discretization.");
+        let identity = Pose::identity();
+        let aabb = trimesh.aabb(&identity);
+        let aabb_min = Point3::new(aabb.mins.x, aabb.mins.y, aabb.mins.z);
+        let aabb_max = Point3::new(aabb.maxs.x, aabb.maxs.y, aabb.maxs.z);
+
+        let padding_sd = 3.1 * kernel_support_radius;
+        let sd_field = TriangleMeshWrapper::new(trimesh);
+
+        let sdfn = CubicSerendipityDiscretization::new(
+            aabb_min - Vector3::new(padding_sd, padding_sd, padding_sd),
+            aabb_max + Vector3::new(padding_sd, padding_sd, padding_sd),
+            Some(-padding_sd),
+            Some(padding_sd),
+            dx,
+            &|p| sd_field.signed_distance(p),
+        );
+        let sd_field_wrapped = SDFnWrapper::new(&sdfn);
+
+        #[cfg(feature = "logging")]
+        info!("Finished cubic serendipity discretization.");
+        #[cfg(feature = "logging")]
+        info!("Start volume integration.");
+
+        let padding_vm = 2. * kernel_support_radius + dx / 6.0; // add dx / 6.0 so that the central difference can be evaluated with h = dx / 6.0
+        let vm = CubicSerendipityDiscretization::new(
+            aabb_min - Vector3::new(padding_vm, padding_vm, padding_vm),
+            aabb_max + Vector3::new(padding_vm, padding_vm, padding_vm),
+            Some(0.),
+            None,
+            dx,
+            &|p| {
+                sd_field_wrapped
+                    .volume(p, kernel_support_radius, VolumeMaps::INTEGRATION_ORDER)
+                    .map(|v| v.clamp(0.0, ball_volume(kernel_support_radius)))
+            },
+        );
+
+        #[cfg(feature = "logging")]
+        info!("Finished volume integration.");
+
+        DiscretizedBoundaryFields {
+            signed_distance_field: sdfn,
+            volume_map: vm,
+        }
+    }
 }
 
 struct TriangleMeshWrapper<'a> {
@@ -506,161 +533,7 @@ fn cubic_extension_fn(signed_distance: f64, kernel_support_radius: f64) -> f64 {
         / CubicBSpline3D::kernel_function(&Vector3::zero(), kernel_support_radius)
 }
 
-#[derive(Debug, Clone)]
-struct NeighborList {
-    positions: Vec<Point3<f64>>,
-    velocities: Vec<Vector3<f64>>,
-    volumes: Vec<f64>,
-    /// Flat neighbor list
-    indices: Vec<usize>,
-    /// Index list to point to start of the neighbor list of each sample
-    offsets: Vec<usize>,
-    /// Unflattened neighbor list which is necessary since there can exist many boundaries
-    unflattened_positions: Vec<Vec<Point3<f64>>>,
-    unflattened_velocities: Vec<Vec<Vector3<f64>>>,
-    unflattened_volumes: Vec<Vec<f64>>,
-    unflattened_indices: Vec<Vec<usize>>,
-}
-
-impl Default for NeighborList {
-    fn default() -> Self {
-        Self::new(0)
-    }
-}
-
-impl NeighborList {
-    fn new(len: usize) -> Self {
-        Self {
-            positions: Vec::new(),
-            velocities: Vec::new(),
-            volumes: Vec::new(),
-            indices: vec![usize::default(); len],
-            offsets: vec![usize::default(); len + 1],
-            unflattened_positions: vec![Vec::new(); len],
-            unflattened_velocities: vec![Vec::new(); len],
-            unflattened_volumes: vec![Vec::new(); len],
-            unflattened_indices: vec![Vec::new(); len],
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.positions.len()
-    }
-
-    pub fn resize(&mut self, len: usize) {
-        // self.positions.resize(len, Point3::origin());
-        // self.velocities.resize(len, Vector3::zero());
-        // self.volumes.resize(len, 0.);
-        // self.indices.resize(len, usize::default());
-        // self.offsets.resize(len + 1, usize::default());
-        self.unflattened_positions.resize(len, Vec::new());
-        self.unflattened_velocities.resize(len, Vec::new());
-        self.unflattened_volumes.resize(len, Vec::new());
-        self.unflattened_indices.resize(len, Vec::new());
-    }
-
-    pub fn clear(&mut self) {
-        self.positions.clear();
-        self.velocities.clear();
-        self.volumes.clear();
-        self.indices.clear();
-        self.offsets.clear();
-        for_each!(
-            mut [self.unflattened_indices, self.unflattened_positions, self.unflattened_velocities, self.unflattened_volumes],
-            ref [],
-            |_id, id_index, id_pos, id_vel, id_vol| {
-                id_index.clear();
-                id_pos.clear();
-                id_vel.clear();
-                id_vol.clear();
-            }
-        );
-    }
-
-    /// Get mutable reference to unflattened neighbor list: one Vec<usize> per sample
-    ///
-    /// Contract: Always call flatten after updating data in unflattened array
-    pub fn neighbors_mut(
-        &mut self,
-    ) -> (
-        &mut Vec<Vec<Point3<f64>>>,
-        &mut Vec<Vec<Vector3<f64>>>,
-        &mut Vec<Vec<f64>>,
-        &mut Vec<Vec<usize>>,
-    ) {
-        (
-            &mut self.unflattened_positions,
-            &mut self.unflattened_velocities,
-            &mut self.unflattened_volumes,
-            &mut self.unflattened_indices,
-        )
-    }
-
-    /// Flatten neighbor list
-    fn flatten(&mut self, global_offset: usize) {
-        self.positions.clear();
-        self.velocities.clear();
-        self.volumes.clear();
-        self.indices.clear();
-        self.offsets.clear();
-
-        let total_neighbors: usize = self.unflattened_indices.iter().map(|v| v.len()).sum();
-        let num_particles = self.unflattened_indices.len();
-
-        self.positions.reserve(total_neighbors);
-        self.velocities.reserve(total_neighbors);
-        self.volumes.reserve(total_neighbors);
-        self.indices.reserve(total_neighbors);
-        self.offsets.reserve(num_particles + 1);
-
-        self.offsets.push(0);
-        for (((nbr_pos, nbr_vel), nbr_vol), idcs) in self
-            .unflattened_positions
-            .iter()
-            .zip(&self.unflattened_velocities)
-            .zip(&self.unflattened_volumes)
-            .zip(&self.unflattened_indices)
-        {
-            let offset_bc_of_previous_samples_neighbors = self.positions.len();
-            self.positions.extend_from_slice(nbr_pos);
-            self.velocities.extend_from_slice(nbr_vel);
-            self.volumes.extend_from_slice(nbr_vol);
-            for &local_idx in idcs {
-                self.indices
-                    .push(global_offset + offset_bc_of_previous_samples_neighbors + local_idx);
-            }
-            self.offsets.push(self.indices.len());
-        }
-    }
-
-    /// Get indices of neighbor of sample with identifier 'id'
-    pub fn get_neighbors(&self, id: usize) -> &[usize] {
-        &self.indices[self.offsets[id]..self.offsets[id + 1]]
-    }
-
-    fn pos_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Point3<f64>]>,
-    {
-        &self.positions[id]
-    }
-
-    fn vel_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Vector3<f64>]>,
-    {
-        &self.velocities[id]
-    }
-
-    fn volume<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[f64]>,
-    {
-        &self.volumes[id]
-    }
-}
-
-// // ─── Boundaries ───────────────────────────────────────────────
+// ─── Boundaries ───────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum BoundaryType {
@@ -839,12 +712,14 @@ impl BoundaryType {
             Self::DynamicBoundary { render_mesh_id, .. } => *render_mesh_id,
         }
     }
+
     fn render_mesh_id_mut(&mut self) -> &mut u32 {
         match self {
             Self::StaticBoundary { render_mesh_id, .. } => render_mesh_id,
             Self::DynamicBoundary { render_mesh_id, .. } => render_mesh_id,
         }
     }
+
     fn boundary_neighbor_list(&self) -> &NeighborList {
         match self {
             Self::StaticBoundary {
@@ -857,6 +732,7 @@ impl BoundaryType {
             } => boundary_neighbor_list,
         }
     }
+
     fn boundary_neighbor_list_mut(&mut self) -> &mut NeighborList {
         match self {
             Self::StaticBoundary {
@@ -869,6 +745,7 @@ impl BoundaryType {
             } => boundary_neighbor_list,
         }
     }
+
     fn boundary_neighbor_list_viscosity(&self) -> &NeighborList {
         match self {
             Self::StaticBoundary {
@@ -881,6 +758,7 @@ impl BoundaryType {
             } => boundary_neighbor_list_viscosity,
         }
     }
+
     fn boundary_neighbor_list_viscosity_mut(&mut self) -> &mut NeighborList {
         match self {
             Self::StaticBoundary {
@@ -910,6 +788,192 @@ impl BoundaryType {
                 state.step_forward_in_time(dt);
             }
         }
+    }
+
+    fn checkpoint_state(&self) -> Option<RigidBodyMotionState> {
+        match self {
+            Self::StaticBoundary { .. } => None,
+            Self::DynamicBoundary { state, .. } => Some(state.checkpoint_state()),
+        }
+    }
+
+    fn restore_from_checkpoint(&mut self, saved: &Option<RigidBodyMotionState>) {
+        match (self, saved) {
+            (Self::DynamicBoundary { state, .. }, Some(saved)) => {
+                state.restore_from_checkpoint(saved);
+                // No cached `position`/`velocity` to refresh here: `find_boundary_samples`
+                // recomputes boundary samples fresh from `signed_distance_field` /
+                // `volume_map` via `state.world_to_local(...)` on every call, so the
+                // restored `state` alone is sufficient.
+            }
+            (Self::StaticBoundary { .. }, None) => {}
+            // Mismatch between the checkpoint and the current boundary setup
+            // (e.g. scene changed between saving and resuming): ignore rather
+            // than panic, but this indicates a stale checkpoint.
+            _ => {
+                #[cfg(feature = "logging")]
+                warn!(
+                    "Boundary checkpoint entry does not match boundary type \
+                         (static vs. dynamic); skipping restore for this boundary."
+                );
+            }
+        }
+    }
+}
+
+// ─── NeighborList ───────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+struct NeighborList {
+    positions: Vec<Point3<f64>>,
+    velocities: Vec<Vector3<f64>>,
+    volumes: Vec<f64>,
+    /// Flat neighbor list
+    indices: Vec<usize>,
+    /// Index list to point to start of the neighbor list of each sample
+    offsets: Vec<usize>,
+    /// Unflattened neighbor list which is necessary since there can exist many boundaries
+    unflattened_positions: Vec<Vec<Point3<f64>>>,
+    unflattened_velocities: Vec<Vec<Vector3<f64>>>,
+    unflattened_volumes: Vec<Vec<f64>>,
+    unflattened_indices: Vec<Vec<usize>>,
+}
+
+impl Default for NeighborList {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl NeighborList {
+    fn new(len: usize) -> Self {
+        Self {
+            positions: Vec::new(),
+            velocities: Vec::new(),
+            volumes: Vec::new(),
+            indices: vec![usize::default(); len],
+            offsets: vec![usize::default(); len + 1],
+            unflattened_positions: vec![Vec::new(); len],
+            unflattened_velocities: vec![Vec::new(); len],
+            unflattened_volumes: vec![Vec::new(); len],
+            unflattened_indices: vec![Vec::new(); len],
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.positions.len()
+    }
+
+    pub fn resize(&mut self, len: usize) {
+        // self.positions.resize(len, Point3::origin());
+        // self.velocities.resize(len, Vector3::zero());
+        // self.volumes.resize(len, 0.);
+        // self.indices.resize(len, usize::default());
+        // self.offsets.resize(len + 1, usize::default());
+        self.unflattened_positions.resize(len, Vec::new());
+        self.unflattened_velocities.resize(len, Vec::new());
+        self.unflattened_volumes.resize(len, Vec::new());
+        self.unflattened_indices.resize(len, Vec::new());
+    }
+
+    pub fn clear(&mut self) {
+        self.positions.clear();
+        self.velocities.clear();
+        self.volumes.clear();
+        self.indices.clear();
+        self.offsets.clear();
+        for_each!(
+            mut [self.unflattened_indices, self.unflattened_positions, self.unflattened_velocities, self.unflattened_volumes],
+            ref [],
+            |_id, id_index, id_pos, id_vel, id_vol| {
+                id_index.clear();
+                id_pos.clear();
+                id_vel.clear();
+                id_vol.clear();
+            }
+        );
+    }
+
+    /// Get mutable reference to unflattened neighbor list: one Vec<usize> per sample
+    ///
+    /// Contract: Always call flatten after updating data in unflattened array
+    pub fn neighbors_mut(
+        &mut self,
+    ) -> (
+        &mut Vec<Vec<Point3<f64>>>,
+        &mut Vec<Vec<Vector3<f64>>>,
+        &mut Vec<Vec<f64>>,
+        &mut Vec<Vec<usize>>,
+    ) {
+        (
+            &mut self.unflattened_positions,
+            &mut self.unflattened_velocities,
+            &mut self.unflattened_volumes,
+            &mut self.unflattened_indices,
+        )
+    }
+
+    /// Flatten neighbor list
+    fn flatten(&mut self, global_offset: usize) {
+        self.positions.clear();
+        self.velocities.clear();
+        self.volumes.clear();
+        self.indices.clear();
+        self.offsets.clear();
+
+        let total_neighbors: usize = self.unflattened_indices.iter().map(|v| v.len()).sum();
+        let num_particles = self.unflattened_indices.len();
+
+        self.positions.reserve(total_neighbors);
+        self.velocities.reserve(total_neighbors);
+        self.volumes.reserve(total_neighbors);
+        self.indices.reserve(total_neighbors);
+        self.offsets.reserve(num_particles + 1);
+
+        self.offsets.push(0);
+        for (((nbr_pos, nbr_vel), nbr_vol), idcs) in self
+            .unflattened_positions
+            .iter()
+            .zip(&self.unflattened_velocities)
+            .zip(&self.unflattened_volumes)
+            .zip(&self.unflattened_indices)
+        {
+            let offset_bc_of_previous_samples_neighbors = self.positions.len();
+            self.positions.extend_from_slice(nbr_pos);
+            self.velocities.extend_from_slice(nbr_vel);
+            self.volumes.extend_from_slice(nbr_vol);
+            for &local_idx in idcs {
+                self.indices
+                    .push(global_offset + offset_bc_of_previous_samples_neighbors + local_idx);
+            }
+            self.offsets.push(self.indices.len());
+        }
+    }
+
+    /// Get indices of neighbor of sample with identifier 'id'
+    pub fn get_neighbors(&self, id: usize) -> &[usize] {
+        &self.indices[self.offsets[id]..self.offsets[id + 1]]
+    }
+
+    fn pos_now<I>(&self, id: I) -> &I::Output
+    where
+        I: SliceIndex<[Point3<f64>]>,
+    {
+        &self.positions[id]
+    }
+
+    fn vel_now<I>(&self, id: I) -> &I::Output
+    where
+        I: SliceIndex<[Vector3<f64>]>,
+    {
+        &self.velocities[id]
+    }
+
+    fn volume<I>(&self, id: I) -> &I::Output
+    where
+        I: SliceIndex<[f64]>,
+    {
+        &self.volumes[id]
     }
 }
 

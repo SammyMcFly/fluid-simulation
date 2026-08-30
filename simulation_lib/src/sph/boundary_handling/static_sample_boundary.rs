@@ -9,10 +9,12 @@ use crate::render_info::{BoundaryMeshColoring, BoundarySampleColoring, BoundaryV
 use crate::setup::input::DynamicBoundaryDef;
 use crate::setup::input::StaticBoundaryDef;
 use crate::sph::boundary_handling::Boundary;
+use crate::sph::boundary_handling::BoundaryCheckpoint;
 use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::boundary_handling::ForceOntoBoundary;
 use crate::sph::boundary_handling::RequestMode;
 use crate::sph::boundary_handling::RigidBodyMotion;
+use crate::sph::boundary_handling::RigidBodyMotionState;
 // use crate::sph::boundary_handling::BoundaryParameters;
 use crate::sph::kernel::KernelFn;
 use crate::utilities::euler_deg_to_quaternion;
@@ -254,6 +256,32 @@ impl BoundaryHandling for SampleBoundary {
                     coloring,
                 }
             }
+        }
+    }
+
+    fn checkpoint_state(&self) -> BoundaryCheckpoint {
+        BoundaryCheckpoint {
+            dynamic_states: self
+                .boundaries
+                .iter()
+                .map(BoundaryType::checkpoint_state)
+                .collect(),
+        }
+    }
+
+    fn restore_from_checkpoint(&mut self, state: &BoundaryCheckpoint) {
+        if self.boundaries.len() != state.dynamic_states.len() {
+            #[cfg(feature = "logging")]
+            warn!(
+                "Boundary checkpoint has {} entries, but {} boundaries exist; \
+                 skipping boundary restore.",
+                state.dynamic_states.len(),
+                self.boundaries.len()
+            );
+            return;
+        }
+        for (boundary, saved) in self.boundaries.iter_mut().zip(&state.dynamic_states) {
+            boundary.restore_from_checkpoint(saved);
         }
     }
 }
@@ -578,19 +606,36 @@ impl BoundaryType {
             }
         }
     }
-}
 
-// /// Boundary represented by samples, which are identified by an ID (usize)
-// #[derive(Debug, Clone, Default)]
-// pub struct StaticSampleBoundary {
-//     boundary_id: Vec<u32>,
-//     position: Vec<Point3<f64>>,
-//     velocity: Vec<Vector3<f64>>,
-//     /// volume (necessary for sph fluid)
-//     volume: Vec<f64>,
-//     render_meshes: Vec<RenderMesh>,
-//     render_mesh_ids: Vec<u32>,
-// }
+    fn checkpoint_state(&self) -> Option<RigidBodyMotionState> {
+        match self {
+            Self::StaticBoundary { .. } => None,
+            Self::DynamicBoundary { state, .. } => Some(state.checkpoint_state()),
+        }
+    }
+
+    fn restore_from_checkpoint(&mut self, saved: &Option<RigidBodyMotionState>) {
+        match (&mut *self, saved) {
+            (Self::DynamicBoundary { state, .. }, Some(saved)) => {
+                state.restore_from_checkpoint(saved);
+            }
+            (Self::StaticBoundary { .. }, None) => {}
+            // Mismatch between the checkpoint and the current boundary setup
+            // (e.g. scene changed between saving and resuming): ignore rather
+            // than panic, but this indicates a stale checkpoint.
+            _ => {
+                #[cfg(feature = "logging")]
+                warn!(
+                    "Boundary checkpoint entry does not match boundary type \
+                         (static vs. dynamic); skipping restore for this boundary."
+                );
+            }
+        }
+        // Refresh cached position/velocity from the restored rigid-body pose.
+        // No-op for `StaticBoundary`.
+        self.update_positions_and_velocities();
+    }
+}
 
 impl Len for BoundaryType {
     fn len(&self) -> usize {

@@ -43,6 +43,7 @@ pub trait SPHSystem: DynClone {
     /// This includes calculating all parameters of the system at the next point in time.
     fn step_forward_in_time(&mut self);
 
+    fn get_boundary_checkpoint_state(&self) -> boundary_handling::BoundaryCheckpoint;
     fn continue_from_checkpoint(&mut self, checkpoint: Rc<Checkpoint>);
 
     /// Measure (physical) quantities at current time step
@@ -130,10 +131,15 @@ impl<
         self.properties.time_step_wall_clock_time = start.elapsed().as_secs_f64();
     }
 
+    fn get_boundary_checkpoint_state(&self) -> boundary_handling::BoundaryCheckpoint {
+        self.boundary.checkpoint_state()
+    }
+
     fn continue_from_checkpoint(&mut self, checkpoint: Rc<Checkpoint>) {
         self.time_steps_propagated = checkpoint.get_time_steps_propagated();
         self.fluid = checkpoint.get_fluid().clone().into();
-        // self.boundary = checkpoint.get_boundary().clone();
+        self.boundary
+            .restore_from_checkpoint(checkpoint.get_boundary());
         self.update();
     }
 
@@ -805,7 +811,7 @@ impl SystemParameters {
 pub struct Checkpoint {
     time_steps_propagated: u64,
     fluid: SerFluid3D,
-    // boundary: B,
+    boundary: boundary_handling::BoundaryCheckpoint,
 }
 
 // impl<B: BoundaryHandling> Checkpointy<B> {
@@ -814,7 +820,7 @@ impl Checkpoint {
         Self {
             time_steps_propagated: system.time_steps_propagated(),
             fluid: system.get_serialized_fluid(),
-            // boundary: self.boundary.get_checkpoint_data(),
+            boundary: system.get_boundary_checkpoint_state(),
         }
     }
 
@@ -826,7 +832,7 @@ impl Checkpoint {
         &self.fluid
     }
 
-    // pub fn get_boundary(&self) -> &dyn BoundaryHandling {
-    //     &self.boundary
-    // }
+    pub fn get_boundary(&self) -> &boundary_handling::BoundaryCheckpoint {
+        &self.boundary
+    }
 }
