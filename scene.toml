@@ -14,7 +14,7 @@ mesh = "cube_out"
 fluid_id = 0
 translation = [0.0, 0.0, 0.0]
 rotation_euler_deg = [0.0, 0.0, 0.0]
-scale = 10.0
+scale = 7.0
 
 [[boundary.dynamic]]
 mesh = "sphere_out"
@@ -36,5 +36,5 @@ scale = [2.0, 4.0, 10.0]
 mesh = "sphere_in"
 boundary_id = 0
 translation = [0.0, 0.0, 0.0]
-scale = 30.0
+scale = 20.0
 render_vertex_normals = "AngleWeightedPseudoNormals"

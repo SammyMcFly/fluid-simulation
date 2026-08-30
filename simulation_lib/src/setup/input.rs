@@ -24,7 +24,6 @@
 use serde::Deserialize;
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use std::collections::HashMap;
-use std::error::Error;
 
 use crate::{
     integration_schemes::IntegrationSchemeVariant,
@@ -34,6 +33,26 @@ use crate::{
         pressure_solver::PressureSolverVariant,
     },
 };
+
+/// Errors that can occur while loading and validating the parameter or scene
+/// configuration files.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    /// The file could not be read (missing, permissions, ...).
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    /// The file's contents are not valid TOML, or don't match the expected
+    /// structure (missing/unknown fields, wrong types, ...).
+    #[error("TOML error: {0}")]
+    Toml(#[from] toml::de::Error),
+
+    /// A key in `[parameters]` is only meaningful with a `cfl_time_step`
+    /// feature configuration different from the one this binary was built
+    /// with.
+    #[error("{0}")]
+    FeatureMismatch(String),
+}
 
 /// Full contents of the parameter file: both sections in one document.
 #[derive(Debug, Deserialize)]
@@ -54,12 +73,13 @@ impl ParameterFile {
     /// Fails if the file cannot be read, is not valid TOML, is missing a top-level
     /// section, contains an unknown key or section, or configures a time-stepping
     /// mode unsupported by this build.
-    pub fn from_file(file_path: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+    pub fn from_file(file_path: &str) -> Result<Self, ConfigError> {
         let text = std::fs::read_to_string(file_path)?;
 
         // Diagnose feature mismatches before the derived impl reports them as
         // unknown or missing fields.
-        check_time_step_keys(&toml::from_str(&text)?)?;
+        let document: toml::Table = toml::from_str(&text)?;
+        check_time_step_keys(&document)?;
 
         // Deserialize from the source text so that TOML errors retain their spans.
         Ok(toml::from_str(&text)?)
@@ -312,7 +332,7 @@ impl Scene {
     /// Fails if the file cannot be read, is not valid TOML, is missing `[light]` or
     /// `[meshes]`, or contains an unknown key or section. Mesh names and fluid ids are
     /// *not* validated here.
-    pub fn from_file(file_path: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+    pub fn from_file(file_path: &str) -> Result<Self, ConfigError> {
         // Read the scene file
         let config: Self = toml::from_str(&std::fs::read_to_string(file_path)?)?;
         Ok(config)
@@ -515,14 +535,14 @@ const INACTIVE_TIME_STEP_KEYS: &[(&str, &str)] = &[
 /// # Errors
 ///
 /// Returns a message naming the offending key and the required feature flag.
-fn check_time_step_keys(document: &toml::Table) -> Result<(), Box<dyn Error + Send + Sync>> {
+fn check_time_step_keys(document: &toml::Table) -> Result<(), ConfigError> {
     let Some(parameters) = document.get("parameters").and_then(toml::Value::as_table) else {
         return Ok(());
     };
 
     for (key, diagnostic) in INACTIVE_TIME_STEP_KEYS {
         if parameters.contains_key(*key) {
-            return Err((*diagnostic).into());
+            return Err(ConfigError::FeatureMismatch((*diagnostic).to_string()));
         }
     }
 
@@ -553,10 +573,22 @@ where
         }
 
         fn visit_f64<E: de::Error>(self, v: f64) -> Result<[f64; 3], E> {
+            if v < 0.0 {
+                return Err(de::Error::invalid_value(
+                    de::Unexpected::Float(v),
+                    &"a non-negative scale factor",
+                ));
+            }
             Ok([v, v, v])
         }
 
         fn visit_i64<E: de::Error>(self, v: i64) -> Result<[f64; 3], E> {
+            if v < 0 {
+                return Err(de::Error::invalid_value(
+                    de::Unexpected::Signed(v),
+                    &"a non-negative scale factor",
+                ));
+            }
             Ok([v as f64, v as f64, v as f64])
         }
 
@@ -570,6 +602,14 @@ where
             let z = seq
                 .next_element::<f64>()?
                 .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+            for (axis, v) in [("x", x), ("y", y), ("z", z)] {
+                if v < 0.0 {
+                    return Err(de::Error::invalid_value(
+                        de::Unexpected::Float(v),
+                        &format!("a non-negative scale factor for {axis}").as_str(),
+                    ));
+                }
+            }
             Ok([x, y, z])
         }
     }

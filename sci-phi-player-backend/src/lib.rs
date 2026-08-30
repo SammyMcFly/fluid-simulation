@@ -1,8 +1,7 @@
 //! Backend module
 use image::{ImageBuffer, Rgba};
 use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
-use std::fs::File;
-use std::io::{BufWriter, Read};
+use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
@@ -33,6 +32,42 @@ pub enum FileIoError {
 
     #[error("Failed to create image buffer")]
     ImageBufferCreationFailed,
+
+    /// A path has no final component to use as a file name.
+    #[error("no file name found in path '{0}'")]
+    NoFileName(std::path::PathBuf),
+
+    /// The recording data ended before a complete length-prefixed record
+    /// could be read — the file is truncated (e.g. an interrupted write) or
+    /// corrupted (a garbage length prefix caused an out-of-range read).
+    #[error("recording file is truncated or corrupted")]
+    Truncated,
+
+    /// A length-prefixed record's payload could not be decoded as a
+    /// [`SimulationParameters`](simulation_lib::render_info::SimulationParameters)
+    /// or [`TimeStepInfo`](simulation_lib::render_info::TimeStepInfo).
+    #[error("failed to decode recording data: {0}")]
+    Decode(#[from] bincode::error::DecodeError),
+}
+
+/// Reads one length-prefixed record (an 8-byte little-endian length followed
+/// by that many payload bytes) from `buf` starting at `*pos`, advancing
+/// `*pos` past it.
+///
+/// Returns [`FileIoError::Truncated`] if `buf` doesn't contain enough bytes
+/// for the length prefix or the payload it announces.
+fn read_length_prefixed<'a>(buf: &'a [u8], pos: &mut usize) -> Result<&'a [u8], FileIoError> {
+    let len_bytes: [u8; 8] = buf
+        .get(*pos..*pos + 8)
+        .and_then(|slice| slice.try_into().ok())
+        .ok_or(FileIoError::Truncated)?;
+    *pos += 8;
+
+    let len = u64::from_le_bytes(len_bytes) as usize;
+    let data = buf.get(*pos..*pos + len).ok_or(FileIoError::Truncated)?;
+    *pos += len;
+
+    Ok(data)
 }
 
 fn read_recording(
@@ -51,8 +86,10 @@ fn read_recording(
         std::fs::create_dir_all(file_path_parent.clone())?;
         tracing::info!("Created directories: {}", file_path_parent.display());
     }
-    let global_file_path =
-        file_path_parent.join(file_path.file_name().expect("No final component found."));
+    let file_name = file_path
+        .file_name()
+        .ok_or_else(|| FileIoError::NoFileName(file_path.to_path_buf()))?;
+    let global_file_path = file_path_parent.join(file_name);
 
     let mut f = std::fs::File::open(global_file_path)?;
     let mut buf = Vec::new();
@@ -60,31 +97,12 @@ fn read_recording(
 
     let mut pos: usize = 0;
 
-    let general_info: SimulationParameters = {
-        let mut len_bytes = [0u8; 8];
-        len_bytes.copy_from_slice(&buf[pos..pos + 8]);
-        pos += 8;
-
-        let len = u64::from_le_bytes(len_bytes) as usize;
-        let data = &buf[pos..pos + len];
-        pos += len;
-
-        data.into()
-    };
+    let general_info = SimulationParameters::try_from(read_length_prefixed(&buf, &mut pos)?)?;
 
     let mut time_steps = Vec::new();
-
     while pos < buf.len() {
-        let mut len_bytes = [0u8; 8];
-        len_bytes.copy_from_slice(&buf[pos..pos + 8]);
-        pos += 8;
-
-        let len = u64::from_le_bytes(len_bytes) as usize;
-        let data = &buf[pos..pos + len];
-        pos += len;
-
-        let ts_info = data.into();
-        time_steps.push(ts_info);
+        let data = read_length_prefixed(&buf, &mut pos)?;
+        time_steps.push(TimeStepInfo::try_from(data)?);
     }
 
     Ok((general_info, time_steps))
@@ -124,37 +142,6 @@ pub fn save_screenshot_to_file(
         .ok_or(FileIoError::ImageBufferCreationFailed)?;
 
     img.save(&file_path)?;
-
-    Ok(())
-}
-
-/// Save padded data as PNG. The `padded_bytes` contain rows with `padded_bpr` bytes per row,
-/// with actual tight row length = width * 4.
-pub fn save_to_png(
-    rgba_data: &[u8],
-    width: u32,
-    height: u32,
-    frame_index: usize,
-    output_dir: &std::path::Path,
-) -> Result<(), FileIoError> {
-    let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba_data)
-        .ok_or(FileIoError::ImageBufferCreationFailed)?;
-
-    let filename = format!("frame_{:06}.png", frame_index);
-    let file_path = output_dir.join(filename);
-    if !output_dir.exists() {
-        // Create the parent directory if it does not exist
-        std::fs::create_dir_all(output_dir)?;
-        tracing::info!("Created directory: {}", output_dir.display());
-    } else if file_path.exists() {
-        // Throw an error if file already exist
-        tracing::error!("File already exists: {}", file_path.display());
-        return Err(FileIoError::FileAlreadyExists(file_path));
-    }
-
-    let file = File::create(file_path)?;
-    let writer = BufWriter::new(file);
-    img.write_to(&mut BufWriter::new(writer), image::ImageFormat::Png)?;
 
     Ok(())
 }

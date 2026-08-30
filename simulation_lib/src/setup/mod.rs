@@ -1,6 +1,7 @@
 //! Module for scene building and parameter importing
 //!
 //!
+mod error;
 pub mod input;
 
 use crate::fluid::{Fluid, Len};
@@ -8,7 +9,6 @@ use crate::integration_schemes::IntegrationScheme;
 use crate::integration_schemes::*;
 use crate::neighbor_search::NeighborSearch;
 use crate::neighbor_search::*;
-use crate::setup::input::{Parameters, Procedures, Scene};
 use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::boundary_handling::*;
 use crate::sph::kernel::*;
@@ -17,6 +17,8 @@ use crate::sph::pressure_solver::*;
 use crate::sph::{SPHSystem, SerSystemCheckpoint, System};
 use crate::sph::{SystemCheckpoint, SystemParameters};
 use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary};
+pub use error::SetupError;
+use input::{Parameters, Procedures, Scene};
 
 use std::collections::HashMap;
 
@@ -50,8 +52,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
         params: &Parameters,
         scene: &Scene,
         sample_state_file_path: Option<&str>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        println!("called once");
+    ) -> Result<Self, SetupError> {
         let integrator = I::default();
         let pressure_solver: P = P::new(params);
         let mut neighbor_search = N::new(params.kernel_support_radius);
@@ -60,7 +61,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
         let mut meshes = MeshLibrary::default();
         let mut index_map = HashMap::new();
         for (i, mesh) in scene.meshes.keys().enumerate() {
-            meshes.load_obj(scene.meshes.get(mesh).unwrap());
+            meshes.load_obj(scene.meshes.get(mesh).unwrap())?;
             index_map.insert(mesh.clone(), i);
         }
 
@@ -87,7 +88,9 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                 // select mesh
                 let mut mesh = meshes
                     .get_mesh_container(MeshHandle {
-                        idx: *index_map.get(&f.mesh).expect("Failed to get mesh"),
+                        idx: *index_map
+                            .get(&f.mesh)
+                            .ok_or_else(|| SetupError::UnknownMesh(f.mesh.clone()))?,
                         mesh_id: f.fluid_id,
                     })
                     .clone();
@@ -99,7 +102,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                     f.fluid_id,
                     *fluid_rest_densities
                         .get(&f.fluid_id)
-                        .expect("Failed to access undefined fluid (check if all accessed fluid IDs are defined)"),
+                        .ok_or(SetupError::UndefinedFluidId(f.fluid_id))?,
                     params.rest_density_grid_spacing,
                 );
             }
@@ -116,7 +119,9 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                 // select mesh
                 let mut mesh = meshes
                     .get_mesh_container(MeshHandle {
-                        idx: *index_map.get(&b.mesh).expect("Failed to get mesh"),
+                        idx: *index_map
+                            .get(&b.mesh)
+                            .ok_or_else(|| SetupError::UnknownMesh(b.mesh.clone()))?,
                         mesh_id: b.boundary_id,
                     })
                     .clone();
@@ -132,7 +137,9 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                 // select mesh
                 let mut mesh = meshes
                     .get_mesh_container(MeshHandle {
-                        idx: *index_map.get(&b.mesh).expect("Failed to get mesh"),
+                        idx: *index_map
+                            .get(&b.mesh)
+                            .ok_or_else(|| SetupError::UnknownMesh(b.mesh.clone()))?,
                         mesh_id: b.boundary_id,
                     })
                     .clone();
@@ -219,7 +226,7 @@ pub fn new_boxed_system3d(
     params: &Parameters,
     scene: &Scene,
     state: Option<&str>,
-) -> Result<Box<dyn SPHSystem>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Box<dyn SPHSystem>, SetupError> {
     // Nest macros to build the cartesian product without writing each combination
     macro_rules! with_boundary {
         ($K:ty, $I:ty, $P:ty, $N:ty) => {

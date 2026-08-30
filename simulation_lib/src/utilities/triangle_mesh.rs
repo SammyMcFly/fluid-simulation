@@ -1,11 +1,23 @@
 //! Triangle mesh library
 use bincode::{Decode, Encode};
-use nalgebra::{Isometry3, Matrix4, Point3, Rotation3, UnitQuaternion, Vector3};
+use nalgebra::{Matrix4, Point3, Rotation3, Vector3};
 use parry3d_f64::math::Vec3;
 use parry3d_f64::shape::{TriMesh, TriMeshFlags};
 use serde::{Deserialize, Serialize};
 
 use crate::setup::input::VertexNormalRenderOption;
+
+/// Errors that can occur while loading a triangle mesh asset.
+#[derive(Debug, thiserror::Error)]
+pub enum MeshError {
+    /// The `.obj`/`.mtl` file could not be read or parsed.
+    #[error("failed to load mesh '{path}': {source}")]
+    Obj {
+        path: String,
+        #[source]
+        source: tobj::LoadError,
+    },
+}
 
 /// Mesh handle which references a mesh in the [[MeshLibrary]]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -226,9 +238,9 @@ impl MeshContainer {
         rotation_euler_deg: &[f64; 3],
         scale: &[f64; 3],
     ) {
-        assert!(scale[0] >= 0.);
-        assert!(scale[1] >= 0.);
-        assert!(scale[2] >= 0.);
+        debug_assert!(scale[0] >= 0.);
+        debug_assert!(scale[1] >= 0.);
+        debug_assert!(scale[2] >= 0.);
 
         let transform = build_transform(translation, rotation_euler_deg, scale);
 
@@ -249,9 +261,12 @@ pub struct MeshLibrary {
 }
 
 impl MeshLibrary {
-    pub fn load_obj(&mut self, path: &str) {
+    pub fn load_obj(&mut self, path: &str) -> Result<(), MeshError> {
         let (models, _) =
-            tobj::load_obj(path, &tobj::GPU_LOAD_OPTIONS).expect("Failed to load OBJ");
+            tobj::load_obj(path, &tobj::GPU_LOAD_OPTIONS).map_err(|source| MeshError::Obj {
+                path: path.to_string(),
+                source,
+            })?;
 
         let mut positions: Vec<Point3<f64>> = Vec::new();
         let mut normals: Vec<Vector3<f64>> = Vec::new();
@@ -287,6 +302,7 @@ impl MeshLibrary {
             normals,
             indices,
         }));
+        Ok(())
     }
 
     pub fn get_mesh_container(&self, handle: MeshHandle) -> &MeshContainer {

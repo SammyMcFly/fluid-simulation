@@ -6,6 +6,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
+/// Errors that can occur while creating or saving a [`MeasurementSeries`].
+#[derive(Debug, thiserror::Error)]
+pub enum MeasurementError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("CSV serialization error: {0}")]
+    Csv(#[from] csv::Error),
+
+    /// No unique file name could be found after exhausting the `_#N` suffix
+    /// range (`N` up to `u16::MAX`).
+    #[error("file '{0}' and all numbered variants already exist")]
+    NoUniqueFileName(PathBuf),
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub enum RecordingStatus {
     #[default]
@@ -68,7 +83,7 @@ pub struct MeasurementSeries {
 }
 
 impl MeasurementSeries {
-    pub fn new(file_path: &str) -> std::io::Result<Self> {
+    pub fn new(file_path: &str) -> Result<Self, MeasurementError> {
         let file_path = std::path::Path::new(&file_path);
         // convert to global path
         let file_path_parent = std::fs::canonicalize(
@@ -100,7 +115,9 @@ impl MeasurementSeries {
                         format!("{}.{}", stem, ext),
                         format!("{}_#123.{}", stem, ext),
                     );
-                    return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+                    return Err(MeasurementError::NoUniqueFileName(
+                        immutable_global_file_path,
+                    ));
                 }
                 let new_filename = format!("{}_#{}.{}", stem, counter, ext);
                 global_file_path = global_file_path.with_file_name(new_filename);
@@ -119,19 +136,7 @@ impl MeasurementSeries {
     pub fn push_back(&mut self, value: Measurement) {
         self.queue.push_back(value);
     }
-    // pub fn pop_front(&mut self) -> Option<Measurement> {
-    //     self.queue.pop_front()
-    // }
-    // pub fn clear(&mut self) {
-    //     self.queue.clear();
-    // }
-    // pub fn is_empty(&self) -> bool {
-    //     self.queue.is_empty()
-    // }
-    // pub fn len(&self) -> usize {
-    //     self.queue.len()
-    // }
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self) -> Result<(), MeasurementError> {
         if self.queue.is_empty() {
             #[cfg(feature = "logging")]
             tracing::warn!("Saving empty measurement series!");

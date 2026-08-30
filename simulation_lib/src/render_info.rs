@@ -50,11 +50,13 @@ impl SimulationParameters {
     }
 }
 
-impl From<&[u8]> for SimulationParameters {
-    fn from(bytes: &[u8]) -> Self {
+impl TryFrom<&[u8]> for SimulationParameters {
+    type Error = bincode::error::DecodeError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         let cfg = bincode::config::standard();
-        let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg).unwrap();
-        decoded
+        let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg)?;
+        Ok(decoded)
     }
 }
 
@@ -87,11 +89,13 @@ impl TimeStepInfo {
     }
 }
 
-impl From<&[u8]> for TimeStepInfo {
-    fn from(bytes: &[u8]) -> Self {
+impl TryFrom<&[u8]> for TimeStepInfo {
+    type Error = bincode::error::DecodeError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         let cfg = bincode::config::standard();
-        let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg).unwrap();
-        decoded
+        let (decoded, _len): (Self, usize) = bincode::decode_from_slice(bytes, cfg)?;
+        Ok(decoded)
     }
 }
 
@@ -181,7 +185,7 @@ impl FluidSampleColoring {
                 let max_id = val.iter().copied().max().unwrap_or(0);
                 Self::FluidId { id: val, max_id }
             }
-            Self::QuantityGraded { data, quantity } => Self::QuantityGraded {
+            Self::QuantityGraded { quantity, .. } => Self::QuantityGraded {
                 quantity: quantity.clone(),
                 data: system.get_quantity_of_fluid_samples(quantity),
             },

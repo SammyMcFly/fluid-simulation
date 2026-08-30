@@ -1,21 +1,44 @@
 //! Backend for the Sci-Phi fluid simulation application.
+pub mod commands;
+pub mod messages;
+pub mod recording;
+
+use crate::recording::{FileIoError, save_screenshot_into_directory, save_screenshot_to_file};
+use commands::WorkerCommand;
+use messages::WorkerMessage;
+
 use crossbeam::channel::{Receiver, Sender};
-use simulation_lib::measurement::{MeasurementSeries, RecordingStatus};
+use simulation_lib::measurement::{MeasurementError, MeasurementSeries, RecordingStatus};
 use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
-use simulation_lib::setup::input::{ParameterFile, Scene};
+use simulation_lib::setup::SetupError;
+use simulation_lib::setup::input::{ConfigError, ParameterFile, Scene};
 use simulation_lib::setup::new_boxed_system3d;
 use simulation_lib::sph::{SPHSystem, SystemCheckpoint};
 use std::rc::Rc;
 use std::time::Duration;
 
-pub mod commands;
-pub mod messages;
-pub mod recording;
+/// Errors that can occur while loading, controlling, or recording a
+/// simulation on the worker thread.
+#[derive(Debug, thiserror::Error)]
+pub enum SimulationError {
+    #[error("failed to load configuration: {0}")]
+    Config(#[from] ConfigError),
 
-use commands::WorkerCommand;
-use messages::WorkerMessage;
+    #[error("failed to construct simulation system: {0}")]
+    Setup(#[from] SetupError),
 
-use crate::recording::{save_screenshot_into_directory, save_screenshot_to_file};
+    #[error("failed to open measurement file: {0}")]
+    Measurement(#[from] MeasurementError),
+
+    #[error(transparent)]
+    Recording(#[from] FileIoError),
+
+    #[error(
+        "cannot continue from checkpoint at time step {requested}: only \
+         {available} time steps have been computed so far"
+    )]
+    CheckpointNotReady { requested: u64, available: u64 },
+}
 
 /// Struct that does:
 /// - holds initial state of a system
@@ -53,7 +76,7 @@ impl Simulation {
     /// Try to load simulation and return initial state
     fn load(
         simulation_load_info: &SimulationLoadInfo,
-    ) -> Result<(TimeStepInfo, Simulation), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(TimeStepInfo, Simulation), SimulationError> {
         let ParameterFile {
             procedures,
             parameters,
@@ -90,7 +113,7 @@ impl Simulation {
             Some(Ok(ms)) => Some(ms),
             Some(Err(e)) => {
                 tracing::error!("Failed to handle measurement file: {}", e);
-                return Err(format!("Failed to handle measurement file: {}", e).into());
+                return Err(SimulationError::Measurement(e));
             }
             None => None,
         };
@@ -102,7 +125,7 @@ impl Simulation {
             Some(Ok(ms)) => Some(ms),
             Some(Err(e)) => {
                 tracing::error!("Failed to handle recording file: {}", e);
-                return Err(format!("Failed to handle recording file: {}", e).into());
+                return Err(SimulationError::Recording(e));
             }
             None => None,
         };
@@ -132,14 +155,17 @@ impl Simulation {
     fn continue_from_checkpoint(
         &mut self,
         with_info: TimeStepInfo,
-    ) -> Result<TimeStepInfo, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<TimeStepInfo, SimulationError> {
         self.render_preset = with_info.clone();
 
         if self.system.time_steps_propagated() < with_info.time_step_number {
             tracing::warn!(
                 "Could not cater to request of continuing from checkpoint. Checkpoint has not yet been created."
             );
-            return Err("Checkpoint has not yet been created.".into());
+            return Err(SimulationError::CheckpointNotReady {
+                requested: with_info.time_step_number,
+                available: self.system.time_steps_propagated(),
+            });
         }
         let last_checkpoint =
             self.checkpoints[usize::try_from(with_info.time_step_number / Self::N)
@@ -242,21 +268,14 @@ impl Simulation {
     //     self.finish_time.is_some()
     // }
 
-    fn save_measurement(&mut self) -> Result<(), String> {
+    fn save_measurement(&mut self) -> Result<(), SimulationError> {
         if let Some(meas) = &mut self.measurement_series {
-            match meas.save() {
-                Ok(_) => {
-                    tracing::info!(
-                        "Successfully saved measurement: {}",
-                        meas.get_path().as_path().display()
-                    );
-                    return Ok(());
-                }
-                Err(e) => {
-                    tracing::error!("Failed saving measurement: {}", e);
-                    return Err(format!("Failed saving measurement: {}", e));
-                }
-            }
+            meas.save()
+                .inspect_err(|e| tracing::error!("Failed saving measurement: {}", e))?;
+            tracing::info!(
+                "Successfully saved measurement: {}",
+                meas.get_path().display()
+            );
         }
         Ok(())
     }
@@ -265,7 +284,14 @@ impl Simulation {
         &mut self,
         time_step_number: u64,
         file_path: &std::path::Path,
-    ) -> Result<(), String> {
+    ) -> Result<(), SimulationError> {
+        if self.system.time_steps_propagated() < time_step_number {
+            tracing::warn!("Cannot save state at time step {time_step_number}: not yet computed.");
+            return Err(SimulationError::CheckpointNotReady {
+                requested: time_step_number,
+                available: self.system.time_steps_propagated(),
+            });
+        }
         let last_checkpoint = self.checkpoints
             [usize::try_from(time_step_number / Self::N).expect("Value too large for usize")]
         .clone();
@@ -277,7 +303,8 @@ impl Simulation {
             step += 1;
         }
         let checkpoint = SystemCheckpoint::from_sph_system(&*self.state_saver_system);
-        recording::save_system_state(checkpoint.into(), file_path).map_err(|e| e.to_string())
+        recording::save_system_state(checkpoint.into(), file_path)?;
+        Ok(())
     }
 }
 
@@ -320,7 +347,7 @@ impl SimulationController {
     fn load_simulation(
         &mut self,
         simulation_load_info: SimulationLoadInfo,
-    ) -> Result<TimeStepInfo, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<TimeStepInfo, SimulationError> {
         self.timesteps_to_compute = 0;
         self.simulation_load_info = Some(simulation_load_info);
         match Simulation::load(self.simulation_load_info.as_ref().unwrap()) {
@@ -336,7 +363,7 @@ impl SimulationController {
     fn continue_from_checkpoint(
         &mut self,
         time_step_info: TimeStepInfo,
-    ) -> Result<TimeStepInfo, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<TimeStepInfo, SimulationError> {
         self.simulation_load_info.as_mut().unwrap().with_info = time_step_info;
         self.timesteps_to_compute = 0;
         match self.simulation.as_mut().unwrap().continue_from_checkpoint(
@@ -408,14 +435,14 @@ impl SimulationController {
     //     }
     // }
 
-    fn save_measurement(&mut self) -> Result<(), String> {
+    fn save_measurement(&mut self) -> Result<(), SimulationError> {
         if let Some(sim) = &mut self.simulation {
             return sim.save_measurement();
         }
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<(), String> {
+    fn stop(&mut self) -> Result<(), SimulationError> {
         if !self.finish_registered {
             self.save_measurement()?;
         }
@@ -594,7 +621,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
             simulation_controller.pause();
             let _ = to_ui.send(WorkerMessage::ReachedFinishTime);
             let save_message = if let Err(e) = simulation_controller.save_measurement() {
-                WorkerMessage::Error(e)
+                WorkerMessage::Error(e.to_string())
             } else {
                 WorkerMessage::SavedMeasurement
             };

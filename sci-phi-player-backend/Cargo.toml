@@ -18,6 +18,9 @@ image = "0.25.9"
 # storing struct in the RON format
 ron = "0.12"
 
+# writing to binary files
+bincode = "2.0.1"
+
 # error handling
 thiserror = "2.0"
 

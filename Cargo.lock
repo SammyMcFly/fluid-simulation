@@ -5522,6 +5522,7 @@ dependencies = [
 name = "sci-phi-player-backend"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "crossbeam",
  "image",
  "rendering_lib",
