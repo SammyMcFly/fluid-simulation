@@ -159,6 +159,12 @@ impl RigidBodyMotion {
         self.pose().inverse_transform_point(p_world)
     }
 
+    /// World-space point -> body/local-space point.
+    #[inline]
+    pub fn local_to_world(&self, p_world: &Point3<f64>) -> Point3<f64> {
+        self.pose().transform_point(p_world)
+    }
+
     /// Local-space direction/gradient -> world-space direction/gradient.
     #[inline]
     pub fn local_to_world_vector(&self, v_local: &Vector3<f64>) -> Vector3<f64> {
@@ -173,6 +179,10 @@ impl RigidBodyMotion {
 
     pub fn angular_velocity(&self) -> Vector3<f64> {
         self.inertia_tensor_inv_world() * self.angular_momentum
+    }
+
+    pub fn velocity_at_cm(&self) -> Vector3<f64> {
+        self.linear_velocity
     }
 
     pub fn velocity_at_point(&self, p_world: &Point3<f64>) -> Vector3<f64> {
