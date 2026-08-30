@@ -42,7 +42,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.world_position = swizzle(in.position);
     out.world_normal = swizzle(in.normal);
     out.color = in.color;
-    out.clip_position = camera.view_proj * vec4(in.position, 1.0);
+    out.clip_position = camera.view_proj * vec4(out.world_position, 1.0);
     return out;
 }
 
