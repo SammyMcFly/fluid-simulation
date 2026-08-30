@@ -8,8 +8,6 @@ use std::time::Duration;
 
 use crossbeam::channel::{Receiver, Sender};
 
-use tracing::{error, info}; // debug, error, info, span, trace, warn,
-
 pub mod commands;
 pub mod messages;
 
@@ -51,7 +49,7 @@ fn read_recording(
     // Create the parent directory if it does not exist
     if !file_path_parent.exists() {
         std::fs::create_dir_all(file_path_parent.clone())?;
-        info!("Created directories: {}", file_path_parent.display());
+        tracing::info!("Created directories: {}", file_path_parent.display());
     }
     let global_file_path =
         file_path_parent.join(file_path.file_name().expect("No final component found."));
@@ -115,10 +113,10 @@ pub fn save_screenshot_to_file(
     let output_dir = file_path.parent().ok_or(FileIoError::NoParentDirectory)?;
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)?;
-        info!("Created directory: {}", output_dir.display());
+        tracing::info!("Created directory: {}", output_dir.display());
     } else if file_path.exists() && !overwrite {
         // Throw an error if file already exist
-        error!("File already exists: {}", file_path.display());
+        tracing::error!("File already exists: {}", file_path.display());
         return Err(FileIoError::FileAlreadyExists(file_path.clone()));
     }
 
@@ -147,10 +145,10 @@ pub fn save_to_png(
     if !output_dir.exists() {
         // Create the parent directory if it does not exist
         std::fs::create_dir_all(output_dir)?;
-        info!("Created directory: {}", output_dir.display());
+        tracing::info!("Created directory: {}", output_dir.display());
     } else if file_path.exists() {
         // Throw an error if file already exist
-        error!("File already exists: {}", file_path.display());
+        tracing::error!("File already exists: {}", file_path.display());
         return Err(FileIoError::FileAlreadyExists(file_path));
     }
 
@@ -170,15 +168,15 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
         match from_ui.try_recv() {
             Ok(msg) => match msg {
                 WorkerCommand::ReadRecording(file_path) => {
-                    info!("Start reading recording...");
+                    tracing::info!("Start reading recording...");
                     match read_recording(&file_path) {
                         Ok((sim_info, time_steps)) => {
-                            info!("Successfully finished reading recording!");
+                            tracing::info!("Successfully finished reading recording!");
                             let _ =
                                 to_ui.send(WorkerMessage::FinishedReading(sim_info, time_steps));
                         }
                         Err(e) => {
-                            info!("Failed reading recording!");
+                            tracing::info!("Failed reading recording!");
                             let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
                         }
                     }
@@ -199,10 +197,10 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                         &directory,
                         overwrite,
                     ) {
-                        error!("Screenshot failed: {e}");
+                        tracing::error!("Screenshot failed: {e}");
                         let _ = to_ui.send(WorkerMessage::Error(format!("Screenshot failed: {e}")));
                     } else {
-                        info!("Saved screenshot frame {frame_index}");
+                        tracing::info!("Saved screenshot frame {frame_index}");
                     }
                 }
                 WorkerCommand::SaveScreenshotToFile {
@@ -213,14 +211,14 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                 } => {
                     if let Err(e) = save_screenshot_to_file(&data, width, height, &file_path, false)
                     {
-                        error!("Screenshot failed: {e}");
+                        tracing::error!("Screenshot failed: {e}");
                         let _ = to_ui.send(WorkerMessage::Error(format!("Screenshot failed: {e}")));
                     } else {
-                        info!("Saved manual screenshot frame");
+                        tracing::info!("Saved manual screenshot frame");
                     }
                 }
                 WorkerCommand::Stop => {
-                    info!("Stopped backend!");
+                    tracing::info!("Stopped backend!");
                     break 'worker;
                 }
             },
@@ -228,7 +226,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                 std::thread::sleep(Duration::from_millis(16));
             }
             Err(crossbeam::channel::TryRecvError::Disconnected) => {
-                error!("Sender was dropped!");
+                tracing::error!("Sender was dropped!");
                 break 'worker;
             }
         }

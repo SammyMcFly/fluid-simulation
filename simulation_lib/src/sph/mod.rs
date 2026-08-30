@@ -31,8 +31,6 @@ use num_traits::Zero;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::rc::Rc;
-#[cfg(feature = "logging")]
-use tracing::{debug, warn}; // debug, error, info, span, trace, warn,
 
 pub trait SPHSystem: DynClone {
     fn time(&self) -> f64;
@@ -146,14 +144,14 @@ impl<
     /// Measure (physical) quantities at current time step
     fn take_measurement(&self) -> Measurement {
         // if cfg!(feature = "logging") {
-        //     debug!(
+        //     tracing::debug!(
         //         "{}, {}",
         //         self.properties.average_density, self.properties.rest_density
         //     );
         //     let max_speed = self.calc_max_speed();
         //     let cfl_coeff = max_speed * self.properties.time_increment
         //         / self.properties.rest_density_grid_spacing;
-        //     debug!(
+        //     tracing::debug!(
         //         "time: {}, cfl coefficient: {}, max speed: {}",
         //         self.time(),
         //         cfl_coeff,
@@ -685,7 +683,7 @@ impl<
         self.parameters.set_cfl_time_step(max_speed);
         #[cfg(all(feature = "logging", not(feature = "cfl_time_step")))]
         {
-            debug!(
+            tracing::debug!(
                 "cfl number: {}",
                 self.parameters.time_increment * max_speed
                     / self.parameters.rest_density_grid_spacing

@@ -34,8 +34,6 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
 use std::slice::SliceIndex;
-#[cfg(feature = "logging")]
-use tracing::warn;
 
 #[derive(Debug, Default, Clone)]
 pub struct SampleBoundary {
@@ -272,7 +270,7 @@ impl BoundaryHandling for SampleBoundary {
     fn restore_from_checkpoint(&mut self, state: &BoundaryCheckpoint) {
         if self.boundaries.len() != state.dynamic_states.len() {
             #[cfg(feature = "logging")]
-            warn!(
+            tracing::warn!(
                 "Boundary checkpoint has {} entries, but {} boundaries exist; \
                  skipping boundary restore.",
                 state.dynamic_states.len(),
@@ -319,9 +317,9 @@ impl BoundaryHandling for SampleBoundary {
 //             self.boundaries
 //                 .set_volume(boundary_particle_index, pseudo_volume);
 //             // #[cfg(feature = "logging")]
-//             // debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
+//             // tracing::debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
 //             // #[cfg(feature = "logging")]
-//             // debug!("boundary particle {} has mass: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].mass());
+//             // tracing::debug!("boundary particle {} has mass: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].mass());
 //         }
 //     }
 // }
@@ -432,9 +430,9 @@ impl BoundaryType {
             let pseudo_volume = boundary_rest_volume_weighting / inverse_volume;
             self.volume_mut()[boundary_particle_index] = pseudo_volume;
             // #[cfg(feature = "logging")]
-            // debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
+            // tracing::debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
             // #[cfg(feature = "logging")]
-            // debug!("boundary particle {} has mass: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].mass());
+            // tracing::debug!("boundary particle {} has mass: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].mass());
         }
     }
 
@@ -625,7 +623,7 @@ impl BoundaryType {
             // than panic, but this indicates a stale checkpoint.
             _ => {
                 #[cfg(feature = "logging")]
-                warn!(
+                tracing::warn!(
                     "Boundary checkpoint entry does not match boundary type \
                          (static vs. dynamic); skipping restore for this boundary."
                 );

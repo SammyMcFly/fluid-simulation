@@ -28,7 +28,6 @@ use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing::{error, info, warn};
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 const APP_ICON: &[u8] = include_bytes!("../../resources/icons/hicolor/scalable/apps/icon.svg");
@@ -409,7 +408,7 @@ impl cosmic::Application for AppModel {
             Message::LaunchUrl(url) => match open::that_detached(&url) {
                 Ok(()) => {}
                 Err(err) => {
-                    error!("failed to open {url:?}: {err}");
+                    tracing::error!("failed to open {url:?}: {err}");
                 }
             },
             Message::ResetCamera => {
@@ -624,7 +623,10 @@ impl cosmic::Application for AppModel {
                                 self.inspector.info.rendering_status.advance_to_next_state();
                                 // deactivate looping
                                 self.playback.play_looped = false;
-                                info!("Rendering mode activated at t={}", ts_info.measurement.time);
+                                tracing::info!(
+                                    "Rendering mode activated at t={}",
+                                    ts_info.measurement.time
+                                );
                             }
                         }
                         if rendering.active && !rendering.awaiting_capture {
@@ -645,7 +647,7 @@ impl cosmic::Application for AppModel {
                             rendering.finished_once = true;
                             self.inspector.info.rendering_status.advance_to_next_state();
                             self.playback.pause();
-                            info!(
+                            tracing::info!(
                                 "Rendering complete: {} frames captured",
                                 rendering.frame_counter
                             );
@@ -886,7 +888,7 @@ impl AppModel {
             WorkerMessage::SavedScreenshot => {}
             WorkerMessage::SavedState => {}
             WorkerMessage::Error(e) => {
-                error!("Backend error: {e}");
+                tracing::error!("Backend error: {e}");
             } // todo: handle/print error in ui
         }
         None
@@ -1088,7 +1090,7 @@ impl Drop for AppModel {
             && !matches!(self.inspector.info.rendering_status, RecordingStatus::None)
             && (!self.inspector.info.rendering_status.is_finished())
         {
-            warn!("Finish time was not reached!");
+            tracing::warn!("Finish time was not reached!");
         }
         // Stop worker
         let _ = self.to_worker.send(WorkerCommand::Stop);

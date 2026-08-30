@@ -93,7 +93,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                 );
             }
             if fluid.is_empty() {
-                warn!("No fluid is present in simulation.");
+                tracing::warn!("No fluid is present in simulation.");
             };
             fluid
         };
@@ -134,7 +134,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                 );
             }
             if boundary.is_empty() {
-                warn!("No boundary is present in simulation.");
+                tracing::warn!("No boundary is present in simulation.");
             };
             boundary
         };

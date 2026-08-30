@@ -7,7 +7,6 @@ use simulation_lib::setup::new_boxed_system3d;
 use simulation_lib::sph::{Checkpoint, SPHSystem};
 use std::rc::Rc;
 use std::time::Duration;
-use tracing::{error, info, warn};
 
 pub mod commands;
 pub mod messages;
@@ -80,7 +79,7 @@ impl Simulation {
         {
             Some(Ok(ms)) => Some(ms),
             Some(Err(e)) => {
-                error!("Failed to handle measurement file: {}", e);
+                tracing::error!("Failed to handle measurement file: {}", e);
                 return Err(format!("Failed to handle measurement file: {}", e).into());
             }
             None => None,
@@ -92,7 +91,7 @@ impl Simulation {
         {
             Some(Ok(ms)) => Some(ms),
             Some(Err(e)) => {
-                error!("Failed to handle recording file: {}", e);
+                tracing::error!("Failed to handle recording file: {}", e);
                 return Err(format!("Failed to handle recording file: {}", e).into());
             }
             None => None,
@@ -114,10 +113,11 @@ impl Simulation {
             finish_time: simulation_load_info.finish_time,
             state_saver_system,
         };
-        info!("Loaded new simulation!");
+        tracing::info!("Loaded new simulation!");
 
         Ok((sim.get_time_step_info(), sim))
     }
+
     fn continue_from_checkpoint(
         &mut self,
         with_info: TimeStepInfo,
@@ -128,12 +128,12 @@ impl Simulation {
         self.start_time = None;
         self.finish_time = None;
         if self.recording_status.is_active() {
-            warn!("Recording was interrupted!");
+            tracing::warn!("Recording was interrupted!");
         }
         self.recording_status = RecordingStatus::None;
 
         if self.system.time_steps_propagated() < with_info.time_step_number {
-            warn!(
+            tracing::warn!(
                 "Could not cater to request of continuing from checkpoint. Checkpoint has not yet been created."
             );
             return Err("Checkpoint has not yet been created.".into());
@@ -145,10 +145,12 @@ impl Simulation {
         self.system.continue_from_checkpoint(last_checkpoint);
         Ok(self.get_time_step_info())
     }
+
     fn get_next_time_step(&mut self) -> TimeStepInfo {
         self.system.step_forward_in_time();
         self.get_time_step_info()
     }
+
     fn get_time_step_info(&mut self) -> TimeStepInfo {
         let time_step_info = TimeStepInfo::from_system(&mut *self.system, &self.render_preset);
         self.record(&time_step_info);
@@ -163,9 +165,11 @@ impl Simulation {
         }
         time_step_info
     }
+
     fn time(&self) -> f64 {
         self.system.time()
     }
+
     /// Updates measurement status
     fn get_recording_status(&mut self) -> bool {
         if let RecordingStatus::NotStarted = self.recording_status {
@@ -187,6 +191,7 @@ impl Simulation {
         }
         self.recording_status.is_active() || final_recording
     }
+
     fn record(&mut self, time_step_info: &TimeStepInfo) {
         if self.get_recording_status() {
             if let Some(meas) = &mut self.measurement_series {
@@ -197,33 +202,38 @@ impl Simulation {
             }
         }
     }
+
     fn started_recording(&self) -> bool {
         self.recording_status.is_active() || self.recording_status.is_finished()
     }
+
     fn finished_recording(&self) -> bool {
         self.recording_status.is_finished()
     }
-    fn has_finish_time(&self) -> bool {
-        self.finish_time.is_some()
-    }
+
+    // fn has_finish_time(&self) -> bool {
+    //     self.finish_time.is_some()
+    // }
+
     fn save_measurement(&mut self) -> Result<(), String> {
         if let Some(meas) = &mut self.measurement_series {
             match meas.save() {
                 Ok(_) => {
-                    info!(
+                    tracing::info!(
                         "Successfully saved measurement: {}",
                         meas.get_path().as_path().display()
                     );
                     return Ok(());
                 }
                 Err(e) => {
-                    error!("Failed saving measurement: {}", e);
+                    tracing::error!("Failed saving measurement: {}", e);
                     return Err(format!("Failed saving measurement: {}", e));
                 }
             }
         }
         Ok(())
     }
+
     fn save_state(
         &mut self,
         time_step_number: u64,
@@ -299,6 +309,7 @@ impl SimulationController {
             Err(e) => Err(e),
         }
     }
+
     /// Return to last checkpoint and continue simulation
     fn continue_from_checkpoint(
         &mut self,
@@ -317,15 +328,19 @@ impl SimulationController {
             Err(e) => Err(e),
         }
     }
+
     fn compute_more_timesteps(&mut self, num: usize) {
         self.timesteps_to_compute += num;
     }
+
     fn compute(&mut self) {
         self.state = ComputationState::Computing;
     }
+
     fn pause(&mut self) {
         self.state = ComputationState::Paused;
     }
+
     /// Calculate next time step depending on state
     fn get_next_time_step(&mut self) -> Option<TimeStepInfo> {
         if self.state == ComputationState::Computing && self.timesteps_to_compute > 0 {
@@ -337,6 +352,7 @@ impl SimulationController {
             None
         }
     }
+
     fn just_started_recording(&mut self) -> bool {
         if let Some(sim) = &self.simulation
             && sim.started_recording()
@@ -347,6 +363,7 @@ impl SimulationController {
         }
         false
     }
+
     fn just_finished_recording(&mut self) -> bool {
         if let Some(sim) = &self.simulation
             && sim.finished_recording()
@@ -357,22 +374,25 @@ impl SimulationController {
         }
         false
     }
-    fn not_reached_existing_finish_time(&self) -> bool {
-        if let Some(sim) = &self.simulation
-            && sim.has_finish_time()
-            && !sim.finished_recording()
-        {
-            true
-        } else {
-            false
-        }
-    }
+
+    // fn not_reached_existing_finish_time(&self) -> bool {
+    //     if let Some(sim) = &self.simulation
+    //         && sim.has_finish_time()
+    //         && !sim.finished_recording()
+    //     {
+    //         true
+    //     } else {
+    //         false
+    //     }
+    // }
+
     fn save_measurement(&mut self) -> Result<(), String> {
         if let Some(sim) = &mut self.simulation {
             return sim.save_measurement();
         }
         Ok(())
     }
+
     fn stop(&mut self) -> Result<(), String> {
         if !self.finish_registered {
             self.save_measurement()?;
@@ -440,11 +460,11 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     if let Some(simulation) = &mut simulation_controller.simulation {
                         match simulation.save_state(time_step_number, &file_path) {
                             Ok(_) => {
-                                info!("Successfully saved state: {}", file_path.display());
+                                tracing::info!("Successfully saved state: {}", file_path.display());
                                 let _ = to_ui.send(WorkerMessage::SavedState);
                             }
                             Err(e) => {
-                                error!("Failed to save state: {}", e);
+                                tracing::error!("Failed to save state: {}", e);
                                 let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
                             }
                         }
@@ -468,11 +488,11 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                             rendering_dir,
                             overwrite,
                         ) {
-                            error!("Screenshot failed: {e}");
+                            tracing::error!("Screenshot failed: {e}");
                             let _ =
                                 to_ui.send(WorkerMessage::Error(format!("Screenshot failed: {e}")));
                         } else {
-                            info!("Saved screenshot frame {frame_index}");
+                            tracing::info!("Saved screenshot frame {frame_index}");
                         }
                     }
                 }
@@ -484,14 +504,14 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                 } => {
                     if let Err(e) = save_screenshot_to_file(&data, width, height, &file_path, false)
                     {
-                        error!("Screenshot failed: {e}");
+                        tracing::error!("Screenshot failed: {e}");
                         let _ = to_ui.send(WorkerMessage::Error(format!("Screenshot failed: {e}")));
                     } else {
-                        info!("Saved manual screenshot frame");
+                        tracing::info!("Saved manual screenshot frame");
                     }
                 }
                 WorkerCommand::Reload => {
-                    info!("Reloading simulation!");
+                    tracing::info!("Reloading simulation!");
                     if simulation_controller.simulation_load_info.is_some() {
                         let load_info = simulation_controller.simulation_load_info.clone().unwrap();
                         match simulation_controller.load_simulation(load_info) {
@@ -515,7 +535,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     }
                 }
                 WorkerCommand::ContinueFromTimeStep { with_info } => {
-                    info!("Continuing simulation from closest checkpoint!");
+                    tracing::info!("Continuing simulation from closest checkpoint!");
                     if simulation_controller.simulation_load_info.is_some() {
                         match simulation_controller.continue_from_checkpoint(*with_info) {
                             Ok(initial_state) => {
@@ -537,18 +557,18 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                             let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
                         }
                     }
-                    info!("Stopped backend!");
+                    tracing::info!("Stopped backend!");
                     break 'worker;
                 }
             }
         }
 
         if simulation_controller.just_started_recording() {
-            info!("Reached start time");
+            tracing::info!("Reached start time");
             let _ = to_ui.send(WorkerMessage::ReachedStartTime);
         }
         if simulation_controller.just_finished_recording() {
-            info!("Reached finish time");
+            tracing::info!("Reached finish time");
             simulation_controller.pause();
             let _ = to_ui.send(WorkerMessage::ReachedFinishTime);
             let save_message = if let Err(e) = simulation_controller.save_measurement() {

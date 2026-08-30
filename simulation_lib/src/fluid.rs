@@ -92,28 +92,28 @@ impl Fluid3D {
         self.extend(fluid);
     }
 
-    fn push(&mut self, fluid_id: u32, position: Point3<f64>, velocity: Vector3<f64>, mass: f64) {
-        self.fluid_id.push(fluid_id);
-        self.position.push(position);
-        self.position_prev.push(position);
-        self.position_pred.push(Point3::origin());
-        self.velocity.push(velocity);
-        self.velocity_prev.push(Vector3::zeros());
-        self.velocity_pred.push(Vector3::zeros());
-        self.acceleration.push(Vector3::zeros());
-        self.mass.push(mass);
-        self.volume.push(0.);
-        self.pressure.push(0.);
+    // fn push(&mut self, fluid_id: u32, position: Point3<f64>, velocity: Vector3<f64>, mass: f64) {
+    //     self.fluid_id.push(fluid_id);
+    //     self.position.push(position);
+    //     self.position_prev.push(position);
+    //     self.position_pred.push(Point3::origin());
+    //     self.velocity.push(velocity);
+    //     self.velocity_prev.push(Vector3::zeros());
+    //     self.velocity_pred.push(Vector3::zeros());
+    //     self.acceleration.push(Vector3::zeros());
+    //     self.mass.push(mass);
+    //     self.volume.push(0.);
+    //     self.pressure.push(0.);
 
-        let insert_at = self.num_active;
-        let last = self.position.len() - 1;
+    //     let insert_at = self.num_active;
+    //     let last = self.position.len() - 1;
 
-        if insert_at != last {
-            self.swap(insert_at, last);
-        }
+    //     if insert_at != last {
+    //         self.swap(insert_at, last);
+    //     }
 
-        self.num_active += 1;
-    }
+    //     self.num_active += 1;
+    // }
 
     fn extend(&mut self, other: Self) {
         assert!(self.num_active == self.total_len());
@@ -305,6 +305,7 @@ impl Fluid3D {
             })
             .collect();
 
+        #[cfg(feature = "logging")]
         tracing::debug!(
             "reconstructed fluid: {} verts, {} tris (rho={})",
             render_vertices.len(),

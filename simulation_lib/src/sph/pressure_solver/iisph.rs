@@ -357,7 +357,7 @@ impl IISPH {
                     *id_pressure = 0.;
                 }
                 if a_ff[id] > 0. {
-                    error!("id_a_ff: {}", a_ff[id]);
+                    tracing::error!("id_a_ff: {}", a_ff[id]);
                 }
                 // assert!(a_ff[id] <= 0., "a_ff: {}", a_ff[id]);
                 debug_assert!(a_ff[id] <= 0., "a_ff: {}", a_ff[id]);
@@ -522,20 +522,24 @@ impl IISPH {
                 0.0
             };
             #[cfg(feature = "logging")]
-            debug!("solver_iteration {}", solver_iteration);
+            tracing::debug!("solver_iteration {}", solver_iteration);
             #[cfg(feature = "logging")]
-            debug!("average_relative_predicted_density_error (%): {predicted_density_error}");
+            tracing::debug!(
+                "average_relative_predicted_density_error (%): {predicted_density_error}"
+            );
 
             solver_iteration += 1;
             #[cfg(feature = "logging")]
             if solver_iteration == 100 {
-                warn!("Number of global pressure self iterations >= 100");
+                tracing::warn!("Number of global pressure self iterations >= 100");
             }
         }
         #[cfg(feature = "logging")]
-        debug!("final number of self iterations: {solver_iteration} (+1)");
+        tracing::debug!("final number of self iterations: {solver_iteration} (+1)");
         #[cfg(feature = "logging")]
-        debug!("final average_relative_predicted_density_error (%): {predicted_density_error}");
+        tracing::debug!(
+            "final average_relative_predicted_density_error (%): {predicted_density_error}"
+        );
 
         self.last_solver_iterations = solver_iteration;
         self.predicted_density_error = predicted_density_error;

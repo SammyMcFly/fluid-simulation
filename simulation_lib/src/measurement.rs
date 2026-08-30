@@ -6,9 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "logging")]
-use tracing::{error, info, warn}; // debug, error, info, span, trace, warn,
-
 #[derive(Debug, Clone, Copy, Default)]
 pub enum RecordingStatus {
     #[default]
@@ -87,7 +84,7 @@ impl MeasurementSeries {
             // Create the parent directory if it does not exist
             std::fs::create_dir_all(file_path_parent.clone())?;
             #[cfg(feature = "logging")]
-            info!("Created directory: {}", file_path_parent.display());
+            tracing::info!("Created directory: {}", file_path_parent.display());
         } else if global_file_path.exists() {
             let immutable_global_file_path = global_file_path.clone();
             let mut counter: u16 = 2;
@@ -98,7 +95,7 @@ impl MeasurementSeries {
                 let ext = path.extension().unwrap_or_default().to_string_lossy();
                 if counter == u16::MAX {
                     #[cfg(feature = "logging")]
-                    error!(
+                    tracing::error!(
                         "File '{}' and all files with the following pattern already exists: {}",
                         format!("{}.{}", stem, ext),
                         format!("{}_#123.{}", stem, ext),
@@ -137,7 +134,7 @@ impl MeasurementSeries {
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         if self.queue.is_empty() {
             #[cfg(feature = "logging")]
-            warn!("Saving empty measurement series!");
+            tracing::warn!("Saving empty measurement series!");
         }
         let file = std::fs::File::create(self.file_path.clone())?;
         let mut wtr = csv::Writer::from_writer(file);

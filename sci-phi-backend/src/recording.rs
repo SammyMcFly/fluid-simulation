@@ -6,8 +6,6 @@ use simulation_lib::fluid::SerFluid3D;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use tracing::{error, info}; // debug, error, info, span, trace, warn,
-
 // use rendering_lib::readback::{ReadbackBuffer, ReadbackRequest};
 
 use crate::SimulationParameters;
@@ -48,10 +46,10 @@ pub fn save_system_state(fluid: SerFluid3D, file_path: &Path) -> Result<(), File
     if !file_path_parent.exists() {
         // Create the parent directory if it does not exist
         std::fs::create_dir_all(file_path_parent.clone())?;
-        info!("Created directory: {}", file_path_parent.display());
+        tracing::info!("Created directory: {}", file_path_parent.display());
     } else if global_file_path.exists() {
         // Throw an error if file already exist
-        error!("File already exists: {}", global_file_path.display());
+        tracing::error!("File already exists: {}", global_file_path.display());
         return Err(FileIoError::FileAlreadyExists(global_file_path));
     }
 
@@ -84,10 +82,10 @@ pub fn save_screenshot_to_file(
     let output_dir = file_path.parent().ok_or(FileIoError::NoParentDirectory)?;
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)?;
-        info!("Created directory: {}", output_dir.display());
+        tracing::info!("Created directory: {}", output_dir.display());
     } else if file_path.exists() && !overwrite {
         // Throw an error if file already exist
-        error!("File already exists: {}", file_path.display());
+        tracing::error!("File already exists: {}", file_path.display());
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());
     }
 
@@ -121,10 +119,10 @@ impl TSInfoAppender {
         if !file_path_parent.exists() {
             // Create the parent directory if it does not exist
             std::fs::create_dir_all(file_path_parent.clone())?;
-            info!("Created directory: {}", file_path_parent.display());
+            tracing::info!("Created directory: {}", file_path_parent.display());
         } else if global_file_path.exists() {
             // Throw an error if file already exist
-            error!("File already exists: {}", file_path_parent.display());
+            tracing::error!("File already exists: {}", file_path_parent.display());
             return Err(FileIoError::FileAlreadyExists(global_file_path));
         }
 

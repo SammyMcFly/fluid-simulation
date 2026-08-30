@@ -23,8 +23,6 @@ use parry3d_f64::shape::{Shape, TriMesh};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::slice::SliceIndex;
-#[cfg(feature = "logging")]
-use tracing::{debug, info, warn};
 
 fn ball_volume(radius: f64) -> f64 {
     4.0 / 3.0 * std::f64::consts::PI * radius.powi(3)
@@ -195,7 +193,7 @@ impl BoundaryHandling for VolumeMaps {
                             sdg
                         } else {
                             #[cfg(feature = "logging")]
-                            warn!(
+                            tracing::warn!(
                                 "Skipping particle with unphysical signed distance gradient: ‖∇d‖ = {}",
                                 sdg.norm()
                             );
@@ -228,7 +226,7 @@ impl BoundaryHandling for VolumeMaps {
                     r.vol.push(volume);
 
                     #[cfg(feature = "logging")]
-                    debug!(
+                    tracing::debug!(
                         "pos: {}, sd: {}, sdg: {:?}, vol: {}, point_ob: {:?}",
                         pos, signed_distance, signed_distance_gradient, volume, point_on_boundary
                     );
@@ -371,7 +369,7 @@ impl BoundaryHandling for VolumeMaps {
     fn restore_from_checkpoint(&mut self, state: &BoundaryCheckpoint) {
         if self.boundaries.len() != state.dynamic_states.len() {
             #[cfg(feature = "logging")]
-            warn!(
+            tracing::warn!(
                 "Boundary checkpoint has {} entries, but {} boundaries exist; \
                      skipping boundary restore.",
                 state.dynamic_states.len(),
@@ -395,7 +393,7 @@ struct DiscretizedBoundaryFields {
 impl DiscretizedBoundaryFields {
     fn new(trimesh: &TriMesh, dx: f64, kernel_support_radius: f64) -> DiscretizedBoundaryFields {
         #[cfg(feature = "logging")]
-        info!("Start cubic serendipity discretization.");
+        tracing::info!("Start cubic serendipity discretization.");
         let identity = Pose::identity();
         let aabb = trimesh.aabb(&identity);
         let aabb_min = Point3::new(aabb.mins.x, aabb.mins.y, aabb.mins.z);
@@ -415,9 +413,9 @@ impl DiscretizedBoundaryFields {
         let sd_field_wrapped = SDFnWrapper::new(&sdfn);
 
         #[cfg(feature = "logging")]
-        info!("Finished cubic serendipity discretization.");
+        tracing::info!("Finished cubic serendipity discretization.");
         #[cfg(feature = "logging")]
-        info!("Start volume integration.");
+        tracing::info!("Start volume integration.");
 
         let padding_vm = 2. * kernel_support_radius + dx / 6.0; // add dx / 6.0 so that the central difference can be evaluated with h = dx / 6.0
         let vm = CubicSerendipityDiscretization::new(
@@ -434,7 +432,7 @@ impl DiscretizedBoundaryFields {
         );
 
         #[cfg(feature = "logging")]
-        info!("Finished volume integration.");
+        tracing::info!("Finished volume integration.");
 
         DiscretizedBoundaryFields {
             signed_distance_field: sdfn,
@@ -812,7 +810,7 @@ impl BoundaryType {
             // than panic, but this indicates a stale checkpoint.
             _ => {
                 #[cfg(feature = "logging")]
-                warn!(
+                tracing::warn!(
                     "Boundary checkpoint entry does not match boundary type \
                          (static vs. dynamic); skipping restore for this boundary."
                 );
