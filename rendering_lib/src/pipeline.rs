@@ -780,6 +780,16 @@ impl BillboardInstance {
 
 // --- MeshPoseInstance ---
 
+/// GPU vertex-buffer representation of a rigid-body pose (translation +
+/// rotation), uploaded per boundary-mesh instance via `bytemuck::bytes_of`.
+///
+/// Deliberately a separate type from [`simulation_lib::render_info::RenderPose`] (the
+/// serde/bincode-compatible form sent from the backend worker to the
+/// frontend over the crossbeam channel): GPU vertex attributes require
+/// [alignment/padding] that would be wasted overhead in the wire format, and
+/// vice versa, `RenderPose`'s compact layout doesn't satisfy wgpu's
+/// alignment rules. `MeshPoseInstance` is constructed via `From<RenderPose>`
+/// (or similar) when uploading a `BoundaryMeshDraw` to the GPU.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MeshPoseInstance {
