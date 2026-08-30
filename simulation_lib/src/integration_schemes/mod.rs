@@ -1,5 +1,5 @@
 //! Integration schemes
-use crate::fluid::Fluid3D;
+use crate::fluid::Fluid;
 use serde::Deserialize;
 
 pub mod euler_cromer;
@@ -27,5 +27,5 @@ pub trait IntegrationScheme: Send + Sync + Default + Clone {
     /// Advance positions and velocities by one time step.
     ///
     /// Contract: acceleration has already been computed before this is called.
-    fn integrate(&mut self, fluid: &mut Fluid3D, dt: f64);
+    fn integrate(&mut self, fluid: &mut Fluid, dt: f64);
 }

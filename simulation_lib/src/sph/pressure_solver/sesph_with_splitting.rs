@@ -2,7 +2,7 @@
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::fluid::{Fluid3D, Len};
+use crate::fluid::{Fluid, Len};
 use crate::for_each;
 use crate::neighbor_search::NeighborList;
 use crate::setup::input::Parameters;
@@ -30,7 +30,7 @@ impl PressureSolver for SESPHwSplitting {
 
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
-        fluid: &mut Fluid3D,
+        fluid: &mut Fluid,
         boundary: &mut impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
@@ -54,9 +54,8 @@ impl PressureSolver for SESPHwSplitting {
                     // calc pressure with state equation
                     *id_pressure = self.stiffness
                         * f64::max(params.rest_volume / id_volume - 1., 0.);
-                    // if cfg!(feature = "logging") {
-                    //     debug!("pressure: {}", pressure);
-                    // }
+                    // #[cfg(feature = "logging")]
+                    // tracing::debug!("pressure: {}", pressure);
                 }
             );
         }
@@ -79,7 +78,7 @@ impl SESPHwSplitting {
 
     fn calc_predicted_density<K: KernelFn>(
         &mut self,
-        fluid: &mut Fluid3D,
+        fluid: &mut Fluid,
         boundary: &impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
@@ -135,9 +134,8 @@ impl SESPHwSplitting {
                     }
                 }
                 *density_pred = accu;
-                // if cfg!(feature = "logging") {
-                // debug!("density: {}", fluid.density());
-                // }
+                // #[cfg(feature = "logging")]
+                // tracing::debug!("density: {}", fluid.density());
             }
         );
     }

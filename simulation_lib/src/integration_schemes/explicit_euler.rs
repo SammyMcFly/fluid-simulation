@@ -1,7 +1,7 @@
 //! Explicit Euler integration scheme
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::fluid::Fluid3D;
+use crate::fluid::Fluid;
 use crate::for_each;
 use crate::integration_schemes::IntegrationScheme;
 
@@ -9,7 +9,7 @@ use crate::integration_schemes::IntegrationScheme;
 pub struct ExplicitEuler;
 
 impl IntegrationScheme for ExplicitEuler {
-    fn integrate(&mut self, fluid: &mut Fluid3D, dt: f64) {
+    fn integrate(&mut self, fluid: &mut Fluid, dt: f64) {
         // Rotate buffers
         fluid.rotate_position();
         fluid.rotate_velocity();

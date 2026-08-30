@@ -67,7 +67,7 @@ dyn_clone::clone_trait_object!(SPHSystem);
 
 ///  3D implementation of a physical system to be simulated
 #[derive(Debug, Clone)]
-pub struct System3D<
+pub struct System<
     K: KernelFn,
     I: IntegrationScheme,
     P: PressureSolver,
@@ -80,7 +80,7 @@ pub struct System3D<
     parameters: SystemParameters,
     properties: CurrentSystemProperties,
     /// Collection of all fluid samples
-    fluid: Fluid3D,
+    fluid: Fluid,
     /// List of fluid neighbors
     fluid_neighbor_list: NeighborList,
     /// Collection of all boundary (not moving) samples
@@ -97,7 +97,7 @@ impl<
     P: PressureSolver + Clone + 'static,
     N: NeighborSearch + Clone + 'static,
     B: BoundaryHandling + Clone + 'static,
-> SPHSystem for System3D<K, I, P, N, B>
+> SPHSystem for System<K, I, P, N, B>
 {
     fn time(&self) -> f64 {
         #[cfg(not(feature = "cfl_time_step"))]
@@ -360,9 +360,9 @@ impl<
     P: PressureSolver + Clone + 'static,
     N: NeighborSearch + Clone + 'static,
     B: BoundaryHandling + Clone + 'static,
-> System3D<K, I, P, N, B>
+> System<K, I, P, N, B>
 {
-    pub fn new_boxed(constructor: setup::System3DConstructor<K, I, P, N, B>) -> Box<dyn SPHSystem> {
+    pub fn new_boxed(constructor: setup::SystemConstructor<K, I, P, N, B>) -> Box<dyn SPHSystem> {
         let len = constructor.fluid.len();
         let mut system = Self {
             fluid: constructor.fluid,

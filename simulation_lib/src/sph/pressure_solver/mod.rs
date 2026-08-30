@@ -4,7 +4,7 @@ use nalgebra::Vector3;
 use rayon::prelude::*;
 use serde::Deserialize;
 
-use crate::fluid::Fluid3D;
+use crate::fluid::Fluid;
 use crate::for_each;
 use crate::iteration::for_each_collect;
 use crate::neighbor_search::NeighborList;
@@ -43,7 +43,7 @@ pub trait PressureSolver: Send + Sync + Clone {
     /// accumulated in `fluid.acceleration` before this is called.
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
-        fluid: &mut Fluid3D,
+        fluid: &mut Fluid,
         boundary: &mut impl BoundaryHandling,
         neighbors: &NeighborList,
         params: &SystemParameters,
@@ -66,7 +66,7 @@ pub struct SolverMeasurementInfo {
 }
 
 /// calculate and set predicted velocity due to currently set acceleration
-fn set_pred_vel_by_applying_acc(fluid: &mut Fluid3D, params: &SystemParameters, to_pred_vel: bool) {
+fn set_pred_vel_by_applying_acc(fluid: &mut Fluid, params: &SystemParameters, to_pred_vel: bool) {
     for_each!(
         mut [fluid.velocity_pred],
         ref [
@@ -90,7 +90,7 @@ fn set_pred_vel_by_applying_acc(fluid: &mut Fluid3D, params: &SystemParameters, 
 /// and add it to respective samples
 fn add_pressure_acceleration<K: KernelFn>(
     custom_target: Option<&mut Vec<Vector3<f64>>>,
-    fluid: &mut Fluid3D,
+    fluid: &mut Fluid,
     boundary: &mut impl BoundaryHandling,
     neighbors: &NeighborList,
     params: &SystemParameters,

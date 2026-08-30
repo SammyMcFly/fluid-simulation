@@ -2,7 +2,7 @@
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::fluid::Fluid3D;
+use crate::fluid::Fluid;
 use crate::for_each;
 use crate::neighbor_search::NeighborList;
 use crate::setup::input::Parameters;
@@ -30,7 +30,7 @@ impl PressureSolver for SESPH {
     /// Function uses a state equation to calculate the pressure locally.
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
-        fluid: &mut Fluid3D,
+        fluid: &mut Fluid,
         boundary: &mut impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
@@ -48,9 +48,8 @@ impl PressureSolver for SESPH {
                     // calc pressure with state equation
                     *id_pressure = self.stiffness
                         * f64::max(params.rest_volume / id_volume - 1., 0.);
-                    // if cfg!(feature = "logging") {
-                    //     debug!("pressure: {}", pressure);
-                    // }
+                    // #[cfg(feature = "logging")]
+                    // tracing::debug!("pressure: {}", pressure);
                 }
             );
         }

@@ -3,7 +3,7 @@ use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::fluid::Fluid3D;
+use crate::fluid::Fluid;
 use crate::for_each;
 use crate::iteration::for_each_collect;
 use crate::neighbor_search::NeighborList;
@@ -15,7 +15,7 @@ use crate::sph::kernel::KernelFn;
 use crate::sph::vector;
 
 /// reset acceleration, i. e. set it to 0.
-pub fn reset_acceleration<B: BoundaryHandling>(fluid: &mut Fluid3D) {
+pub fn reset_acceleration<B: BoundaryHandling>(fluid: &mut Fluid) {
     for_each!(
         mut [fluid.acceleration],
         ref [],
@@ -26,7 +26,7 @@ pub fn reset_acceleration<B: BoundaryHandling>(fluid: &mut Fluid3D) {
 }
 
 /// Add gravity acceleration to all not boundary particles
-pub fn add_gravity_acceleration<B: BoundaryHandling>(fluid: &mut Fluid3D, boundary: &mut B) {
+pub fn add_gravity_acceleration<B: BoundaryHandling>(fluid: &mut Fluid, boundary: &mut B) {
     let strength_of_gravity = 9.81;
     // // gravitate downwards
     // for_each!(
@@ -64,7 +64,7 @@ pub fn add_gravity_acceleration<B: BoundaryHandling>(fluid: &mut Fluid3D, bounda
 
 /// Calculate viscosity acceleration at current time and add it to respective particles
 pub fn add_viscosity_acceleration<K: KernelFn>(
-    fluid: &mut Fluid3D,
+    fluid: &mut Fluid,
     boundary: &mut impl BoundaryHandling,
     neighbors: &NeighborList,
     params: &SystemParameters,

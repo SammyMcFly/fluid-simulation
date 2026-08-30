@@ -281,7 +281,7 @@ pub struct RigidBodyMotionState {
     pub angular_momentum: Vector3<f64>,
     /// Force accumulated for the *next* integration step.
     ///
-    /// Populated by fluid–boundary pressure coupling during `System3D::update`, which
+    /// Populated by fluid–boundary pressure coupling during `System::update`, which
     /// runs *after* [`RigidBodyMotion::step_forward_in_time`] has reset it — i.e. right
     /// before the next step would consume it. Must be preserved, or resuming from this
     /// checkpoint would silently drop this pending force for one step.

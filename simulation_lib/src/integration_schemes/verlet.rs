@@ -1,5 +1,5 @@
 //! Verlet integration scheme
-use crate::fluid::Fluid3D;
+use crate::fluid::Fluid;
 use crate::for_each;
 use crate::integration_schemes::IntegrationScheme;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
@@ -8,7 +8,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 pub struct Verlet;
 
 impl IntegrationScheme for Verlet {
-    fn integrate(&mut self, fluid: &mut Fluid3D, dt: f64) {
+    fn integrate(&mut self, fluid: &mut Fluid, dt: f64) {
         // Rotate buffers
         fluid.rotate_position();
         fluid.rotate_velocity();

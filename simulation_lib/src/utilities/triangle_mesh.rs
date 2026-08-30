@@ -4,7 +4,6 @@ use nalgebra::{Isometry3, Matrix4, Point3, Rotation3, UnitQuaternion, Vector3};
 use parry3d_f64::math::Vec3;
 use parry3d_f64::shape::{TriMesh, TriMeshFlags};
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 use crate::setup::input::VertexNormalRenderOption;
 

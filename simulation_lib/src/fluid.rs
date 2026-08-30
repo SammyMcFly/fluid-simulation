@@ -30,7 +30,7 @@ pub trait Positional {
 /// Fluid, i.e. a collection of samples, which are identified by an ID (usize)
 ///
 #[derive(Debug, Clone, Default)]
-pub struct Fluid3D {
+pub struct Fluid {
     num_active: usize,
     pub fluid_id: Vec<u32>,
     pub position: Vec<Point3<f64>>,
@@ -46,13 +46,13 @@ pub struct Fluid3D {
     pub pressure: Vec<f64>,
 }
 
-impl Len for Fluid3D {
+impl Len for Fluid {
     fn len(&self) -> usize {
         self.num_active
     }
 }
 
-impl Positional for Fluid3D {
+impl Positional for Fluid {
     fn pos_now<I>(&self, id: I) -> &I::Output
     where
         I: SliceIndex<[Point3<f64>]>,
@@ -61,7 +61,7 @@ impl Positional for Fluid3D {
     }
 }
 
-impl Fluid3D {
+impl Fluid {
     pub fn new() -> Self {
         Self::default()
     }

@@ -23,7 +23,7 @@ use crate::recording::{save_screenshot_into_directory, save_screenshot_to_file};
 /// - allows resetting the system to the initial state
 /// - optionally: memorizes all taken measurements, stores them at the end
 struct Simulation {
-    // initial_system: sph::System3D,
+    // initial_system: sph::System,
     system: Box<dyn SPHSystem>,
     checkpoints: Vec<Rc<Checkpoint>>,
     parameters: SimulationParameters,

@@ -2,10 +2,8 @@
 use nalgebra::Vector3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-#[cfg(feature = "logging")]
-use tracing::{debug, error, warn}; // debug, error, info, span, trace, warn,
 
-use crate::fluid::{Fluid3D, Len};
+use crate::fluid::{Fluid, Len};
 use crate::for_each;
 use crate::neighbor_search::NeighborList;
 use crate::setup::input::Parameters;
@@ -53,7 +51,7 @@ impl PressureSolver for IISPH {
 
     fn solve_and_add_acceleration<K: KernelFn>(
         &mut self,
-        fluid: &mut Fluid3D,
+        fluid: &mut Fluid,
         boundary: &mut impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
@@ -106,7 +104,7 @@ impl IISPH {
     /// Calculate source term for velocity divergence eliminating linear equation system for pressure
     pub fn set_source_term_vde<K: KernelFn>(
         &mut self,
-        fluid: &Fluid3D,
+        fluid: &Fluid,
         boundary: &impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
@@ -164,7 +162,7 @@ impl IISPH {
     /// Calculate source term for volume preserving linear equation system for pressure
     pub fn set_source_term_vp<K: KernelFn>(
         &mut self,
-        fluid: &Fluid3D,
+        fluid: &Fluid,
         boundary: &impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
@@ -243,7 +241,7 @@ impl IISPH {
     /// compute diagonal element A_ff
     fn set_diagonal_element<K: KernelFn>(
         &mut self,
-        fluid: &mut Fluid3D,
+        fluid: &mut Fluid,
         boundary: &impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,
@@ -331,7 +329,7 @@ impl IISPH {
         );
     }
 
-    fn initialize(&mut self, fluid: &mut Fluid3D, clamp_pressure: bool) {
+    fn initialize(&mut self, fluid: &mut Fluid, clamp_pressure: bool) {
         for_each!(
             mut [fluid.pressure],
             ref [
@@ -389,7 +387,7 @@ impl IISPH {
     /// Notes on  Ihmsen et al. ”Implicit Incompressible SPH” by  Matthias Teschner, University of Freiburg
     pub fn resolve_pressure_globally<K: KernelFn>(
         &mut self,
-        fluid: &mut Fluid3D,
+        fluid: &mut Fluid,
         boundary: &mut impl BoundaryHandling,
         neighbor_list: &NeighborList,
         params: &SystemParameters,

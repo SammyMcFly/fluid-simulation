@@ -3,11 +3,7 @@
 //!
 pub mod input;
 
-use std::collections::HashMap;
-#[cfg(feature = "logging")]
-use tracing::warn; // debug, error, info, span, trace, warn,
-
-use crate::fluid::{Fluid3D, Len, SerFluid3D};
+use crate::fluid::{Fluid, Len, SerFluid3D};
 use crate::integration_schemes::IntegrationScheme;
 use crate::integration_schemes::*;
 use crate::neighbor_search::NeighborSearch;
@@ -19,10 +15,13 @@ use crate::sph::boundary_handling::*;
 use crate::sph::kernel::*;
 use crate::sph::pressure_solver::PressureSolver;
 use crate::sph::pressure_solver::*;
-use crate::sph::{SPHSystem, System3D};
+use crate::sph::{SPHSystem, System};
+
 use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary};
 
-pub struct System3DConstructor<
+use std::collections::HashMap;
+
+pub struct SystemConstructor<
     K: KernelFn,
     I: IntegrationScheme,
     P: PressureSolver,
@@ -30,7 +29,7 @@ pub struct System3DConstructor<
     B: BoundaryHandling,
 > {
     // pub config: Config,
-    pub fluid: Fluid3D,
+    pub fluid: Fluid,
     pub boundary: B,
     pub system_parameters: SystemParameters,
     _kernel_fn: std::marker::PhantomData<K>,
@@ -40,7 +39,7 @@ pub struct System3DConstructor<
 }
 
 impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling>
-    System3DConstructor<K, I, P, N, B>
+    SystemConstructor<K, I, P, N, B>
 {
     pub fn new(
         params: &Parameters,
@@ -71,7 +70,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             let fluid: SerFluid3D = ron::from_str(&content).unwrap();
             fluid.into()
         } else {
-            let mut fluid = Fluid3D::new();
+            let mut fluid = Fluid::new();
             for f in &scene.fluid {
                 // select mesh
                 let mut mesh = meshes
@@ -177,8 +176,8 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
 
 macro_rules! create {
     ($params:expr, $scene:expr, $state:expr, $K:ty, $I:ty, $P:ty, $N:ty, $B:ty) => {{
-        let constructor = System3DConstructor::<$K, $I, $P, $N, $B>::new($params, $scene, $state)?;
-        let system = System3D::<$K, $I, $P, $N, $B>::new_boxed(constructor);
+        let constructor = SystemConstructor::<$K, $I, $P, $N, $B>::new($params, $scene, $state)?;
+        let system = System::<$K, $I, $P, $N, $B>::new_boxed(constructor);
         Ok(system)
     }};
 }
