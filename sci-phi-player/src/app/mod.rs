@@ -206,7 +206,8 @@ impl cosmic::Application for AppModel {
         // Measurement series
         let measurement_series = MeasurementSeries::default();
 
-        let playback = PlaybackControls::new(args.resume, true);
+        let sim_settings = SimulationSettings::default();
+        let playback = PlaybackControls::new(args.resume, sim_settings.discard_past);
 
         // Construct the app model with the runtime's core.
         let mut app = AppModel {
@@ -214,7 +215,7 @@ impl cosmic::Application for AppModel {
             nav,
             simulation_page: viewport,
             context_page: ContextPage::default(),
-            sim_settings: SimulationSettings::default(),
+            sim_settings,
             about,
             inspector: inspector::Inspector::new(true, false, false, args.rendering_dir.is_some()),
             dialog_page: None,
