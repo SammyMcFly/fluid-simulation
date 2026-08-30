@@ -33,6 +33,16 @@ struct Simulation {
     recording_status: RecordingStatus,
     start_time: Option<f64>,
     finish_time: Option<f64>,
+    /// Highest `time_step_number` passed to `record()` so far. Persisted
+    /// across checkpoint rewinds (never reset by `continue_from_checkpoint`)
+    /// so a visualization change only affects the recording at exactly this
+    /// one "tip" step:
+    /// - steps strictly older than this are skipped entirely — already
+    ///   recorded, frozen with whatever visualization was active back then,
+    /// - this exact step is overwritten in place with the now-current
+    ///   visualization once the rewind catches back up to it,
+    /// - anything beyond it is appended normally as a genuinely new step.
+    last_recorded_step: Option<u64>,
 
     state_saver_system: Box<dyn SPHSystem>,
 }
@@ -111,6 +121,7 @@ impl Simulation {
             recording_status,
             start_time: simulation_load_info.start_time,
             finish_time: simulation_load_info.finish_time,
+            last_recorded_step: None,
             state_saver_system,
         };
         tracing::info!("Loaded new simulation!");
@@ -123,14 +134,6 @@ impl Simulation {
         with_info: TimeStepInfo,
     ) -> Result<TimeStepInfo, Box<dyn std::error::Error + Send + Sync>> {
         self.render_preset = with_info.clone();
-        self.measurement_series = None;
-        self.state_appender = None;
-        self.start_time = None;
-        self.finish_time = None;
-        if self.recording_status.is_active() {
-            tracing::warn!("Recording was interrupted!");
-        }
-        self.recording_status = RecordingStatus::None;
 
         if self.system.time_steps_propagated() < with_info.time_step_number {
             tracing::warn!(
@@ -170,8 +173,8 @@ impl Simulation {
         self.system.time()
     }
 
-    /// Updates measurement status
-    fn get_recording_status(&mut self) -> bool {
+    /// Updates recording status and returns whether the a recording should be taken
+    fn record_now(&mut self) -> bool {
         if let RecordingStatus::NotStarted = self.recording_status {
             if let Some(st) = self.start_time
                 && self.time() >= st
@@ -193,13 +196,37 @@ impl Simulation {
     }
 
     fn record(&mut self, time_step_info: &TimeStepInfo) {
-        if self.get_recording_status() {
-            if let Some(meas) = &mut self.measurement_series {
-                meas.push_back(time_step_info.measurement.clone());
-            }
-            if let Some(rec) = &self.state_appender {
-                let _ = rec.append_time_step_info_to_file(time_step_info.clone());
-            }
+        if !self.record_now() {
+            return;
+        }
+
+        let ts = time_step_info.time_step_number;
+        let is_new_step = self.last_recorded_step.is_none_or(|last| ts > last);
+        // Exactly the one step re-produced right at the point a checkpoint
+        // rewind caught back up to where recording had already progressed to
+        // — the "tip" of the recording at the moment the visualization was
+        // changed. Everything strictly older is left untouched.
+        let is_same_step = self.last_recorded_step == Some(ts);
+
+        // Measurement values don't depend on visualization, so the seam step
+        // already holds correct data; only genuinely new steps get pushed.
+        if is_new_step && let Some(meas) = &mut self.measurement_series {
+            meas.push_back(time_step_info.measurement.clone());
+        }
+
+        // Binary recording's payload DOES depend on visualization: write for
+        // new steps (plain append) and for the seam step (overwrite its
+        // stale record in place); skip everything strictly older, which
+        // stays frozen with whichever visualization was active when it was
+        // originally recorded.
+        if (is_new_step || is_same_step)
+            && let Some(rec) = &mut self.state_appender
+        {
+            let _ = rec.append_time_step(time_step_info.clone());
+        }
+
+        if is_new_step {
+            self.last_recorded_step = Some(ts);
         }
     }
 

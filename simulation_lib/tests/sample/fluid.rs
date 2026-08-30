@@ -1,26 +1,26 @@
 use core::f64;
-use simulation_lib::fluid::{Fluid3D, SerFluid3D, Len, Positional};
 use nalgebra::Vector3;
+use simulation_lib::fluid::{Fluid, SerFluidCheckpoint};
 
 fn v(x: f64, y: f64, z: f64) -> Vector3<f64> {
     Vector3::new(x, y, z)
 }
 
-// ─── Fluid3D: Len trait ─────────────────────────────────────────────
+// ─── Fluid: Len trait ─────────────────────────────────────────────
 
 #[test]
 fn fluid_default_is_empty() {
-    let fluid = Fluid3D::default();
+    let fluid = Fluid::default();
     assert_eq!(fluid.len(), 0);
     assert!(fluid.is_empty());
     assert_eq!(fluid.total_len(), 0);
 }
 
-// ─── Fluid3D: Expandable trait ──────────────────────────────────────
+// ─── Fluid: Expandable trait ──────────────────────────────────────
 
 #[test]
 fn fluid_push_increases_len() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 2.0, 3.0), v(0.1, 0.2, 0.3), 1.0);
 
     assert_eq!(fluid.len(), 1);
@@ -30,7 +30,7 @@ fn fluid_push_increases_len() {
 
 #[test]
 fn fluid_push_stores_correct_values() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 2.0, 3.0), v(0.1, 0.2, 0.3), 5.0);
 
     assert_eq!(fluid.position[0], v(1.0, 2.0, 3.0));
@@ -44,7 +44,7 @@ fn fluid_push_stores_correct_values() {
 
 #[test]
 fn fluid_push_multiple() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
     fluid.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 3.0);
@@ -58,11 +58,11 @@ fn fluid_push_multiple() {
 
 #[test]
 fn fluid_extend() {
-    let mut fluid_a = Fluid3D::default();
+    let mut fluid_a = Fluid::default();
     fluid_a.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid_a.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
 
-    let mut fluid_b = Fluid3D::default();
+    let mut fluid_b = Fluid::default();
     fluid_b.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 3.0);
 
     fluid_a.extend(fluid_b);
@@ -76,22 +76,22 @@ fn fluid_extend() {
 #[test]
 #[should_panic]
 fn fluid_extend_panics_with_inactive() {
-    let mut fluid_a = Fluid3D::default();
+    let mut fluid_a = Fluid::default();
     fluid_a.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid_a.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
     fluid_a.disable(0); // now num_active < total_len
 
-    let mut fluid_b = Fluid3D::default();
+    let mut fluid_b = Fluid::default();
     fluid_b.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 3.0);
 
     fluid_a.extend(fluid_b); // should panic
 }
 
-// ─── Fluid3D: Positional trait ──────────────────────────────────────
+// ─── Fluid: Positional trait ──────────────────────────────────────
 
 #[test]
 fn fluid_pos_now_single() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(5.0, 6.0, 7.0), Vector3::zeros(), 1.0);
 
     assert_eq!(*fluid.pos_now(0), v(5.0, 6.0, 7.0));
@@ -99,7 +99,7 @@ fn fluid_pos_now_single() {
 
 #[test]
 fn fluid_pos_now_range() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 1.0);
@@ -110,11 +110,11 @@ fn fluid_pos_now_range() {
     assert_eq!(slice[1], v(2.0, 0.0, 0.0));
 }
 
-// ─── Fluid3D: disable / drop_inactive ───────────────────────────────
+// ─── Fluid: disable / drop_inactive ───────────────────────────────
 
 #[test]
 fn fluid_disable_decreases_active_count() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
     fluid.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 3.0);
@@ -127,7 +127,7 @@ fn fluid_disable_decreases_active_count() {
 
 #[test]
 fn fluid_disable_swaps_with_last_active() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
     fluid.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 3.0);
@@ -143,7 +143,7 @@ fn fluid_disable_swaps_with_last_active() {
 
 #[test]
 fn fluid_disable_last_active_no_swap() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
 
@@ -156,14 +156,14 @@ fn fluid_disable_last_active_no_swap() {
 #[test]
 #[should_panic]
 fn fluid_disable_out_of_range_panics() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.disable(1); // id >= num_active
 }
 
 #[test]
 fn fluid_drop_inactive() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
     fluid.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 3.0);
@@ -179,11 +179,11 @@ fn fluid_drop_inactive() {
     assert_eq!(fluid.velocity.len(), 2);
 }
 
-// ─── Fluid3D: rotate_position / rotate_velocity ─────────────────────
+// ─── Fluid: rotate_position / rotate_velocity ─────────────────────
 
 #[test]
 fn fluid_rotate_position() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.position_pred[0] = v(2.0, 0.0, 0.0);
 
@@ -200,7 +200,7 @@ fn fluid_rotate_position() {
 
 #[test]
 fn fluid_rotate_velocity() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(0.0, 0.0, 0.0), v(1.0, 0.0, 0.0), 1.0);
     fluid.velocity_pred[0] = v(5.0, 0.0, 0.0);
 
@@ -210,11 +210,11 @@ fn fluid_rotate_velocity() {
     assert_eq!(fluid.velocity_prev[0], v(1.0, 0.0, 0.0));
 }
 
-// ─── Fluid3D: push with inactive particles ──────────────────────────
+// ─── Fluid: push with inactive particles ──────────────────────────
 
 #[test]
 fn fluid_push_inserts_at_active_boundary() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
     fluid.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 3.0);
@@ -232,17 +232,17 @@ fn fluid_push_inserts_at_active_boundary() {
     assert_eq!(fluid.mass[2], 9.0);
 }
 
-// ─── SerFluid3D <-> Fluid3D conversions ─────────────────────────────
+// ─── SerFluid <-> Fluid conversions ─────────────────────────────
 
 #[test]
 fn fluid_from_ser_fluid() {
-    let ser = SerFluid3D {
+    let ser = SerFluidCheckpoint {
         position: vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
         velocity: vec![[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
         mass: 7.0,
     };
 
-    let fluid: Fluid3D = ser.into();
+    let fluid: Fluid = ser.into();
 
     assert_eq!(fluid.len(), 2);
     assert_eq!(fluid.position[0], v(1.0, 2.0, 3.0));
@@ -255,11 +255,11 @@ fn fluid_from_ser_fluid() {
 
 #[test]
 fn ser_fluid_from_fluid() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 2.0, 3.0), v(0.1, 0.2, 0.3), 5.0);
     fluid.push(v(4.0, 5.0, 6.0), v(0.4, 0.5, 0.6), 5.0);
 
-    let ser: SerFluid3D = fluid.into();
+    let ser: SerFluidCheckpoint = fluid.into();
 
     assert_eq!(ser.position, vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
     assert_eq!(ser.velocity, vec![[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]);
@@ -268,12 +268,12 @@ fn ser_fluid_from_fluid() {
 
 #[test]
 fn fluid_roundtrip_conversion() {
-    let mut original = Fluid3D::default();
+    let mut original = Fluid::default();
     original.push(v(1.0, 2.0, 3.0), v(0.5, 0.5, 0.5), 2.0);
     original.push(v(4.0, 5.0, 6.0), v(1.0, 1.0, 1.0), 2.0);
 
-    let ser: SerFluid3D = original.clone().into();
-    let restored: Fluid3D = ser.into();
+    let ser: SerFluidCheckpoint = original.clone().into();
+    let restored: Fluid = ser.into();
 
     assert_eq!(restored.len(), original.len());
     for i in 0..original.len() {
@@ -287,7 +287,7 @@ fn fluid_roundtrip_conversion() {
 
 #[test]
 fn fluid_disable_all() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
 
@@ -301,7 +301,7 @@ fn fluid_disable_all() {
 
 #[test]
 fn fluid_disable_then_drop_then_push() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 2.0);
     fluid.push(v(3.0, 0.0, 0.0), Vector3::zeros(), 3.0);
@@ -320,7 +320,7 @@ fn fluid_disable_then_drop_then_push() {
 
 #[test]
 fn fluid_rotate_position_multiple_particles() {
-    let mut fluid = Fluid3D::default();
+    let mut fluid = Fluid::default();
     fluid.push(v(1.0, 0.0, 0.0), Vector3::zeros(), 1.0);
     fluid.push(v(2.0, 0.0, 0.0), Vector3::zeros(), 1.0);
 

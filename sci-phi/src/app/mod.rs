@@ -1241,12 +1241,8 @@ impl AppModel {
     }
 
     fn request_action(&mut self, action: PendingAction) -> Task<cosmic::Action<Message>> {
-        let needs_confirmation = match action {
-            PendingAction::ReloadWithCurrentVisualization => self.is_recording(),
-            PendingAction::Close | PendingAction::Reload => {
-                self.is_recording() || self.is_rendering()
-            }
-        };
+        let needs_confirmation = matches!(action, PendingAction::Close | PendingAction::Reload)
+            && (self.is_recording() || self.is_rendering());
 
         if needs_confirmation {
             tracing::info!("recording");

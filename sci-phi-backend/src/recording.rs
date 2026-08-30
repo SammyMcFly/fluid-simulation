@@ -2,8 +2,10 @@
 //!
 //!
 use image::{ImageBuffer, Rgba};
+use simulation_lib::render_info::TimeStepInfo;
 use simulation_lib::sph::SerSystemCheckpoint;
-use std::io::Write;
+use std::collections::HashMap;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 // use rendering_lib::readback::{ReadbackBuffer, ReadbackRequest};
@@ -102,6 +104,13 @@ pub fn save_screenshot_to_file(
 pub struct TSInfoAppender {
     /// File path to store measurement series to
     file_path: PathBuf,
+    /// Byte offset at which the record for a given `time_step_number` begins
+    /// (right after its length prefix). Lets a re-produced time step — e.g.
+    /// after a visualization-triggered rewind — overwrite its stale record
+    /// (and everything written after it) instead of being duplicated;
+    /// subsequent steps are simply re-appended as the simulation naturally
+    /// re-produces them.
+    offsets: HashMap<u64, u64>,
 }
 
 impl TSInfoAppender {
@@ -128,11 +137,17 @@ impl TSInfoAppender {
 
         let appender = Self {
             file_path: global_file_path,
+            offsets: HashMap::new(),
         };
         appender.append_time_step_info_to_file(sim_info.clone())?;
         Ok(appender)
     }
 
+    /// Appends arbitrary length-prefixed binary data to the recording file.
+    ///
+    /// Used only for the one-time [`SimulationParameters`] header, which has
+    /// no `time_step_number` and is never rewritten. Time step records
+    /// should go through [`Self::append_time_step`] instead.
     pub fn append_time_step_info_to_file(
         &self,
         info: impl std::convert::Into<std::vec::Vec<u8>>,
@@ -150,6 +165,47 @@ impl TSInfoAppender {
         // Write serialized struct
         file.write_all(&bytes)?;
 
+        Ok(())
+    }
+
+    /// Appends a single [`TimeStepInfo`] record, tracking the file offset it
+    /// starts at.
+    ///
+    /// If a record for this `time_step_number` was already written (the
+    /// simulation rewound and re-produced it, e.g. after a visualization
+    /// change), the file is truncated back to that offset first, so this
+    /// call overwrites the stale record instead of duplicating it. Offsets
+    /// for any later, now-truncated-away time steps are dropped; they get
+    /// re-established as the simulation naturally re-produces them.
+    pub fn append_time_step(&mut self, info: TimeStepInfo) -> Result<(), FileIoError> {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            // Explicitly keep existing content: this method seeks to a
+            // specific offset (either the end, to append, or a previously
+            // recorded time step's offset, to overwrite it in place) rather
+            // than relying on truncate-on-open or append-mode semantics.
+            .truncate(false)
+            .open(self.file_path.clone())?;
+
+        let time_step_number = info.time_step_number;
+
+        let write_offset = if let Some(&offset) = self.offsets.get(&time_step_number) {
+            file.set_len(offset)?;
+            self.offsets.retain(|&ts, _| ts < time_step_number);
+            offset
+        } else {
+            file.metadata()?.len()
+        };
+
+        file.seek(SeekFrom::Start(write_offset))?;
+
+        let bytes: Vec<u8> = info.into();
+        let len = bytes.len() as u64;
+        file.write_all(&len.to_le_bytes())?;
+        file.write_all(&bytes)?;
+
+        self.offsets.insert(time_step_number, write_offset);
         Ok(())
     }
 }
