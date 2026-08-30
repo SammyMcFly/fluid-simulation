@@ -1,7 +1,9 @@
 //! Implicit frictional boundary handling via volume maps
 use crate::for_each;
 use crate::neighbor_search::NeighborSearch;
-use crate::render_info::{BoundaryMeshColoring, BoundaryVisualization, RenderPose};
+use crate::render_info::{
+    BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization, RenderPose,
+};
 use crate::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
 use crate::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
@@ -351,7 +353,11 @@ impl BoundaryHandling for VolumeMaps {
                 }
             }
             BoundaryVisualization::Samples { .. } => {
-                panic!("Cannot provide samples as there are none.")
+                tracing::error!("Cannot provide samples as there are none.");
+                BoundaryVisualization::Samples {
+                    positions: vec![],
+                    coloring: BoundarySampleColoring::Uniform,
+                }
             }
         }
     }

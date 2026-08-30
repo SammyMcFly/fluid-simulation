@@ -214,6 +214,8 @@ pub enum ScalarQuantity {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum BoundaryVisualization {
     TriangleMesh {
+        /// Mesh in local/body frame and its current world pose.
+        /// Static boundaries always use `RenderPose::IDENTITY`.
         meshes: Vec<(RenderMesh, RenderPose)>,
         coloring: BoundaryMeshColoring,
     },
