@@ -62,7 +62,7 @@ The `.csv` measurement files are produced by the `--measurement-file` flag.
 The simulation core is generic over five traits:
 
 ```text
-System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling>
+System<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling>
 ```
 
 | Trait | Responsibility | Examples |
@@ -71,7 +71,7 @@ System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch
 | `IntegrationScheme` | Time integration of positions/velocities | `EulerCromer`, `Verlet`, `TakePredicted` |
 | `PressureSolver` | Compute pressure field and apply acceleration | `SESPH`, `IISPH`, `IISPHwOST` |
 | `NeighborSearch` | Neighbor queries in O(n·k) | `SpatialHashing` |
-| `BoundaryHandling` | Boundary forces and boundary volumes | `StaticSampleBoundary` |
+| `BoundaryHandling` | Boundary forces and boundary volumes; static or two-way coupled dynamic (rigid-body) | `SampleBoundary`, `VolumeMaps` |
 
 For details see [`simulation_lib/README.md`](./simulation_lib/README.md);
 for the rendering side see [`rendering_lib/README.md`](./rendering_lib/README.md).
@@ -96,8 +96,9 @@ for the rendering side see [`rendering_lib/README.md`](./rendering_lib/README.md
   <!-- - Implicit Euler with conjugate gradient (WIP) -->
 - **Viscosity** — artificial viscosity for fluid–fluid and fluid–boundary interactions
 - **Boundary Handling**  (trait: `BoundaryHandling`)
-  - static sample boundary with (rest) volume computation to allow irregular sampling
-  - volume maps (WIP)
+  - static or dynamic sample boundary (`SampleBoundary`) with (rest) volume computation to allow irregular sampling
+  - static or dynamic implicit volume maps (`VolumeMaps`) via signed-distance/volume-map discretization
+  - dynamic boundaries: two-way coupled rigid-body motion (`RigidBodyMotion`), integrated via Euler-Cromer from accumulated fluid pressure/viscosity reaction force and torque
 - **Adaptive Time Stepping** via CFL condition (feature: `cfl_time_step`)
 
 ### Rendering
@@ -112,8 +113,8 @@ for the rendering side see [`rendering_lib/README.md`](./rendering_lib/README.md
   - Reconstructed surface
   - Sensor plane for scalar field visualization
 - Configurable boundary visualization options:
-  - Triangle mesh
-  - Samples in case of static sample boundary
+  - Triangle mesh (original, uniform, or colored by boundary ID)
+  - Samples (uniform or colored by boundary ID), only available for the explicitly sampled `SampleBoundary`
 - Cross-section axis-aligned cut planes on all three axes for interior
   inspection
 - Simulation info (time step, particle count, …)
@@ -142,7 +143,7 @@ for the rendering side see [`rendering_lib/README.md`](./rendering_lib/README.md
 
 ### Recording & Playback
 
-- Full simulation state serialization via `serde` + `bincode`
+- Full simulation state serialization via `serde` + `bincode`/`ron`, including dynamic boundary rigid-body state, for saving/resuming a simulation (`--state`)
 - Record time step data to binary files
 
 - Replay recordings with `sci-phi-player`: play forward/backward, make incremental time steps

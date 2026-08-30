@@ -4,22 +4,22 @@ Physics-based SPH (Smoothed Particle Hydrodynamics) fluid simulation backend. Pr
 
 ## Overview
 
-This crate is generic over the numerical building blocks of an SPH simulation — kernel function, integration scheme, pressure solver, neighbor search algorithm, and boundary handling — and assembles a concrete simulation (`System3D`) from a scene/parameter configuration read from `.toml` files. The resulting system is exposed behind the object-safe [`SPHSystem`] trait so that the frontend/backend crates don't need to know the concrete generic instantiation.
+This crate is generic over the numerical building blocks of an SPH simulation — kernel function, integration scheme, pressure solver, neighbor search algorithm, and boundary handling — and assembles a concrete simulation (`System`) from a scene/parameter configuration read from `.toml` files. The resulting system is exposed behind the object-safe [`SPHSystem`] trait so that the frontend/backend crates don't need to know the concrete generic instantiation.
 
 ## Module structure
 
 | Module | Purpose |
 |--------|---------|
-| `fluid` | `Fluid3D` — collection of fluid samples (position, velocity, mass, volume, pressure, ...) and surface reconstruction via `splashsurf_lib`; `SerFluid3D` for (de)serialization |
-| `sph` | Core simulation: `SPHSystem` trait, generic `System3D<K, I, P, N, B>`, `Checkpoint`, system parameters/properties |
+| `fluid` | `Fluid` — collection of fluid samples (position, velocity, mass, volume, pressure, ...) and surface reconstruction via `splashsurf_lib`; `FluidCheckpoint`/`SerFluidCheckpoint` for snapshotting and (de)serialization |
+| `sph` | Core simulation: `SPHSystem` trait, generic `System<K, I, P, N, B>`, `SystemCheckpoint`/`SerSystemCheckpoint`, system parameters/properties |
 | `sph::kernel` | SPH kernel functions (`KernelFn` trait, `CubicBSpline3D`) |
 | `sph::pressure_solver` | Pressure solvers: `SESPH`, `SESPHwSplitting`, `IISPH`, `IISPHwOST` |
-| `sph::boundary_handling` | Boundary representations: `StaticSampleBoundary` (explicit samples), `VolumeMaps` (implicit signed-distance/volume-map boundary) |
+| `sph::boundary_handling` | Boundary representations: `SampleBoundary` (explicit samples), `VolumeMaps` (implicit signed-distance/volume-map boundary); `RigidBodyMotion` for two-way coupled dynamic (rigid-body) boundaries, with `BoundaryCheckpoint`/`SerBoundaryCheckpoint` and `RigidBodyMotionState`/`SerRigidBodyMotionState` for snapshotting dynamic boundary state |
 | `sph::non_pressure_accelerations` | Gravity and viscosity acceleration contributions |
 | `sph::quantities` | SPH interpolation of scalar/vector quantities (volume, speed, density, pressure, kinetic energy) at arbitrary positions |
 | `integration_schemes` | Time integrators: `ExplicitEuler`, `EulerCromer`, `Verlet`, `TakePredicted` (`ImplicitEuler` currently disabled) |
 | `neighbor_search` | `NeighborSearch` trait, `NeighborList`, and `SpatialHashing` implementation |
-| `setup` | Scene/parameter loading (`input.rs`) and generic system construction (`System3DConstructor`, `new_boxed_system3d`) |
+| `setup` | Scene/parameter loading (`input.rs`) and generic system construction (`SystemConstructor`, `new_boxed_system3d`) |
 | `render_info` | `SimulationParameters`, `TimeStepInfo` and visualization types sent to the renderer/UI |
 | `measurement` | `Measurement`, `MeasurementSeries`, `RecordingStatus` — recording physical quantities to CSV |
 | `utilities` | `discretization` (cubic serendipity SDF/volume-map interpolation, Gauss-Legendre quadrature), `sampling` (volume/surface particle sampling), `triangle_mesh` (mesh loading, render mesh construction) |
@@ -32,8 +32,8 @@ This crate is generic over the numerical building blocks of an SPH simulation �
 The core simulation type is generic over five abstract procedures:
 
 ```rust
-pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling> {
-    fluid: Fluid3D,
+pub struct System<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B: BoundaryHandling> {
+    fluid: Fluid,
     fluid_neighbor_list: NeighborList,
     boundary: B,
     integrator: I,
@@ -52,13 +52,15 @@ pub struct System3D<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: Nei
 | `I` | `IntegrationScheme` | `ExplicitEuler`, `EulerCromer`, `Verlet`, `TakePredicted` |
 | `P` | `PressureSolver` | `SESPH`, `SESPHwSplitting`, `IISPH`, `IISPHwOST` |
 | `N` | `NeighborSearch` | `SpatialHashing` |
-| `B` | `BoundaryHandling` | `StaticSampleBoundary`, `VolumeMaps` |
+| `B` | `BoundaryHandling` | `SampleBoundary`, `VolumeMaps` |
 
-`System3D<K, I, P, N, B>` implements the object-safe, `dyn_clone`-able **`SPHSystem`** trait. Consumers (`sci-phi-backend`) only ever hold a `Box<dyn SPHSystem>` and never see the concrete generic instantiation.
+`System<K, I, P, N, B>` implements the object-safe, `dyn_clone`-able **`SPHSystem`** trait. Consumers (`sci-phi-backend`) only ever hold a `Box<dyn SPHSystem>` and never see the concrete generic instantiation.
+
+Both `SampleBoundary` and `VolumeMaps` support **dynamic (rigid-body) boundaries** in addition to static ones: a `RigidBodyMotion` tracks pose, linear/angular velocity and accumulated force/torque from fluid-boundary coupling, integrated via a Euler-Cromer scheme each time step.
 
 ### Assembly from configuration
 
-`setup::new_boxed_system3d` reads a `Procedures` enum selection (one variant per type parameter, deserialized from `.toml`) and nested macros (`with_integrator!` → `with_pressure!` → `with_neighbor!` → `with_boundary!`) expand to the matching concrete `System3D<...>`, wrapped in `Box<dyn SPHSystem>`:
+`setup::new_boxed_system3d` reads a `Procedures` enum selection (one variant per type parameter, deserialized from `.toml`) and nested macros (`with_integrator!` → `with_pressure!` → `with_neighbor!` → `with_boundary!`) expand to the matching concrete `System<...>`, wrapped in `Box<dyn SPHSystem>`:
 
 ```
 Procedures (from .toml)
@@ -66,13 +68,13 @@ Procedures (from .toml)
        NeighborSearchVariant, BoundaryHandlingVariant
             │
             ▼  (macro expansion, cartesian product)
-    System3DConstructor<K, I, P, N, B>::new(params, scene, state)
+    SystemConstructor<K, I, P, N, B>::new(params, scene, state)
             │
             ▼
-    System3D::<K, I, P, N, B>::new_boxed(constructor)  ->  Box<dyn SPHSystem>
+    System::<K, I, P, N, B>::new_boxed(constructor)  ->  Box<dyn SPHSystem>
 ```
 
-`Parameters` and `Scene` (also from `.toml`) supply numeric constants and the scene graph (fluid/boundary mesh instances with transforms), which `System3DConstructor` uses to sample particles (`utilities::sampling`) and build boundary representations.
+`Parameters` and `Scene` (also from `.toml`) supply numeric constants and the scene graph (fluid/boundary mesh instances with transforms), which `SystemConstructor` uses to sample particles (`utilities::sampling`) and build boundary representations. If a saved state file is supplied, `SystemConstructor` restores fluid samples, dynamic boundary pose/velocity and the elapsed simulation time/step count from it instead of sampling fresh geometry from the scene (see Checkpointing and state persistence).
 
 ### Time step pipeline
 
@@ -80,6 +82,7 @@ Each call to `SPHSystem::step_forward_in_time` runs:
 
 ```
 1. integrator.integrate(fluid, dt)         — advance position/velocity (integration_schemes)
+   boundary.step_forward_in_time(dt)       — integrate dynamic boundary rigid-body motion
 2. time_steps_propagated += 1
 3. update():
    a. disable/drop out-of-bounds particles
@@ -89,7 +92,9 @@ Each call to `SPHSystem::step_forward_in_time` runs:
    e. calc_acceleration():
         reset_acceleration
         add_non_pressure_acceleration()     — gravity + viscosity (non_pressure_accelerations)
-        pressure_solver.solve_and_add_acceleration(...)  — pressure_solver
+        pressure_solver.solve_and_add_acceleration(...)  — pressure_solver (also accumulates
+                                                           reaction force/torque onto dynamic
+                                                           boundaries via RigidBodyMotion::add_force)
    f. update CurrentSystemProperties (avg. density, [CFL time step if enabled])
 ```
 
@@ -108,7 +113,12 @@ SPHSystem::get_*_visualization()   -> FluidVisualization / BoundaryVisualization
               ▼  sent over crossbeam channel to UI (see sci-phi-backend)
 ```
 
-`Checkpoint::from_sph_system` / `SPHSystem::continue_from_checkpoint` allow snapshotting and rewinding a `SerFluid3D` state independently of this pipeline (used for rebuilding the visualization buffer in `sci-phi-backend`).
+### Checkpointing and state persistence
+
+Two related but distinct mechanisms snapshot fluid and dynamic boundary state:
+
+- **`SystemCheckpoint`** (`SystemCheckpoint::from_sph_system` / `SPHSystem::continue_from_checkpoint`) — a lightweight, `nalgebra`-typed in-memory snapshot (fluid samples, per-boundary `RigidBodyMotionState`, `time_steps_propagated`, elapsed simulation time) used to rewind an already-running system to an earlier point in time within the same process (e.g. rebuilding the visualization buffer or changing visualization settings in `sci-phi-backend`).
+- **`SerSystemCheckpoint`** — the serializable counterpart (`Serialize`/`Deserialize`/`Encode`/`Decode`), obtained via `From<SystemCheckpoint>`, used to persist a full system state to a `.ron` file (`--state` / "save state") and later resume a simulation across separate program runs. `System3DConstructor::new` restores fluid, dynamic boundary state and the step/time counters from it, assuming the scene file defines the same boundaries (order, count, static/dynamic kind) as when the state was saved.
 
 ## Features
 
@@ -122,9 +132,9 @@ SPHSystem::get_*_visualization()   -> FluidVisualization / BoundaryVisualization
 
 | Crate | Purpose |
 |-------|---------|
-| `nalgebra` | Linear algebra (`Point3`, `Vector3`, `Matrix3`) |
+| `nalgebra` | Linear algebra (`Point3`, `Vector3`, `Matrix3`, `UnitQuaternion`, `Isometry3`) |
 | `glam` | Interop type used by `parry3d-f64` point queries |
-| `parry3d-f64` | Triangle mesh representation, AABB, signed-distance/point queries |
+| `parry3d-f64` | Triangle mesh representation, AABB, signed-distance/point queries, mass properties |
 | `splashsurf_lib` | Surface reconstruction of fluid particles into a triangle mesh |
 | `num-traits` | Generic numeric traits (e.g. `Zero`) |
 | `gauss-quad` | Gauss-Legendre quadrature for volume-map integration |
@@ -132,7 +142,7 @@ SPHSystem::get_*_visualization()   -> FluidVisualization / BoundaryVisualization
 | `crossbeam` | (Currently unused directly here but part of the workspace's threading model) |
 | `serde` | Deserializing scene/parameter `.toml` files, serializing checkpoints |
 | `tobj` | Loading `.obj`/`.mtl` triangle meshes |
-| `ron` | Serializing/deserializing `SerFluid3D` state files |
+| `ron` | Serializing/deserializing `SerSystemCheckpoint` state files |
 | `csv` | Writing measurement series to disk |
 | `toml` | Parsing scene and parameter configuration files |
 | `bincode` | Compact binary (de)serialization of `TimeStepInfo` / checkpoints |
@@ -152,7 +162,8 @@ let procedures = Procedures::from_file("params.toml")?;
 let params = Parameters::from_file("params.toml")?;
 let scene = Scene::from_file("scene.toml")?;
 
-// state_file_path: Some(path) to continue from a saved SerFluid3D state
+// state_file_path: Some(path) to resume from a saved SerSystemCheckpoint (`--state`),
+// restoring fluid samples, dynamic boundary state and elapsed time/step count.
 let mut system = new_boxed_system3d(&procedures, &params, &scene, None)?;
 
 // Advance the simulation and take a measurement
