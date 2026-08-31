@@ -284,46 +284,6 @@ impl BoundaryHandling for SampleBoundary {
     }
 }
 
-// impl SampleBoundary {
-//     /// Calculate and set pseudo mass of all boundary particles
-//     fn init_boundary_volume<K: KernelFn>(
-//         &mut self,
-//         neighbor_search: &mut impl NeighborSearch,
-//         kernel_support_radius: f64,
-//         boundary_rest_volume_weighting: f64,
-//     ) {
-//         let mut boundary_boundary_neighbor_list = NeighborList::new(self.boundaries.len());
-//         neighbor_search.find_samples(
-//             kernel_support_radius,
-//             &self.boundaries.position,
-//             &self.boundaries.position,
-//             &mut boundary_boundary_neighbor_list,
-//         );
-//         for boundary_particle_index in 0..self.boundaries.len() {
-//             // add inverse volume for every boundary neighbor
-//             let mut inverse_volume = 0.;
-//             // get boundary neighbors of boundary particles
-//             for boundary_neighbor in
-//                 boundary_boundary_neighbor_list.get_neighbors(boundary_particle_index)
-//             {
-//                 let r_vec = vector(
-//                     self.boundaries.pos_now(boundary_particle_index),
-//                     self.boundaries.pos_now(*boundary_neighbor),
-//                 );
-//                 inverse_volume += K::kernel_function(&r_vec, kernel_support_radius);
-//             }
-//             // calculate mass with rest density of fluid
-//             let pseudo_volume = boundary_rest_volume_weighting / inverse_volume;
-//             self.boundaries
-//                 .set_volume(boundary_particle_index, pseudo_volume);
-//             // #[cfg(feature = "logging")]
-//             // tracing::debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
-//             // #[cfg(feature = "logging")]
-//             // tracing::debug!("boundary particle {} has mass: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].mass());
-//         }
-//     }
-// }
-
 // // ─── Boundaries ───────────────────────────────────────────────
 
 /// Boundary represented by samples, which are identified by an ID (usize)

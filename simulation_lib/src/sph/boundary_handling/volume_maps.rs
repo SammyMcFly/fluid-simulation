@@ -151,11 +151,6 @@ impl BoundaryHandling for VolumeMaps {
         let num_samples = positions.len();
 
         for b in &mut self.boundaries {
-            b.boundary_neighbor_list_mut().resize(num_samples);
-            b.boundary_neighbor_list_viscosity_mut().resize(num_samples);
-            b.boundary_neighbor_list_mut().clear();
-            b.boundary_neighbor_list_viscosity_mut().clear();
-
             struct PerParticleNeighbors {
                 pos: Vec<Point3<f64>>,
                 vel: Vec<Vector3<f64>>,
@@ -262,44 +257,45 @@ impl BoundaryHandling for VolumeMaps {
             .collect();
 
             // Sequential write-back
-            {
-                let (neighbor_pos, neighbor_vel, neighbor_vol, neighbor_indices) =
-                    b.boundary_neighbor_list_mut().neighbors_mut();
-                for (i, r) in results.iter().enumerate() {
-                    for (j, ((pos, vel), vol)) in r.pos.iter().zip(&r.vel).zip(&r.vol).enumerate() {
-                        neighbor_pos[i].push(*pos);
-                        neighbor_vel[i].push(*vel);
-                        neighbor_vol[i].push(*vol);
-                        neighbor_indices[i].push(j);
-                    }
-                }
-            }
-            {
-                let (neighbor_v_pos, neighbor_v_vel, neighbor_v_vol, neighbor_v_indices) =
-                    b.boundary_neighbor_list_viscosity_mut().neighbors_mut();
-
-                for (i, r) in results.iter().enumerate() {
-                    for j in 0..(r.v_pos.len() / 4) {
-                        let local_start = 4 * j;
-                        let base = local_start;
-                        for k in 0..4 {
-                            neighbor_v_pos[i].push(r.v_pos[4 * j + k]);
-                            neighbor_v_vel[i].push(r.v_vel[4 * j + k]);
-                            neighbor_v_vol[i].push(r.v_vol[4 * j + k]);
+            b.boundary_neighbor_list_mut()
+                .rebuild(num_samples, 0, |nl| {
+                    let (neighbor_pos, neighbor_vel, neighbor_vol, neighbor_indices) =
+                        nl.neighbors_mut();
+                    for (i, r) in results.iter().enumerate() {
+                        for (j, ((pos, vel), vol)) in
+                            r.pos.iter().zip(&r.vel).zip(&r.vol).enumerate()
+                        {
+                            neighbor_pos[i].push(*pos);
+                            neighbor_vel[i].push(*vel);
+                            neighbor_vol[i].push(*vol);
+                            neighbor_indices[i].push(j);
                         }
-                        neighbor_v_indices[i].extend_from_slice(&[
-                            base,
-                            base + 1,
-                            base + 2,
-                            base + 3,
-                        ]);
                     }
-                }
-            }
+                });
 
-            b.boundary_neighbor_list_mut().flatten(0);
             let len = b.boundary_neighbor_list().len();
-            b.boundary_neighbor_list_viscosity_mut().flatten(len);
+
+            b.boundary_neighbor_list_viscosity_mut()
+                .rebuild(num_samples, len, |nl| {
+                    let (neighbor_v_pos, neighbor_v_vel, neighbor_v_vol, neighbor_v_indices) =
+                        nl.neighbors_mut();
+                    for (i, r) in results.iter().enumerate() {
+                        for j in 0..(r.v_pos.len() / 4) {
+                            let base = 4 * j;
+                            for k in 0..4 {
+                                neighbor_v_pos[i].push(r.v_pos[4 * j + k]);
+                                neighbor_v_vel[i].push(r.v_vel[4 * j + k]);
+                                neighbor_v_vol[i].push(r.v_vol[4 * j + k]);
+                            }
+                            neighbor_v_indices[i].extend_from_slice(&[
+                                base,
+                                base + 1,
+                                base + 2,
+                                base + 3,
+                            ]);
+                        }
+                    }
+                });
         }
     }
 
@@ -827,157 +823,174 @@ impl BoundaryType {
 
 // ─── NeighborList ───────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
-struct NeighborList {
-    positions: Vec<Point3<f64>>,
-    velocities: Vec<Vector3<f64>>,
-    volumes: Vec<f64>,
-    /// Flat neighbor list
-    indices: Vec<usize>,
-    /// Index list to point to start of the neighbor list of each sample
-    offsets: Vec<usize>,
-    /// Unflattened neighbor list which is necessary since there can exist many boundaries
-    unflattened_positions: Vec<Vec<Point3<f64>>>,
-    unflattened_velocities: Vec<Vec<Vector3<f64>>>,
-    unflattened_volumes: Vec<Vec<f64>>,
-    unflattened_indices: Vec<Vec<usize>>,
-}
+use neighbor_list::NeighborList;
 
-impl Default for NeighborList {
-    fn default() -> Self {
-        Self::new(0)
-    }
-}
+mod neighbor_list {
+    use super::*;
 
-impl NeighborList {
-    fn new(len: usize) -> Self {
-        Self {
-            positions: Vec::new(),
-            velocities: Vec::new(),
-            volumes: Vec::new(),
-            indices: vec![usize::default(); len],
-            offsets: vec![usize::default(); len + 1],
-            unflattened_positions: vec![Vec::new(); len],
-            unflattened_velocities: vec![Vec::new(); len],
-            unflattened_volumes: vec![Vec::new(); len],
-            unflattened_indices: vec![Vec::new(); len],
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.positions.len()
-    }
-
-    pub fn resize(&mut self, len: usize) {
-        // self.positions.resize(len, Point3::origin());
-        // self.velocities.resize(len, Vector3::zero());
-        // self.volumes.resize(len, 0.);
-        // self.indices.resize(len, usize::default());
-        // self.offsets.resize(len + 1, usize::default());
-        self.unflattened_positions.resize(len, Vec::new());
-        self.unflattened_velocities.resize(len, Vec::new());
-        self.unflattened_volumes.resize(len, Vec::new());
-        self.unflattened_indices.resize(len, Vec::new());
-    }
-
-    pub fn clear(&mut self) {
-        self.positions.clear();
-        self.velocities.clear();
-        self.volumes.clear();
-        self.indices.clear();
-        self.offsets.clear();
-        for_each!(
-            mut [self.unflattened_indices, self.unflattened_positions, self.unflattened_velocities, self.unflattened_volumes],
-            ref [],
-            |_id, id_index, id_pos, id_vel, id_vol| {
-                id_index.clear();
-                id_pos.clear();
-                id_vel.clear();
-                id_vol.clear();
-            }
-        );
-    }
-
-    /// Get mutable reference to unflattened neighbor list: one Vec<usize> per sample
+    /// Per-boundary list of fluid samples treated as neighbors, alongside
+    /// their interpolated position/velocity/volume on the boundary surface.
     ///
-    /// Contract: Always call flatten after updating data in unflattened array
-    pub fn neighbors_mut(
-        &mut self,
-    ) -> (
-        &mut Vec<Vec<Point3<f64>>>,
-        &mut Vec<Vec<Vector3<f64>>>,
-        &mut Vec<Vec<f64>>,
-        &mut Vec<Vec<usize>>,
-    ) {
-        (
-            &mut self.unflattened_positions,
-            &mut self.unflattened_velocities,
-            &mut self.unflattened_volumes,
-            &mut self.unflattened_indices,
-        )
+    /// The only way to (re)populate this list is [`NeighborList::rebuild`],
+    /// which resizes, clears, fills and flattens atomically — `resize`,
+    /// `clear` and `flatten` are private to this module.
+    #[derive(Debug, Clone, Default)]
+    pub struct NeighborList {
+        positions: Vec<Point3<f64>>,
+        velocities: Vec<Vector3<f64>>,
+        volumes: Vec<f64>,
+        /// Flat neighbor list
+        indices: Vec<usize>,
+        /// Index list to point to start of the neighbor list of each sample
+        offsets: Vec<usize>,
+        /// Unflattened neighbor list which is necessary since there can exist many boundaries
+        unflattened_positions: Vec<Vec<Point3<f64>>>,
+        unflattened_velocities: Vec<Vec<Vector3<f64>>>,
+        unflattened_volumes: Vec<Vec<f64>>,
+        unflattened_indices: Vec<Vec<usize>>,
     }
 
-    /// Flatten neighbor list
-    fn flatten(&mut self, global_offset: usize) {
-        self.positions.clear();
-        self.velocities.clear();
-        self.volumes.clear();
-        self.indices.clear();
-        self.offsets.clear();
+    /// Transient handle granting mutable access to a [`NeighborList`]'s
+    /// unflattened per-sample buffers — see [`super::NeighborList`]'s
+    /// module-level counterpart in `neighbor_search` for the rationale.
+    pub struct NeighborListBuilder<'a> {
+        positions: &'a mut Vec<Vec<Point3<f64>>>,
+        velocities: &'a mut Vec<Vec<Vector3<f64>>>,
+        volumes: &'a mut Vec<Vec<f64>>,
+        indices: &'a mut Vec<Vec<usize>>,
+    }
 
-        let total_neighbors: usize = self.unflattened_indices.iter().map(|v| v.len()).sum();
-        let num_particles = self.unflattened_indices.len();
-
-        self.positions.reserve(total_neighbors);
-        self.velocities.reserve(total_neighbors);
-        self.volumes.reserve(total_neighbors);
-        self.indices.reserve(total_neighbors);
-        self.offsets.reserve(num_particles + 1);
-
-        self.offsets.push(0);
-        for (((nbr_pos, nbr_vel), nbr_vol), idcs) in self
-            .unflattened_positions
-            .iter()
-            .zip(&self.unflattened_velocities)
-            .zip(&self.unflattened_volumes)
-            .zip(&self.unflattened_indices)
-        {
-            let offset_bc_of_previous_samples_neighbors = self.positions.len();
-            self.positions.extend_from_slice(nbr_pos);
-            self.velocities.extend_from_slice(nbr_vel);
-            self.volumes.extend_from_slice(nbr_vol);
-            for &local_idx in idcs {
-                self.indices
-                    .push(global_offset + offset_bc_of_previous_samples_neighbors + local_idx);
-            }
-            self.offsets.push(self.indices.len());
+    impl<'a> NeighborListBuilder<'a> {
+        pub fn neighbors_mut(
+            &mut self,
+        ) -> (
+            &mut Vec<Vec<Point3<f64>>>,
+            &mut Vec<Vec<Vector3<f64>>>,
+            &mut Vec<Vec<f64>>,
+            &mut Vec<Vec<usize>>,
+        ) {
+            (self.positions, self.velocities, self.volumes, self.indices)
         }
     }
 
-    /// Get indices of neighbor of sample with identifier 'id'
-    pub fn get_neighbors(&self, id: usize) -> &[usize] {
-        &self.indices[self.offsets[id]..self.offsets[id + 1]]
-    }
+    impl NeighborList {
+        pub fn len(&self) -> usize {
+            self.positions.len()
+        }
 
-    fn pos_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Point3<f64>]>,
-    {
-        &self.positions[id]
-    }
+        fn resize(&mut self, len: usize) {
+            self.unflattened_positions.resize(len, Vec::new());
+            self.unflattened_velocities.resize(len, Vec::new());
+            self.unflattened_volumes.resize(len, Vec::new());
+            self.unflattened_indices.resize(len, Vec::new());
+        }
 
-    fn vel_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Vector3<f64>]>,
-    {
-        &self.velocities[id]
-    }
+        fn clear(&mut self) {
+            self.positions.clear();
+            self.velocities.clear();
+            self.volumes.clear();
+            self.indices.clear();
+            self.offsets.clear();
+            for_each!(
+                mut [self.unflattened_indices, self.unflattened_positions, self.unflattened_velocities, self.unflattened_volumes],
+                ref [],
+                |_id, id_index, id_pos, id_vel, id_vol| {
+                    id_index.clear();
+                    id_pos.clear();
+                    id_vel.clear();
+                    id_vol.clear();
+                }
+            );
+        }
 
-    fn volume<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[f64]>,
-    {
-        &self.volumes[id]
+        /// Flatten neighbor list
+        fn flatten(&mut self, global_offset: usize) {
+            self.positions.clear();
+            self.velocities.clear();
+            self.volumes.clear();
+            self.indices.clear();
+            self.offsets.clear();
+
+            let total_neighbors: usize = self.unflattened_indices.iter().map(|v| v.len()).sum();
+            let num_particles = self.unflattened_indices.len();
+
+            self.positions.reserve(total_neighbors);
+            self.velocities.reserve(total_neighbors);
+            self.volumes.reserve(total_neighbors);
+            self.indices.reserve(total_neighbors);
+            self.offsets.reserve(num_particles + 1);
+
+            self.offsets.push(0);
+            for (((nbr_pos, nbr_vel), nbr_vol), idcs) in self
+                .unflattened_positions
+                .iter()
+                .zip(&self.unflattened_velocities)
+                .zip(&self.unflattened_volumes)
+                .zip(&self.unflattened_indices)
+            {
+                let offset_bc_of_previous_samples_neighbors = self.positions.len();
+                self.positions.extend_from_slice(nbr_pos);
+                self.velocities.extend_from_slice(nbr_vel);
+                self.volumes.extend_from_slice(nbr_vol);
+                for &local_idx in idcs {
+                    self.indices
+                        .push(global_offset + offset_bc_of_previous_samples_neighbors + local_idx);
+                }
+                self.offsets.push(self.indices.len());
+            }
+        }
+
+        /// Rebuilds this neighbor list from scratch for `num_samples` samples.
+        ///
+        /// `fill` receives `&mut self` to populate the per-sample buffers via
+        /// [`Self::neighbors_mut`]. Resizing, clearing, filling and flattening
+        /// happen atomically within this single call — an insane, intermediate
+        /// state is never observable from outside this method, so `get_neighbors`
+        /// /`pos_now`/`vel_now`/`volume` can only ever see a fully flattened,
+        /// consistent list.
+        pub fn rebuild(
+            &mut self,
+            num_samples: usize,
+            global_offset: usize,
+            fill: impl FnOnce(&mut NeighborListBuilder<'_>),
+        ) {
+            self.resize(num_samples);
+            self.clear();
+            let mut builder = NeighborListBuilder {
+                positions: &mut self.unflattened_positions,
+                velocities: &mut self.unflattened_velocities,
+                volumes: &mut self.unflattened_volumes,
+                indices: &mut self.unflattened_indices,
+            };
+            fill(&mut builder);
+            self.flatten(global_offset);
+        }
+
+        /// Get indices of neighbor of sample with identifier 'id'
+        pub fn get_neighbors(&self, id: usize) -> &[usize] {
+            &self.indices[self.offsets[id]..self.offsets[id + 1]]
+        }
+
+        pub fn pos_now<I>(&self, id: I) -> &I::Output
+        where
+            I: SliceIndex<[Point3<f64>]>,
+        {
+            &self.positions[id]
+        }
+
+        pub fn vel_now<I>(&self, id: I) -> &I::Output
+        where
+            I: SliceIndex<[Vector3<f64>]>,
+        {
+            &self.velocities[id]
+        }
+
+        pub fn volume<I>(&self, id: I) -> &I::Output
+        where
+            I: SliceIndex<[f64]>,
+        {
+            &self.volumes[id]
+        }
     }
 }
 

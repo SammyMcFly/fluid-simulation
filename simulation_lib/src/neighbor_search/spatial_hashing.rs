@@ -133,29 +133,27 @@ impl NeighborSearch for SpatialHashing {
         sample_positions: &[Point3<f64>],
         neighbor_list: &mut super::NeighborList,
     ) {
-        neighbor_list.resize(positions.len());
-        neighbor_list.clear();
-
         // Build grid from fluid positions
         self.cells.clear();
         Self::populate(&mut self.cells, sample_positions, self.cell_size);
 
-        for_each!(
-            mut [neighbor_list.neighbors_mut()],
-            ref [pos = positions, neighbor_pos = sample_positions],
-            |id, id_neighbors| {
-                // update neighbors
-                let neighbors = Self::get_particles_in_range(
-                    &self.cells,
-                    &pos[id],
-                    neighbor_pos,
-                    self.cell_size,
-                    within_range,
-                );
-                *id_neighbors = neighbors;
-            }
-        );
-        neighbor_list.flatten();
+        neighbor_list.rebuild(positions.len(), |nl| {
+            for_each!(
+                mut [nl.neighbors_mut()],
+                ref [pos = positions, neighbor_pos = sample_positions],
+                |id, id_neighbors| {
+                    // update neighbors
+                    let neighbors = Self::get_particles_in_range(
+                        &self.cells,
+                        &pos[id],
+                        neighbor_pos,
+                        self.cell_size,
+                        within_range,
+                    );
+                    *id_neighbors = neighbors;
+                }
+            );
+        });
     }
 }
 
