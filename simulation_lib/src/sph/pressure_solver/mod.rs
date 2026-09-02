@@ -148,7 +148,7 @@ fn add_pressure_acceleration<K: KernelFn>(
             for (i, b) in boundary.iter().enumerate() {
                 for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
                     let weighting = params.boundary_pressure_acceleration_weighting;
-                    let r_vec = vector(b.pos_now(boundary_neighbor), &particle_pos);
+                    let r_vec = vector(b.position(boundary_neighbor), &particle_pos);
                     let force = 2. * weighting * volume[id]
                         * b.volume(boundary_neighbor)
                         * pressure[id]
@@ -158,7 +158,7 @@ fn add_pressure_acceleration<K: KernelFn>(
                         local_forces.push(ForceOntoBoundary {
                             id: i,
                             force,
-                            force_location: *b.pos_now(boundary_neighbor),
+                            force_location: *b.position(boundary_neighbor),
                         });
                     }
                     accu -= force / mass[id];

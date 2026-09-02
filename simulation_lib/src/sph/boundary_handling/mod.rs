@@ -93,9 +93,9 @@ pub trait BoundaryHandling: Send + Sync + Clone {
 pub trait Boundary: Send + Sync {
     fn get_neighbors(&self, id: usize, mode: RequestMode) -> &[usize];
 
-    fn pos_now(&self, id: usize) -> &Point3<f64>;
+    fn position(&self, id: usize) -> &Point3<f64>;
 
-    fn vel_now(&self, id: usize) -> &Vector3<f64>;
+    fn velocity(&self, id: usize) -> &Vector3<f64>;
 
     fn volume(&self, id: usize) -> f64;
 

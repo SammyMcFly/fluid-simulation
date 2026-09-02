@@ -45,7 +45,7 @@ pub fn get_volume<K: KernelFn>(
             for b in boundary.iter() {
                 for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
                     let r_vec = vector(
-                        b.pos_now(boundary_neighbor),
+                        b.position(boundary_neighbor),
                         &position_eval[id],
                     );
                     accu += b.volume(boundary_neighbor)
@@ -102,9 +102,9 @@ pub fn get_speed<K: KernelFn>(
                 for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
                     let r_vec = vector(
                         &pos_now_eval[id],
-                        b.pos_now(boundary_neighbor),
+                        b.position(boundary_neighbor),
                     );
-                    accu += *b.vel_now(boundary_neighbor)
+                    accu += *b.velocity(boundary_neighbor)
                         * b.volume(boundary_neighbor)
                         * K::kernel_function(
                             &r_vec,

@@ -149,12 +149,12 @@ impl PressureSolver for IISPHwOST {
                     for b in boundary.iter() {
                         for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
                             let r_vec = vector(
-                                b.pos_now(boundary_neighbor),
+                                b.position(boundary_neighbor),
                                 &pos_now[id],
                             );
                             jac_vel -= b.volume(boundary_neighbor)
                                 * (vel_pred[id]
-                                    - b.vel_now(boundary_neighbor))
+                                    - b.velocity(boundary_neighbor))
                                 .outer(&K::kernel_gradient(
                                     &r_vec,
                                     params.kernel_support_radius,

@@ -621,7 +621,7 @@ impl Boundary for BoundaryType {
         }
     }
 
-    fn pos_now(&self, id: usize) -> &Point3<f64> {
+    fn position(&self, id: usize) -> &Point3<f64> {
         let num_neighbors = self.boundary_neighbor_list().len();
         if id < num_neighbors {
             self.boundary_neighbor_list().pos_now(id)
@@ -631,7 +631,7 @@ impl Boundary for BoundaryType {
         }
     }
 
-    fn vel_now(&self, id: usize) -> &Vector3<f64> {
+    fn velocity(&self, id: usize) -> &Vector3<f64> {
         let num_neighbors = self.boundary_neighbor_list().len();
         if id < num_neighbors {
             self.boundary_neighbor_list().vel_now(id)

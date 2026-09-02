@@ -138,13 +138,13 @@ impl IISPH {
                 for b in boundary.iter() {
                     for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
                         let r_vec = vector(
-                            b.pos_now(boundary_neighbor),
+                            b.position(boundary_neighbor),
                             &pos_now[id],
                         );
                         accu -= params.time_increment
                             * b.volume(boundary_neighbor)
                             * (vel_pred[id]
-                                - *b.vel_now(boundary_neighbor))
+                                - *b.velocity(boundary_neighbor))
                             .dot(&K::kernel_gradient(
                                 &r_vec,
                                 params.kernel_support_radius,
@@ -217,13 +217,13 @@ impl IISPH {
                         };
 
                         let r_vec = vector(
-                            b.pos_now(boundary_neighbor),
+                            b.position(boundary_neighbor),
                             &particle_pos,
                         );
                         accu -= params.time_increment
                             * b.volume(boundary_neighbor)
                             * (vel_pred[id]
-                                - *b.vel_now(boundary_neighbor))
+                                - *b.velocity(boundary_neighbor))
                             .dot(&K::kernel_gradient(
                                 &r_vec,
                                 params.kernel_support_radius,
@@ -306,7 +306,7 @@ impl IISPH {
                         };
 
                         let r_vec = vector(
-                            b.pos_now(boundary_neighbor),
+                            b.position(boundary_neighbor),
                             &particle_pos,
                         );
                         sum_boundary += b.volume(boundary_neighbor)
@@ -471,7 +471,7 @@ impl IISPH {
                             };
 
                             let r_vec = vector(
-                                b.pos_now(boundary_neighbor),
+                                b.position(boundary_neighbor),
                                 &particle_pos,
                             );
                             a_dot_p_f += params.time_increment.powi(2)

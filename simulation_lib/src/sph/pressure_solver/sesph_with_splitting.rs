@@ -116,7 +116,7 @@ impl SESPHwSplitting {
                 for b in boundary.iter() {
                     for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
                         let r_vec = vector(
-                            b.pos_now(boundary_neighbor),
+                            b.position(boundary_neighbor),
                             &pos_now[id],
                         );
                         accu += b.volume(boundary_neighbor)

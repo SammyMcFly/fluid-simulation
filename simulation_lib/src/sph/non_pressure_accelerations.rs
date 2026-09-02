@@ -112,20 +112,20 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
             for (i, b) in boundary.iter().enumerate() {
                 for &boundary_neighbor in b.get_neighbors(id, RequestMode::ViscosityAcceleration) {
                     let r_vec = vector(
-                        b.pos_now(boundary_neighbor),
+                        b.position(boundary_neighbor),
                         &pos_now[id],
                     );
                     let acceleration = params.boundary_viscosity
                         * 2.
                         * (3. + 2.)
                         * b.volume(boundary_neighbor)
-                        * (vel_now[id] - *b.vel_now(boundary_neighbor))
+                        * (vel_now[id] - *b.velocity(boundary_neighbor))
                             .dot(
                                 &(pos_now[id]
-                                    - *b.pos_now(boundary_neighbor)),
+                                    - *b.position(boundary_neighbor)),
                             )
                         / ((pos_now[id]
-                            - *b.pos_now(boundary_neighbor))
+                            - *b.position(boundary_neighbor))
                         .norm_squared()
                             + 0.01 * params.rest_density_grid_spacing.powi(2))
                         * K::kernel_gradient(
@@ -137,7 +137,7 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
                         local_forces.push(ForceOntoBoundary {
                             id: i,
                             force: -force,
-                            force_location: *b.pos_now(boundary_neighbor),
+                            force_location: *b.position(boundary_neighbor),
                         });
                     }
                     accu += acceleration;

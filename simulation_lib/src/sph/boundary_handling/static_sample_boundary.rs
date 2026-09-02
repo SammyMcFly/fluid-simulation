@@ -212,7 +212,7 @@ impl BoundaryHandling for StaticSampleBoundary {
                             .boundaries
                             .iter()
                             .flat_map(|b| {
-                                std::iter::repeat_n(b.render_mesh_id(), b.position().len())
+                                std::iter::repeat_n(b.render_mesh_id(), b.positions().len())
                             })
                             .collect();
                         let max_id = *ids.iter().max().unwrap_or(&0);
@@ -232,7 +232,7 @@ impl BoundaryHandling for StaticSampleBoundary {
                 let render_mesh_ids: Vec<u32> = self
                     .boundaries
                     .iter()
-                    .flat_map(|b| std::iter::repeat_n(b.render_mesh_id(), b.position().len()))
+                    .flat_map(|b| std::iter::repeat_n(b.render_mesh_id(), b.positions().len()))
                     .collect();
                 let max_id = *render_mesh_ids.iter().max().unwrap_or(&0);
                 let coloring = match coloring {
@@ -249,7 +249,7 @@ impl BoundaryHandling for StaticSampleBoundary {
                         .boundaries
                         .iter()
                         .flat_map(|b| {
-                            b.position()
+                            b.positions()
                                 .iter()
                                 .map(|pos| [pos.x as f32, pos.y as f32, pos.z as f32])
                         })
@@ -323,16 +323,16 @@ impl Boundary for BoundaryType {
         self.boundary_neighbor_list().get_neighbors(id)
     }
 
-    fn pos_now(&self, id: usize) -> &Point3<f64> {
-        &self.position()[id]
+    fn position(&self, id: usize) -> &Point3<f64> {
+        &self.positions()[id]
     }
 
-    fn vel_now(&self, id: usize) -> &Vector3<f64> {
-        &self.velocity()[id]
+    fn velocity(&self, id: usize) -> &Vector3<f64> {
+        &self.velocities()[id]
     }
 
     fn volume(&self, id: usize) -> f64 {
-        self.volume()[id]
+        self.volumes()[id]
     }
 
     fn add_acceleration(&mut self, acceleration: Vector3<f64>) {
@@ -372,8 +372,8 @@ impl BoundaryType {
         let mut boundary_boundary_neighbor_list = NeighborList::new(self.len());
         neighbor_search.find_samples(
             kernel_support_radius,
-            self.position(),
-            self.position(),
+            self.positions(),
+            self.positions(),
             &mut boundary_boundary_neighbor_list,
         );
         for boundary_particle_index in 0..self.len() {
@@ -384,14 +384,14 @@ impl BoundaryType {
                 boundary_boundary_neighbor_list.get_neighbors(boundary_particle_index)
             {
                 let r_vec = vector(
-                    self.pos_now(boundary_particle_index),
-                    self.pos_now(*boundary_neighbor),
+                    self.position(boundary_particle_index),
+                    self.position(*boundary_neighbor),
                 );
                 inverse_volume += K::kernel_function(&r_vec, kernel_support_radius);
             }
             // calculate pseudo volume
             let pseudo_volume = boundary_rest_volume_weighting / inverse_volume;
-            self.volume_mut()[boundary_particle_index] = pseudo_volume;
+            self.volumes_mut()[boundary_particle_index] = pseudo_volume;
             // #[cfg(feature = "logging")]
             // tracing::debug!("boundary particle {} has position: {}", boundary_particle_index, self.boundary_particles[boundary_particle_index].pos());
             // #[cfg(feature = "logging")]
@@ -438,42 +438,42 @@ impl BoundaryType {
         }
     }
 
-    fn position(&self) -> &Vec<Point3<f64>> {
+    fn positions(&self) -> &Vec<Point3<f64>> {
         match self {
             Self::StaticBoundary { position, .. } => position,
             Self::DynamicBoundary { position, .. } => position,
         }
     }
 
-    fn position_mut(&mut self) -> &mut Vec<Point3<f64>> {
+    fn positions_mut(&mut self) -> &mut Vec<Point3<f64>> {
         match self {
             Self::StaticBoundary { position, .. } => position,
             Self::DynamicBoundary { position, .. } => position,
         }
     }
 
-    fn velocity(&self) -> &Vec<Vector3<f64>> {
+    fn velocities(&self) -> &Vec<Vector3<f64>> {
         match self {
             Self::StaticBoundary { velocity, .. } => velocity,
             Self::DynamicBoundary { velocity, .. } => velocity,
         }
     }
 
-    fn velocity_mut(&mut self) -> &mut Vec<Vector3<f64>> {
+    fn velocities_mut(&mut self) -> &mut Vec<Vector3<f64>> {
         match self {
             Self::StaticBoundary { velocity, .. } => velocity,
             Self::DynamicBoundary { velocity, .. } => velocity,
         }
     }
 
-    fn volume(&self) -> &Vec<f64> {
+    fn volumes(&self) -> &Vec<f64> {
         match self {
             Self::StaticBoundary { volume, .. } => volume,
             Self::DynamicBoundary { volume, .. } => volume,
         }
     }
 
-    fn volume_mut(&mut self) -> &mut Vec<f64> {
+    fn volumes_mut(&mut self) -> &mut Vec<f64> {
         match self {
             Self::StaticBoundary { volume, .. } => volume,
             Self::DynamicBoundary { volume, .. } => volume,
@@ -600,7 +600,7 @@ impl BoundaryType {
 
 impl Len for BoundaryType {
     fn len(&self) -> usize {
-        self.position().len()
+        self.positions().len()
     }
 }
 
