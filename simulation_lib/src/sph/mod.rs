@@ -638,7 +638,7 @@ impl<
     // #[cfg(feature = "local_pressure")]
     fn calc_acceleration(&mut self) {
         // reset acceleration
-        reset_acceleration::<B>(&mut self.fluid);
+        reset_acceleration(&mut self.fluid);
         // add non-pressure acceleration
         self.add_non_pressure_acceleration();
         // compute pressure

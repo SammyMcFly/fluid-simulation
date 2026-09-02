@@ -15,7 +15,7 @@ use crate::sph::kernel::KernelFn;
 use crate::sph::vector;
 
 /// reset acceleration, i. e. set it to 0.
-pub fn reset_acceleration<B: BoundaryHandling>(fluid: &mut Fluid) {
+pub fn reset_acceleration(fluid: &mut Fluid) {
     for_each!(
         mut [fluid.acceleration],
         ref [],
