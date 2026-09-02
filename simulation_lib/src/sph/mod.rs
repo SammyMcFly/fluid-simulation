@@ -129,6 +129,11 @@ impl<
             .step_forward_in_time(self.parameters.time_increment);
 
         self.time_steps_propagated += 1;
+        // Advance elapsed physical time by the step just taken.
+        #[cfg(feature = "cfl_time_step")]
+        {
+            self.parameters.current_time += self.parameters.time_increment;
+        }
         // Update
         self.update();
         // measure wall clock time for time step
@@ -687,10 +692,6 @@ impl<
         // update properties
         self.properties.update(self.calc_average_mass_density());
         // set new cfl time step conditionally
-        #[cfg(feature = "cfl_time_step")]
-        {
-            self.parameters.current_time += self.parameters.time_increment;
-        }
         #[cfg(any(feature = "logging", feature = "cfl_time_step"))]
         let max_speed = self.calc_max_speed();
         #[cfg(feature = "cfl_time_step")]
