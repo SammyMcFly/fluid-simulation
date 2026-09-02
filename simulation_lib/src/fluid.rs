@@ -21,12 +21,6 @@ pub trait Len {
     }
 }
 
-pub trait Positional {
-    fn pos_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Point3<f64>]>;
-}
-
 /// Fluid, i.e. a collection of samples, which are identified by an ID (usize)
 ///
 #[derive(Debug, Clone, Default)]
@@ -49,15 +43,6 @@ pub struct Fluid {
 impl Len for Fluid {
     fn len(&self) -> usize {
         self.num_active
-    }
-}
-
-impl Positional for Fluid {
-    fn pos_now<I>(&self, id: I) -> &I::Output
-    where
-        I: SliceIndex<[Point3<f64>]>,
-    {
-        &self.position[id]
     }
 }
 
