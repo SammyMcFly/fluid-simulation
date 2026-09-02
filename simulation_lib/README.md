@@ -17,7 +17,7 @@ This crate is generic over the numerical building blocks of an SPH simulation �
 | `sph::boundary_handling` | Boundary representations: `StaticSampleBoundary` (explicit samples), `VolumeMapBoundary` (implicit signed-distance/volume-map boundary); `RigidBodyMotion` for two-way coupled dynamic (rigid-body) boundaries, with `BoundaryCheckpoint`/`SerBoundaryCheckpoint` and `RigidBodyMotionState`/`SerRigidBodyMotionState` for snapshotting dynamic boundary state |
 | `sph::non_pressure_accelerations` | Gravity and viscosity acceleration contributions |
 | `sph::quantities` | SPH interpolation of scalar/vector quantities (volume, speed, density, pressure, kinetic energy) at arbitrary positions |
-| `integration_schemes` | Time integrators: `ExplicitEuler`, `EulerCromer`, `Verlet`, `TakePredicted` (`ImplicitEuler` currently disabled) |
+| `integration_schemes` | Time integrators: `ExplicitEuler`, `EulerCromer`, `Verlet`, `TakePredicted` |
 | `neighbor_search` | `NeighborSearch` trait, `NeighborList`, and `SpatialHashing` implementation |
 | `setup` | Scene/parameter loading (`input.rs`) and generic system construction (`SystemConstructor`, `new_boxed_system3d`) |
 | `render_info` | `SimulationParameters`, `TimeStepInfo` and visualization types sent to the renderer/UI |
@@ -172,10 +172,60 @@ let measurement = system.take_measurement();
 println!("time: {}, density error: {}%", measurement.time, measurement.density_error);
 ```
 
-<!--## Testing
+### Testing
 
-Unit tests are colocated with modules that benefit most from them (`neighbor_search::mod`, `neighbor_search::spatial_hashing`) and an integration test binary lives under `tests/neighbor_search`.
+Tests are split into two categories, matching the visibility of what they exercise:
+
+
+- **Internal unit tests** (`#[cfg(test)] mod tests` inside the module itself) — used
+
+  wherever a module has private fields, private helper functions, or invariants that
+  can only be observed by reaching into its internals (e.g. `NeighborList`'s flattening
+  logic, `MeshContainer`'s cache invalidation, `IISPH`'s diagonal-element computation,
+  `RigidBodyMotion`'s cached derived-state consistency).
+
+- **External integration tests** (`tests/*.rs`) — exercise only the public API, the way
+
+  a downstream crate (e.g. `sci-phi-backend`) would use it. Used for modules whose
+  entire surface is public (e.g. `boundary_handling`'s trait definitions,
+  `integration_schemes`, `kernel`), and for end-to-end tests that assemble a full
+  `System` via `setup::new_boxed_system3d`.
+
+Run the full suite:
 
 ```bash
-cargo test -p simulation_lib
-```-->
+cargo test
+```
+
+Since several tests are gated on the `cfl_time_step` feature (fixed vs. adaptive time
+stepping select different code paths and, in some cases, different assertions), also run:
+
+```bash
+cargo test --features cfl_time_step
+cargo test --no-default-features   # exercises the sequential (non-rayon) `for_each!` path
+```
+
+A few tests are marked `#[ignore]` because they exercise expensive code paths (the real
+Gauss-Legendre volume-map quadrature in `VolumeMapBoundary`, full `splashsurf_lib`
+surface reconstruction) whose execution is too slow to run automatically; run them explicitly via:
+
+```bash
+cargo test -- --ignored
+```
+
+#### Coverage overview
+
+| Area | Status |
+|------|--------|
+| `sph::kernel` | ✅ Kernel contract (default methods) + `CubicBSpline3D` (normalization, monotonicity, compact support) |
+| `sph::boundary_handling` | ✅ Module-level types (traits, checkpoints); `VolumeMapBoundary`, `StaticSampleBoundary` individually |
+| `sph::boundary_handling::rigid_body_motion` | ✅ Cached derived-state consistency (`inertia_tensor_inv_world`, `angular_velocity`) across `new`, `update_derived`, `step_forward_in_time`, `restore_from_checkpoint` |
+| `sph::pressure_solver` | ✅ Shared helpers (`add_pressure_acceleration`, `set_pred_vel_by_applying_acc`) + all four concrete solvers |
+| `integration_schemes` | ✅ All schemes (`ExplicitEuler`, `EulerCromer`, `Verlet`, `TakePredicted`) |
+| `neighbor_search` | ✅ `NeighborList`, `SpatialHashing` (hashing, cell lookup, collision-free range) |
+| `sph::non_pressure_accelerations`, `sph::quantities` | ✅ Formula-level checks against independently derived expected values |
+| `sph` (`System`, `SPHSystem`, checkpoints) | ✅ End-to-end via `setup::new_boxed_system3d`; `SystemParameters`/`CurrentSystemProperties` internals |
+| `setup` / `setup::input` | ✅ TOML (de)serialization, cross-reference validation, full system construction (success + failure paths) |
+| `utilities::triangle_mesh`, `utilities::sampling`, `utilities::discretization` | ✅ |
+| `fluid` (surface reconstruction), `measurement` | ✅ core logic; surface reconstruction covered only by an `#[ignore]`d smoke test |
+| `render_info` | ✅ `SimulationParameters`/bincode round trips, `RenderPose` conversion, visualization dispatch logic (`FluidVisualization`/`FluidSampleColoring`/`BoundaryVisualization`) |
