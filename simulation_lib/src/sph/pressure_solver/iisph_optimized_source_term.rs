@@ -22,6 +22,8 @@ pub struct IISPHwOST {
 }
 
 impl PressureSolver for IISPHwOST {
+    const SUPPORTS_DYNAMIC_BOUNDARIES: bool = false;
+
     fn new(params: &Parameters) -> Self {
         Self {
             inner: IISPH::new(params),

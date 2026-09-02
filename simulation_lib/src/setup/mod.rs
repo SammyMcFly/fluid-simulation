@@ -162,6 +162,12 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             params.boundary_rest_volume_weighting,
         );
 
+        // Reject pressure-solver/boundary combinations known to produce incorrect
+        // fluid-boundary coupling — see `PressureSolver::SUPPORTS_DYNAMIC_BOUNDARIES`.
+        if !P::SUPPORTS_DYNAMIC_BOUNDARIES && boundary.iter().any(|b| b.is_dynamic()) {
+            return Err(SetupError::IncompatibleDynamicBoundary);
+        }
+
         // If resuming from a saved state, overwrite the boundary's dynamic state
         // (pose/velocity) with the saved one. Done AFTER `initialize()` so that,
         // for `SampleBoundary`, neighbor lists and pseudo volumes are already

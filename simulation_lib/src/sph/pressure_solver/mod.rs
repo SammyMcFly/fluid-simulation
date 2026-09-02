@@ -35,6 +35,15 @@ pub enum PressureSolverVariant {
 }
 
 pub trait PressureSolver: Send + Sync + Clone {
+    /// Whether this solver correctly supports two-way coupling with
+    /// *dynamic* (rigid-body) boundaries.
+    ///
+    /// Defaults to `true`; override to `false` for solvers with this
+    /// limitation. Checked in `SystemConstructor::new`, which refuses to
+    /// build a system pairing such a solver with a scene that defines at
+    /// least one dynamic boundary.
+    const SUPPORTS_DYNAMIC_BOUNDARIES: bool = true;
+
     fn new(params: &Parameters) -> Self;
 
     /// Compute pressure
