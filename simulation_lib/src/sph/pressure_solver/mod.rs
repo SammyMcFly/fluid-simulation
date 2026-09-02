@@ -97,6 +97,10 @@ fn set_pred_vel_by_applying_acc(fluid: &mut Fluid, params: &SystemParameters, to
 
 /// Locally calculate pressure acceleration with a state equation at current time
 /// and add it to respective samples
+///
+/// If `custom_target` is `None`, `fluid.acceleration` is used as the target
+/// and the result committed to `fluid.acceleration` is mirrored back onto
+/// the boundary.
 fn add_pressure_acceleration<K: KernelFn>(
     custom_target: Option<&mut Vec<Vector3<f64>>>,
     fluid: &mut Fluid,

@@ -1,6 +1,6 @@
 # Configuration file
 [procedures]
-kernel_function = "CubicBSpline3D" # CubicBSpline
+kernel_function = "CubicBSpline3D" # CubicBSpline3D
 integration_scheme = "EulerCromer" #
 pressure_solver = "IISPH" #
 neighbor_search = "SpatialHashing" # SpatialHashing, Octree

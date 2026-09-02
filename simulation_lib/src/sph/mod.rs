@@ -681,7 +681,7 @@ impl<
             &self.fluid.position,
             self.parameters.rest_density_grid_spacing,
         );
-        // compute density
+        // compute volume
         get_volume::<K>(
             &mut self.fluid.volume,
             &self.fluid.position,

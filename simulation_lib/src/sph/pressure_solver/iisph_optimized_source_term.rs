@@ -136,8 +136,6 @@ impl PressureSolver for IISPHwOST {
                     volume = fluid.volume,
                     neighbors = neighbor_list,
                     boundary = boundary,
-                    // s_f = self.s_f,
-                    // a_ff = self.a_ff,
                 ],
                 |id, id_position_pred, id_pressure_acc_f| {
                     // calculate new position and store it intermediately

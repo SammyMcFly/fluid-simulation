@@ -458,8 +458,13 @@ impl CubicSerendipityDiscretization {
     //         .sum())
     // }
 
-    /// Numerical derivative along one axis via central difference,
-    /// falling back to one-sided difference near domain/pruned-cell boundaries.
+    /// Numerical derivative along one axis via central difference.
+    ///
+    /// Both `p + h` and `p - h` must be evaluable; if either evaluation fails
+    /// (out of bounds, or in a pruned cell), that error is propagated as-is.
+    /// There is currently no fallback to a one-sided difference near domain or
+    /// pruned-cell boundaries — see the corresponding test in this module for
+    /// the concrete failure mode this causes in `find_boundary_samples`.
     fn directional_derivative(
         &self,
         p: &Point3<f64>,

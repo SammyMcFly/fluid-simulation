@@ -119,7 +119,7 @@ fn sample_triangle_surface(
 /// # Arguments
 ///
 /// * `p` - The point to test.
-/// * `a`, `b`, `c` - The vertices of the triangle, in either winding order.
+/// * `a`, `b`, `c` - The vertices of a non-degenerate triangle, in either winding order.
 ///
 /// # Returns
 ///
