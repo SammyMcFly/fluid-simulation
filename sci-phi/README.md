@@ -140,7 +140,7 @@ All five keys are **required**. Values are the exact enum variant names (case-se
 | `integration_scheme` | `EulerCromer`, `ExplicitEuler`, `Verlet`, `TakePredicted` |
 | `pressure_solver` | `SESPH`, `SESPHwSplitting`, `IISPH`, `IISPHwOST` |
 | `neighbor_search` | `SpatialHashing` |
-| `boundary_handling` | `StaticSampleBoundary`, `VolumeMaps` |
+| `boundary_handling` | `StaticSampleBoundary`, `VolumeMapBoundary` |
 
 `TakePredicted` is meant to be paired with `IISPHwOST`, which already integrates the
 predicted state.

@@ -4,7 +4,7 @@ kernel_function = "CubicBSpline3D" # CubicBSpline
 integration_scheme = "EulerCromer" #
 pressure_solver = "IISPH" #
 neighbor_search = "SpatialHashing" # SpatialHashing, Octree
-boundary_handling = "VolumeMaps" # SampleBoundary, VolumeMaps
+boundary_handling = "VolumeMapBoundary" # StaticSampleBoundary, VolumeMapBoundary
 
 [parameters] # General parameters
 buffer_length_limit = 1000

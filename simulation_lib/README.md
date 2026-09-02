@@ -14,7 +14,7 @@ This crate is generic over the numerical building blocks of an SPH simulation â€
 | `sph` | Core simulation: `SPHSystem` trait, generic `System<K, I, P, N, B>`, `SystemCheckpoint`/`SerSystemCheckpoint`, system parameters/properties |
 | `sph::kernel` | SPH kernel functions (`KernelFn` trait, `CubicBSpline3D`) |
 | `sph::pressure_solver` | Pressure solvers: `SESPH`, `SESPHwSplitting`, `IISPH`, `IISPHwOST` |
-| `sph::boundary_handling` | Boundary representations: `SampleBoundary` (explicit samples), `VolumeMaps` (implicit signed-distance/volume-map boundary); `RigidBodyMotion` for two-way coupled dynamic (rigid-body) boundaries, with `BoundaryCheckpoint`/`SerBoundaryCheckpoint` and `RigidBodyMotionState`/`SerRigidBodyMotionState` for snapshotting dynamic boundary state |
+| `sph::boundary_handling` | Boundary representations: `StaticSampleBoundary` (explicit samples), `VolumeMapBoundary` (implicit signed-distance/volume-map boundary); `RigidBodyMotion` for two-way coupled dynamic (rigid-body) boundaries, with `BoundaryCheckpoint`/`SerBoundaryCheckpoint` and `RigidBodyMotionState`/`SerRigidBodyMotionState` for snapshotting dynamic boundary state |
 | `sph::non_pressure_accelerations` | Gravity and viscosity acceleration contributions |
 | `sph::quantities` | SPH interpolation of scalar/vector quantities (volume, speed, density, pressure, kinetic energy) at arbitrary positions |
 | `integration_schemes` | Time integrators: `ExplicitEuler`, `EulerCromer`, `Verlet`, `TakePredicted` (`ImplicitEuler` currently disabled) |
@@ -52,11 +52,11 @@ pub struct System<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: Neigh
 | `I` | `IntegrationScheme` | `ExplicitEuler`, `EulerCromer`, `Verlet`, `TakePredicted` |
 | `P` | `PressureSolver` | `SESPH`, `SESPHwSplitting`, `IISPH`, `IISPHwOST` |
 | `N` | `NeighborSearch` | `SpatialHashing` |
-| `B` | `BoundaryHandling` | `SampleBoundary`, `VolumeMaps` |
+| `B` | `BoundaryHandling` | `StaticSampleBoundary`, `VolumeMapBoundary` |
 
 `System<K, I, P, N, B>` implements the object-safe, `dyn_clone`-able **`SPHSystem`** trait. Consumers (`sci-phi-backend`) only ever hold a `Box<dyn SPHSystem>` and never see the concrete generic instantiation.
 
-Both `SampleBoundary` and `VolumeMaps` support **dynamic (rigid-body) boundaries** in addition to static ones: a `RigidBodyMotion` tracks pose, linear/angular velocity and accumulated force/torque from fluid-boundary coupling, integrated via a Euler-Cromer scheme each time step.
+Both `StaticSampleBoundary` and `VolumeMapBoundary` support **dynamic (rigid-body) boundaries** in addition to static ones: a `RigidBodyMotion` tracks pose, linear/angular velocity and accumulated force/torque from fluid-boundary coupling, integrated via a Euler-Cromer scheme each time step.
 
 ### Assembly from configuration
 

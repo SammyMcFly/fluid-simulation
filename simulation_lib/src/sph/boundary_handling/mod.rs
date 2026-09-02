@@ -1,27 +1,31 @@
 //! Boundary handling module
-use bincode::{Decode, Encode};
-use nalgebra::{Isometry3, Matrix3, Point3, Quaternion, Translation3, UnitQuaternion, Vector3};
-use serde::{Deserialize, Serialize};
+mod static_sample_boundary;
+mod volume_maps;
+
+pub use rigid_body_motion::{
+    RigidBodyMotion, RigidBodyMotionCheckpoint, SerRigidBodyMotionCheckpoint,
+};
+pub use static_sample_boundary::StaticSampleBoundary;
+pub use volume_maps::VolumeMapBoundary;
 
 use crate::{
     neighbor_search::NeighborSearch,
     render_info::BoundaryVisualization,
     setup::input::{DynamicBoundaryDef, StaticBoundaryDef},
     sph::kernel::KernelFn,
+    sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef},
     utilities::triangle_mesh::MeshContainer,
 };
 mod rigid_body_motion;
 
-mod static_sample_boundary;
-mod volume_maps;
-
-pub use static_sample_boundary::SampleBoundary;
-pub use volume_maps::VolumeMaps;
+use bincode::{Decode, Encode};
+use nalgebra::{Point3, Vector3};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub enum BoundaryHandlingVariant {
-    SampleBoundary,
-    VolumeMaps,
+    StaticSampleBoundary,
+    VolumeMapBoundary,
 }
 
 pub trait BoundaryHandling: Send + Sync + Clone {

@@ -71,7 +71,7 @@ System<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, 
 | `IntegrationScheme` | Time integration of positions/velocities | `EulerCromer`, `Verlet`, `TakePredicted` |
 | `PressureSolver` | Compute pressure field and apply acceleration | `SESPH`, `IISPH`, `IISPHwOST` |
 | `NeighborSearch` | Neighbor queries in O(n·k) | `SpatialHashing` |
-| `BoundaryHandling` | Boundary forces and boundary volumes; static or two-way coupled dynamic (rigid-body) | `SampleBoundary`, `VolumeMaps` |
+| `BoundaryHandling` | Boundary forces and boundary volumes; static or two-way coupled dynamic (rigid-body) | `StaticSampleBoundary`, `VolumeMapBoundary` |
 
 For details see [`simulation_lib/README.md`](./simulation_lib/README.md);
 for the rendering side see [`rendering_lib/README.md`](./rendering_lib/README.md).
@@ -96,8 +96,8 @@ for the rendering side see [`rendering_lib/README.md`](./rendering_lib/README.md
   <!-- - Implicit Euler with conjugate gradient (WIP) -->
 - **Viscosity** — artificial viscosity for fluid–fluid and fluid–boundary interactions
 - **Boundary Handling**  (trait: `BoundaryHandling`)
-  - static or dynamic sample boundary (`SampleBoundary`) with (rest) volume computation to allow irregular sampling
-  - static or dynamic implicit volume maps (`VolumeMaps`) via signed-distance/volume-map discretization
+  - static or dynamic sample boundary (`StaticSampleBoundary`) with (rest) volume computation to allow irregular sampling
+  - static or dynamic implicit volume maps (`VolumeMapBoundary`) via signed-distance/volume-map discretization
   - dynamic boundaries: two-way coupled rigid-body motion (`RigidBodyMotion`), integrated via Euler-Cromer from accumulated fluid pressure/viscosity reaction force and torque
 - **Adaptive Time Stepping** via CFL condition (feature: `cfl_time_step`)
 
@@ -114,7 +114,7 @@ for the rendering side see [`rendering_lib/README.md`](./rendering_lib/README.md
   - Sensor plane for scalar field visualization
 - Configurable boundary visualization options:
   - Triangle mesh (original, uniform, or colored by boundary ID)
-  - Samples (uniform or colored by boundary ID), only available for the explicitly sampled `SampleBoundary`
+  - Samples (uniform or colored by boundary ID), only available for the explicitly sampled `StaticSampleBoundary`
 - Cross-section axis-aligned cut planes on all three axes for interior
   inspection
 - Simulation info (time step, particle count, …)

@@ -36,7 +36,7 @@ use serde::Serialize;
 use std::slice::SliceIndex;
 
 #[derive(Debug, Default, Clone)]
-pub struct SampleBoundary {
+pub struct StaticSampleBoundary {
     /// Boundary samples
     boundaries: Vec<BoundaryType>,
     // List of boundary neighbors
@@ -45,7 +45,7 @@ pub struct SampleBoundary {
     // params: BoundaryParameters,
 }
 
-impl BoundaryHandling for SampleBoundary {
+impl BoundaryHandling for StaticSampleBoundary {
     fn new() -> Self {
         Self::default()
     }

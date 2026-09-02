@@ -170,7 +170,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
 
         // If resuming from a saved state, overwrite the boundary's dynamic state
         // (pose/velocity) with the saved one. Done AFTER `initialize()` so that,
-        // for `SampleBoundary`, neighbor lists and pseudo volumes are already
+        // for `StaticSampleBoundary`, neighbor lists and pseudo volumes are already
         // computed relative to the scene's initial pose before being
         // overwritten.
         if let Some(checkpoint) = &saved_checkpoint {
@@ -237,11 +237,11 @@ pub fn new_boxed_system3d(
     macro_rules! with_boundary {
         ($K:ty, $I:ty, $P:ty, $N:ty) => {
             match procs.boundary_handling {
-                BoundaryHandlingVariant::SampleBoundary => {
-                    create!(params, scene, state, $K, $I, $P, $N, SampleBoundary)
+                BoundaryHandlingVariant::StaticSampleBoundary => {
+                    create!(params, scene, state, $K, $I, $P, $N, StaticSampleBoundary)
                 }
-                BoundaryHandlingVariant::VolumeMaps => {
-                    create!(params, scene, state, $K, $I, $P, $N, VolumeMaps)
+                BoundaryHandlingVariant::VolumeMapBoundary => {
+                    create!(params, scene, state, $K, $I, $P, $N, VolumeMapBoundary)
                 }
             }
         };

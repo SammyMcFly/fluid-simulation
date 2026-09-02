@@ -4,12 +4,12 @@ use crate::neighbor_search::NeighborSearch;
 use crate::render_info::{
     BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization, RenderPose,
 };
-use crate::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
 use crate::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
     RigidBodyMotion, RigidBodyMotionCheckpoint,
 };
 use crate::sph::kernel::{CubicBSpline3D, KernelFn};
+use crate::sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
 use crate::utilities::discretization::{
     CubicSerendipityDiscretization, EvaluationError, gauss_legendre_integrate,
 };
@@ -24,6 +24,7 @@ use parry3d_f64::query::PointQuery;
 use parry3d_f64::shape::{Shape, TriMesh};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use std::panic;
 use std::slice::SliceIndex;
 
 fn ball_volume(radius: f64) -> f64 {
@@ -31,15 +32,15 @@ fn ball_volume(radius: f64) -> f64 {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct VolumeMaps {
+pub struct VolumeMapBoundary {
     boundaries: Vec<BoundaryType>,
 }
 
-impl VolumeMaps {
+impl VolumeMapBoundary {
     const INTEGRATION_ORDER: usize = 30;
 }
 
-impl BoundaryHandling for VolumeMaps {
+impl BoundaryHandling for VolumeMapBoundary {
     fn new() -> Self {
         Self::default()
     }
