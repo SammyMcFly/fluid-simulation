@@ -100,11 +100,14 @@ impl BoundaryHandling for VolumeMaps {
         );
         let trimesh = mesh.trimesh();
         // calc position of the center of mass in the global coordinate system
-        let global_center_of_mass = Point3::new(
+        let orientation = euler_deg_to_quaternion(boundary.rotation_euler_deg);
+        let local_com_vec = Vector3::new(
             mass_props.local_com[0],
             mass_props.local_com[1],
             mass_props.local_com[2],
-        ) + Vector3::from(boundary.translation);
+        );
+        let global_center_of_mass = Point3::from(Vector3::from(boundary.translation))
+            + orientation.transform_vector(&local_com_vec);
         // discretize the mesh
         let dx = rest_density_grid_spacing * 4.; // TODO
         let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius);
