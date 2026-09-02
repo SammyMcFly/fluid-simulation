@@ -85,22 +85,22 @@ pub struct MeasurementSeries {
 impl MeasurementSeries {
     pub fn new(file_path: &str) -> Result<Self, MeasurementError> {
         let file_path = std::path::Path::new(&file_path);
-        // convert to global path
-        let file_path_parent = std::fs::canonicalize(
-            file_path
-                .parent()
-                .filter(|p| !p.as_os_str().is_empty())
-                .unwrap_or(Path::new(".")),
-        )?;
+        let parent = file_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+            #[cfg(feature = "logging")]
+            tracing::info!("Created directory: {}", parent.display());
+        }
+
+        let file_path_parent = std::fs::canonicalize(parent)?;
         let mut global_file_path =
             file_path_parent.join(file_path.file_name().expect("No final component found."));
 
-        if !file_path_parent.exists() {
-            // Create the parent directory if it does not exist
-            std::fs::create_dir_all(file_path_parent.clone())?;
-            #[cfg(feature = "logging")]
-            tracing::info!("Created directory: {}", file_path_parent.display());
-        } else if global_file_path.exists() {
+        if global_file_path.exists() {
             let immutable_global_file_path = global_file_path.clone();
             let mut counter: u16 = 2;
             while global_file_path.exists() {
