@@ -240,7 +240,6 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             params.fluid_viscosity,
             params.boundary_viscosity,
             params.boundary_pressure_acceleration_weighting,
-            params.boundary_rest_volume_weighting,
         );
 
         let constructor = Self {

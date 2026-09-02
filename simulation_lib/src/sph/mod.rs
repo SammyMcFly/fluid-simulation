@@ -786,7 +786,6 @@ pub struct SystemParameters {
     fluid_viscosity: f64,
     boundary_viscosity: f64,
     boundary_pressure_acceleration_weighting: f64,
-    boundary_rest_volume_weighting: f64,
 }
 
 impl SystemParameters {
@@ -801,7 +800,6 @@ impl SystemParameters {
         fluid_viscosity: f64,
         boundary_viscosity: f64,
         boundary_pressure_acceleration_weighting: f64,
-        boundary_rest_volume_weighting: f64,
     ) -> Self {
         Self {
             #[cfg(not(feature = "cfl_time_step"))]
@@ -825,7 +823,6 @@ impl SystemParameters {
             fluid_viscosity,
             boundary_viscosity,
             boundary_pressure_acceleration_weighting,
-            boundary_rest_volume_weighting,
         }
     }
 
