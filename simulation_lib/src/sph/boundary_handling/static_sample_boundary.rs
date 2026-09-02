@@ -337,8 +337,8 @@ impl Boundary for BoundaryType {
             Self::StaticBoundary { .. } => None,
             Self::DynamicBoundary { state, .. } => Some(ForceOntoBoundary {
                 id: 0, // dummy entry, value is not used
-                force: state.mass * acceleration,
-                force_location: state.center_of_mass,
+                force: state.mass() * acceleration,
+                force_location: state.center_of_mass(),
             }),
         };
 
@@ -350,7 +350,7 @@ impl Boundary for BoundaryType {
     fn center_of_mass(&self) -> Option<Point3<f64>> {
         match self {
             Self::StaticBoundary { .. } => None,
-            Self::DynamicBoundary { state, .. } => Some(state.center_of_mass),
+            Self::DynamicBoundary { state, .. } => Some(state.center_of_mass()),
         }
     }
 }
