@@ -1,9 +1,9 @@
 //! Explicit Euler integration scheme
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::fluid::Fluid;
 use crate::for_each;
-use crate::integration_schemes::IntegrationScheme;
+use crate::sph::fluid::Fluid;
+use crate::sph::integration_schemes::IntegrationScheme;
 
 #[derive(Default, Clone)]
 pub struct ExplicitEuler;

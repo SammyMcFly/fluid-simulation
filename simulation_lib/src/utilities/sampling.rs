@@ -1,6 +1,6 @@
 //! Sampling utilities
 
-use nalgebra::{Point3, Vector2, Vector3};
+use nalgebra::{Point3, Vector2};
 use parry3d_f64::math::Vec3;
 use parry3d_f64::query::PointQuery;
 use parry3d_f64::shape::TriMesh;

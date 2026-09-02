@@ -1,20 +1,16 @@
 //! Implicit frictional boundary handling via volume maps
-use crate::fluid::Len;
-use crate::fluid::Positional;
 use crate::for_each;
 use crate::neighbor_search::NeighborList;
 use crate::neighbor_search::NeighborSearch;
 use crate::render_info::RenderPose;
 use crate::render_info::{BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization};
-use crate::setup::input::DynamicBoundaryDef;
-use crate::setup::input::StaticBoundaryDef;
-use crate::sph::boundary_handling::Boundary;
-use crate::sph::boundary_handling::BoundaryCheckpoint;
-use crate::sph::boundary_handling::BoundaryHandling;
-use crate::sph::boundary_handling::ForceOntoBoundary;
-use crate::sph::boundary_handling::RequestMode;
-use crate::sph::boundary_handling::RigidBodyMotion;
-use crate::sph::boundary_handling::RigidBodyMotionCheckpoint;
+use crate::sph::boundary_handling::{
+    Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
+    RigidBodyMotion, RigidBodyMotionCheckpoint,
+};
+use crate::sph::fluid::Len;
+use crate::sph::setup::input::DynamicBoundaryDef;
+use crate::sph::setup::input::StaticBoundaryDef;
 // use crate::sph::boundary_handling::BoundaryParameters;
 use crate::sph::kernel::KernelFn;
 use crate::utilities::euler_deg_to_quaternion;
@@ -23,17 +19,11 @@ use crate::utilities::triangle_mesh::MeshContainer;
 use crate::utilities::triangle_mesh::RenderMesh;
 use crate::utilities::vector;
 
-use bincode::Decode;
-use bincode::Encode;
 use nalgebra::Isometry3;
 use nalgebra::{Point3, Vector3};
 use parry3d_f64::mass_properties::MassProperties;
 use parry3d_f64::shape::Shape;
-use parry3d_f64::shape::TriMesh;
 use rayon::prelude::*;
-use serde::Deserialize;
-use serde::Serialize;
-use std::slice::SliceIndex;
 
 #[derive(Debug, Default, Clone)]
 pub struct StaticSampleBoundary {

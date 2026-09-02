@@ -3,17 +3,23 @@
 //! Contains the simulated system, the information of the individual samples
 //! and provides the methods for propagating the system in time.
 pub mod boundary_handling;
+pub mod fluid;
+pub mod integration_schemes;
 pub mod kernel;
 mod non_pressure_accelerations;
 pub mod pressure_solver;
 mod quantities;
+pub mod setup;
 
-use crate::fluid::*;
-use crate::integration_schemes::IntegrationScheme;
+use fluid::*;
+use integration_schemes::IntegrationScheme;
+use kernel::KernelFn;
+use pressure_solver::PressureSolver;
+use quantities::get_volume;
+
 use crate::measurement::{self, Measurement};
 use crate::neighbor_search::{NeighborList, NeighborSearch};
 use crate::render_info::{BoundaryVisualization, ScalarQuantity};
-use crate::setup;
 use crate::sph::boundary_handling::{BoundaryCheckpoint, BoundaryHandling, SerBoundaryCheckpoint};
 use crate::sph::non_pressure_accelerations::*;
 use crate::sph::quantities::{
@@ -21,9 +27,6 @@ use crate::sph::quantities::{
 };
 use crate::utilities::triangle_mesh::RenderMesh;
 use crate::utilities::vector;
-use kernel::KernelFn;
-use pressure_solver::PressureSolver;
-use quantities::get_volume;
 
 use bincode::{Decode, Encode};
 use dyn_clone::DynClone;

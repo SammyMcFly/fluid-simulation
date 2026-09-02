@@ -1,8 +1,6 @@
 //! Integration scheme that takes the predicted position and velocity as new current position and velocity
-use nalgebra::Vector3;
-
-use crate::fluid::Fluid;
-use crate::integration_schemes::IntegrationScheme;
+use crate::sph::fluid::Fluid;
+use crate::sph::integration_schemes::IntegrationScheme;
 
 #[derive(Default, Clone)]
 pub struct TakePredicted;

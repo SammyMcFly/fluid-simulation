@@ -1,9 +1,4 @@
 //! Acceleration module
-use nalgebra::Vector3;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-
-use crate::fluid::Fluid;
 use crate::for_each;
 use crate::iteration::for_each_collect;
 use crate::neighbor_search::NeighborList;
@@ -11,8 +6,13 @@ use crate::sph::SystemParameters;
 use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::boundary_handling::ForceOntoBoundary;
 use crate::sph::boundary_handling::RequestMode;
+use crate::sph::fluid::Fluid;
 use crate::sph::kernel::KernelFn;
 use crate::sph::vector;
+
+use nalgebra::Vector3;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// reset acceleration, i. e. set it to 0.
 pub fn reset_acceleration(fluid: &mut Fluid) {

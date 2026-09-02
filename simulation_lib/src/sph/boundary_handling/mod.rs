@@ -11,7 +11,6 @@ pub use volume_map_boundary::VolumeMapBoundary;
 use crate::{
     neighbor_search::NeighborSearch,
     render_info::BoundaryVisualization,
-    setup::input::{DynamicBoundaryDef, StaticBoundaryDef},
     sph::kernel::KernelFn,
     sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef},
     utilities::triangle_mesh::MeshContainer,

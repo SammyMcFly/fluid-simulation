@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use splashsurf_lib::nalgebra::Vector3 as SurfVector3;
 use splashsurf_lib::{SpatialDecomposition, SurfaceReconstruction, reconstruct_surface};
 use std::collections::BTreeMap;
-use std::slice::SliceIndex;
 
 use crate::utilities::{
     sampling::sample_volume_shifted,
@@ -375,5 +374,170 @@ impl From<SerFluidCheckpoint> for FluidCheckpoint {
             velocity: ser_fluid.velocity.iter().map(|vel| (*vel).into()).collect(),
             mass: ser_fluid.mass,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pos(x: f64, y: f64, z: f64) -> Point3<f64> {
+        Point3::new(x, y, z)
+    }
+
+    fn vel(x: f64, y: f64, z: f64) -> Vector3<f64> {
+        Vector3::new(x, y, z)
+    }
+
+    /// Builds a `Fluid` with `num_active` explicitly controllable,
+    /// independent of `positions.len()` — used to set up mismatched
+    /// active/total states (e.g. for `extend`'s panic condition) that
+    /// cannot be produced through the public API, since `num_active` is
+    /// private and `FluidCheckpoint -> Fluid` always yields
+    /// `num_active == len`.
+    fn raw_fluid(num_active: usize, positions: Vec<Point3<f64>>, masses: Vec<f64>) -> Fluid {
+        let len = positions.len();
+        Fluid {
+            num_active,
+            fluid_id: vec![0; len],
+            position: positions,
+            position_prev: vec![Point3::origin(); len],
+            position_pred: vec![Point3::origin(); len],
+            velocity: vec![Vector3::zeros(); len],
+            velocity_prev: vec![Vector3::zeros(); len],
+            velocity_pred: vec![Vector3::zeros(); len],
+            acceleration: vec![Vector3::zeros(); len],
+            mass: masses,
+            volume: vec![0.; len],
+            pressure: vec![0.; len],
+        }
+    }
+
+    // ─── extend (private) ──────────────────────────────────────────
+
+    #[test]
+    fn extend_appends_all_fields() {
+        let mut a = raw_fluid(2, vec![pos(1., 0., 0.), pos(2., 0., 0.)], vec![1., 2.]);
+        let b = raw_fluid(1, vec![pos(3., 0., 0.)], vec![3.]);
+
+        a.extend(b);
+
+        assert_eq!(a.len(), 3);
+        assert_eq!(a.total_len(), 3);
+        assert_eq!(a.position[2], pos(3., 0., 0.));
+        assert_eq!(a.mass[2], 3.);
+    }
+
+    #[test]
+    fn extend_from_empty_self() {
+        // Mirrors `add_samples`'s actual usage: a fresh `Fluid::new()`
+        // (`num_active == total_len == 0`) extended with the first batch of
+        // sampled particles. `extend_appends_all_fields` starts from a
+        // non-empty `self`; this covers the zero-particle starting case
+        // separately, since `self.num_active == self.total_len()` trivially
+        // holds at `0 == 0` but is worth confirming explicitly.
+        let mut fluid = Fluid::new();
+        let other = raw_fluid(1, vec![pos(1., 0., 0.)], vec![1.]);
+
+        fluid.extend(other);
+
+        assert_eq!(fluid.len(), 1);
+        assert_eq!(fluid.position[0], pos(1., 0., 0.));
+    }
+
+    #[test]
+    #[should_panic]
+    fn extend_panics_when_self_has_inactive_particles() {
+        // `extend` requires `self.num_active == self.total_len()`.
+        // Appending while inactive particles exist at the tail would insert
+        // new data past them instead of first truncating via
+        // `drop_inactive`, silently corrupting the active/total invariant —
+        // so this is asserted rather than handled.
+        let mut a = raw_fluid(1, vec![pos(1., 0., 0.), pos(2., 0., 0.)], vec![1., 2.]);
+        // a.num_active = 1 but total_len = 2 → mismatch
+        let b = raw_fluid(1, vec![pos(3., 0., 0.)], vec![3.]);
+        a.extend(b);
+    }
+
+    // ─── swap (private) ─────────────────────────────────────────────
+
+    #[test]
+    fn swap_exchanges_every_field() {
+        // A dedicated, isolated white-box test of `swap` covering ALL
+        // fields — including `position_prev`/`position_pred`/
+        // `velocity_prev`/`velocity_pred`/`acceleration`/`volume`/
+        // `pressure`, which the black-box `disable`-based tests in the
+        // external test suite never exercise (they only ever check
+        // `position`/`mass`). Catches e.g. "forgot to swap `pressure`" bugs
+        // that would otherwise go unnoticed.
+        let mut fluid = raw_fluid(2, vec![pos(1., 0., 0.), pos(2., 0., 0.)], vec![1., 2.]);
+        fluid.fluid_id = vec![10, 20];
+        fluid.position_prev = vec![pos(1.1, 0., 0.), pos(2.1, 0., 0.)];
+        fluid.position_pred = vec![pos(1.2, 0., 0.), pos(2.2, 0., 0.)];
+        fluid.velocity = vec![vel(1., 1., 1.), vel(2., 2., 2.)];
+        fluid.velocity_prev = vec![vel(1.1, 1., 1.), vel(2.1, 2., 2.)];
+        fluid.velocity_pred = vec![vel(1.2, 1., 1.), vel(2.2, 2., 2.)];
+        fluid.acceleration = vec![vel(9., 0., 0.), vel(8., 0., 0.)];
+        fluid.volume = vec![0.1, 0.2];
+        fluid.pressure = vec![100., 200.];
+
+        fluid.swap(0, 1);
+
+        assert_eq!(fluid.fluid_id, vec![20, 10]);
+        assert_eq!(fluid.position, vec![pos(2., 0., 0.), pos(1., 0., 0.)]);
+        assert_eq!(
+            fluid.position_prev,
+            vec![pos(2.1, 0., 0.), pos(1.1, 0., 0.)]
+        );
+        assert_eq!(
+            fluid.position_pred,
+            vec![pos(2.2, 0., 0.), pos(1.2, 0., 0.)]
+        );
+        assert_eq!(fluid.velocity, vec![vel(2., 2., 2.), vel(1., 1., 1.)]);
+        assert_eq!(
+            fluid.velocity_prev,
+            vec![vel(2.1, 2., 2.), vel(1.1, 1., 1.)]
+        );
+        assert_eq!(
+            fluid.velocity_pred,
+            vec![vel(2.2, 2., 2.), vel(1.2, 1., 1.)]
+        );
+        assert_eq!(fluid.acceleration, vec![vel(8., 0., 0.), vel(9., 0., 0.)]);
+        assert_eq!(fluid.mass, vec![2., 1.]);
+        assert_eq!(fluid.volume, vec![0.2, 0.1]);
+        assert_eq!(fluid.pressure, vec![200., 100.]);
+    }
+
+    #[test]
+    fn swap_same_index_is_noop() {
+        let mut fluid = raw_fluid(1, vec![pos(1., 0., 0.)], vec![1.]);
+        fluid.swap(0, 0);
+        assert_eq!(fluid.position[0], pos(1., 0., 0.));
+    }
+
+    // ─── extend used to grow after disable + drop_inactive ──────────
+
+    #[test]
+    fn disable_then_drop_then_extend() {
+        // The realistic "grow again after shrinking" scenario — `extend`
+        // is private, so unlike its `push`-based predecessor, this
+        // particular sequence can only be exercised from within the crate.
+        let mut fluid = raw_fluid(
+            3,
+            vec![pos(1., 0., 0.), pos(2., 0., 0.), pos(3., 0., 0.)],
+            vec![1., 2., 3.],
+        );
+
+        fluid.disable(1);
+        fluid.drop_inactive();
+        assert_eq!(fluid.len(), 2);
+        assert_eq!(fluid.total_len(), 2);
+
+        let more = raw_fluid(1, vec![pos(99., 0., 0.)], vec![99.]);
+        fluid.extend(more);
+
+        assert_eq!(fluid.len(), 3);
+        assert_eq!(fluid.total_len(), 3);
+        assert_eq!(fluid.position[2], pos(99., 0., 0.));
     }
 }

@@ -2,10 +2,10 @@
 //!
 //! Contains info structs about a simulation and a time step
 use crate::measurement::Measurement;
-use crate::setup::input::Parameters;
-use crate::setup::input::Procedures;
 use crate::sph::SPHSystem;
 use crate::sph::boundary_handling::BoundaryHandlingVariant;
+use crate::sph::setup::input::Parameters;
+use crate::sph::setup::input::Procedures;
 use crate::utilities::triangle_mesh::RenderMesh;
 
 use bincode::{Decode, Encode};

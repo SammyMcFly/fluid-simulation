@@ -25,14 +25,12 @@ use serde::Deserialize;
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use std::collections::HashMap;
 
-use crate::{
-    integration_schemes::IntegrationSchemeVariant,
-    neighbor_search::NeighborSearchVariant,
-    sph::{
-        boundary_handling::BoundaryHandlingVariant, kernel::KernelFnVariant,
-        pressure_solver::PressureSolverVariant,
-    },
-};
+use crate::neighbor_search::NeighborSearchVariant;
+
+use crate::sph::boundary_handling::BoundaryHandlingVariant;
+use crate::sph::integration_schemes::IntegrationSchemeVariant;
+use crate::sph::kernel::KernelFnVariant;
+use crate::sph::pressure_solver::PressureSolverVariant;
 
 /// Errors that can occur while loading and validating the parameter or scene
 /// configuration files.
@@ -93,7 +91,7 @@ impl ParameterFile {
 ///
 /// ```toml
 /// [procedures]
-/// kernel_function    = "CubicBSpline"
+/// kernel_function    = "CubicBSpline3D"
 /// integration_scheme = "EulerCromer"
 /// pressure_solver    = "IISPH"
 /// neighbor_search    = "SpatialHashing"
@@ -646,5 +644,130 @@ mod tests {
 
         let err = check_time_step_keys(&document).unwrap_err();
         assert!(err.to_string().contains("cfl_time_step"), "{err}");
+    }
+
+    // ─── default_scale ──────────────────────────────────────────────────
+
+    #[test]
+    fn default_scale_is_no_scaling() {
+        assert_eq!(default_scale(), [1.0, 1.0, 1.0]);
+    }
+
+    // ─── deserialize_scale ──────────────────────────────────────────────
+    //
+    // Tested via a minimal wrapper struct using the exact same
+    // `#[serde(deserialize_with = "deserialize_scale")]` attribute as the
+    // real `FluidDef`/`StaticBoundaryDef`/`DynamicBoundaryDef` — this is
+    // possible here (but not from an external test file) because
+    // `deserialize_scale` is private.
+
+    #[derive(Debug, Deserialize)]
+    struct ScaleWrapper {
+        #[serde(deserialize_with = "deserialize_scale")]
+        scale: [f64; 3],
+    }
+
+    #[test]
+    fn deserialize_scale_accepts_a_scalar_float() {
+        let w: ScaleWrapper = toml::from_str("scale = 2.0").unwrap();
+        assert_eq!(w.scale, [2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn deserialize_scale_accepts_a_scalar_integer() {
+        // TOML integers deserialize as i64, exercising `visit_i64` rather
+        // than `visit_f64`.
+        let w: ScaleWrapper = toml::from_str("scale = 2").unwrap();
+        assert_eq!(w.scale, [2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn deserialize_scale_rejects_a_negative_scalar_float() {
+        assert!(toml::from_str::<ScaleWrapper>("scale = -1.0").is_err());
+    }
+
+    #[test]
+    fn deserialize_scale_rejects_a_negative_scalar_integer() {
+        assert!(toml::from_str::<ScaleWrapper>("scale = -1").is_err());
+    }
+
+    #[test]
+    fn deserialize_scale_accepts_an_explicit_array_of_three() {
+        let w: ScaleWrapper = toml::from_str("scale = [1.0, 2.0, 3.0]").unwrap();
+        assert_eq!(w.scale, [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn deserialize_scale_rejects_an_array_that_is_too_short() {
+        let err = toml::from_str::<ScaleWrapper>("scale = [1.0, 2.0]").unwrap_err();
+        assert!(
+            err.to_string().contains("invalid length") || err.to_string().is_empty(),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn deserialize_scale_rejects_a_negative_array_element() {
+        assert!(toml::from_str::<ScaleWrapper>("scale = [1.0, -2.0, 3.0]").is_err());
+        assert!(toml::from_str::<ScaleWrapper>("scale = [-1.0, 2.0, 3.0]").is_err());
+        assert!(toml::from_str::<ScaleWrapper>("scale = [1.0, 2.0, -3.0]").is_err());
+    }
+
+    #[test]
+    fn deserialize_scale_silently_accepts_extra_array_elements() {
+        // `visit_seq` only ever calls `next_element` three times and never
+        // checks whether the sequence is exhausted afterwards — so a
+        // fourth (or further) element is simply never read, not rejected.
+        // Documents this permissive behavior explicitly rather than
+        // asserting an invented "should reject trailing elements" contract
+        // this function doesn't actually implement.
+        let w: ScaleWrapper = toml::from_str("scale = [1.0, 2.0, 3.0, 4.0]").unwrap();
+        assert_eq!(w.scale, [1.0, 2.0, 3.0]);
+    }
+
+    // ─── check_time_step_keys: additional coverage ─────────────────────
+
+    #[test]
+    fn check_time_step_keys_ok_when_no_parameters_section_exists() {
+        let document: toml::Table = toml::from_str("[procedures]\n").unwrap();
+        assert!(check_time_step_keys(&document).is_ok());
+    }
+
+    #[test]
+    fn check_time_step_keys_ok_when_parameters_section_has_no_offending_keys() {
+        let document: toml::Table =
+            toml::from_str("[parameters]\nbuffer_length_limit = 10\n").unwrap();
+        assert!(check_time_step_keys(&document).is_ok());
+    }
+
+    #[cfg(not(feature = "cfl_time_step"))]
+    #[test]
+    fn check_time_step_keys_flags_each_inactive_key_individually() {
+        // Without `cfl_time_step`, BOTH `max_time_increment` and
+        // `cfl_number` are inactive; verify each is individually detected
+        // (not just whichever happens to be first in the const array).
+        for key in ["max_time_increment", "cfl_number"] {
+            let document: toml::Table =
+                toml::from_str(&format!("[parameters]\n{key} = 0.4\n")).unwrap();
+            let err = check_time_step_keys(&document).unwrap_err();
+            let message = err.to_string();
+            assert!(
+                message.contains(key),
+                "expected message to mention '{key}': {message}"
+            );
+            assert!(message.contains("cfl_time_step"), "{message}");
+        }
+    }
+
+    #[cfg(not(feature = "cfl_time_step"))]
+    #[test]
+    fn check_time_step_keys_reports_the_first_matching_key_when_several_are_present() {
+        // The scan returns on the first match, so if a file mistakenly
+        // sets BOTH inactive keys, only the first one (in
+        // `INACTIVE_TIME_STEP_KEYS`'s declared order) is named.
+        let document: toml::Table =
+            toml::from_str("[parameters]\nmax_time_increment = 0.4\ncfl_number = 0.5\n").unwrap();
+        let err = check_time_step_keys(&document).unwrap_err();
+        assert!(err.to_string().contains("max_time_increment"), "{err}");
     }
 }

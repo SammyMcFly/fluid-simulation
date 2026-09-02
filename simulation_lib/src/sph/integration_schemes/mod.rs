@@ -1,5 +1,5 @@
 //! Integration schemes
-use crate::fluid::Fluid;
+use crate::sph::fluid::Fluid;
 use serde::Deserialize;
 
 pub mod euler_cromer;

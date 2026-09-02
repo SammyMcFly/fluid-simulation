@@ -1,7 +1,7 @@
 //! Verlet integration scheme
-use crate::fluid::Fluid;
 use crate::for_each;
-use crate::integration_schemes::IntegrationScheme;
+use crate::sph::fluid::Fluid;
+use crate::sph::integration_schemes::IntegrationScheme;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 #[derive(Default, Clone)]

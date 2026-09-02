@@ -1,26 +1,66 @@
 //! Module for scene building and parameter importing
 //!
 //!
-mod error;
 pub mod input;
 
-use crate::fluid::{Fluid, Len};
-use crate::integration_schemes::IntegrationScheme;
-use crate::integration_schemes::*;
 use crate::neighbor_search::NeighborSearch;
 use crate::neighbor_search::*;
 use crate::sph::boundary_handling::BoundaryHandling;
 use crate::sph::boundary_handling::*;
+use crate::sph::fluid::{Fluid, Len};
+use crate::sph::integration_schemes::IntegrationScheme;
+use crate::sph::integration_schemes::*;
 use crate::sph::kernel::*;
 use crate::sph::pressure_solver::PressureSolver;
 use crate::sph::pressure_solver::*;
 use crate::sph::{SPHSystem, SerSystemCheckpoint, System};
 use crate::sph::{SystemCheckpoint, SystemParameters};
 use crate::utilities::triangle_mesh::{MeshHandle, MeshLibrary};
-pub use error::SetupError;
 use input::{Parameters, Procedures, Scene};
 
 use std::collections::HashMap;
+
+/// Errors that can occur while building a system from [`Parameters`](super::input::Parameters)
+/// / [`Scene`](super::input::Scene) and constructing the concrete `System<...>`.
+#[derive(Debug, thiserror::Error)]
+pub enum SetupError {
+    /// The saved `--state` file could not be read.
+    #[error("failed to read saved state file: {0}")]
+    Io(#[from] std::io::Error),
+
+    /// The saved `--state` file's contents are not valid RON, or don't match
+    /// the expected [`SerSystemCheckpoint`](crate::sph::SerSystemCheckpoint)
+    /// structure.
+    #[error("failed to parse saved state file: {0}")]
+    Ron(#[from] ron::de::SpannedError),
+
+    #[error(transparent)]
+    Mesh(#[from] crate::utilities::triangle_mesh::MeshError),
+
+    /// A `mesh` key in `[[fluid]]`, `[[boundary.static]]` or
+    /// `[[boundary.dynamic]]` does not match any key in `Scene::meshes`.
+    #[error("mesh '{0}' is referenced but not defined in [meshes]")]
+    UnknownMesh(String),
+
+    /// A `fluid_id` in `[[fluid]]` does not match any [`Fluid::id`](super::input::Fluid::id)
+    /// in `Parameters::fluid`.
+    #[error(
+        "fluid id {0} is referenced by a [[fluid]] entry but not defined in \
+         [[parameters.fluid]]"
+    )]
+    UndefinedFluidId(u32),
+
+    /// The selected [`Procedures::pressure_solver`](super::input::Procedures::pressure_solver)
+    /// does not correctly support two-way coupling with dynamic boundaries
+    /// (see [`PressureSolver::SUPPORTS_DYNAMIC_BOUNDARIES`](crate::sph::pressure_solver::PressureSolver::SUPPORTS_DYNAMIC_BOUNDARIES)),
+    /// but the scene defines at least one `[[boundary.dynamic]]` entry.
+    #[error(
+        "the selected pressure solver does not support dynamic boundaries, but the \
+         scene defines at least one; choose a different pressure_solver or remove the \
+         dynamic boundary/boundaries"
+    )]
+    IncompatibleDynamicBoundary,
+}
 
 pub struct SystemConstructor<
     K: KernelFn,

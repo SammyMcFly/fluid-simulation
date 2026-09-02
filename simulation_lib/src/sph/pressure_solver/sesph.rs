@@ -1,17 +1,17 @@
 //! State equation SPH (SESPH) or weakly compressible SPH (WCSPH) pressure solver
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-
-use crate::fluid::Fluid;
 use crate::for_each;
 use crate::neighbor_search::NeighborList;
-use crate::setup::input::Parameters;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::SystemParameters;
 use crate::sph::boundary_handling::BoundaryHandling;
+use crate::sph::fluid::Fluid;
 use crate::sph::kernel::KernelFn;
 use crate::sph::pressure_solver::add_pressure_acceleration;
 use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
+use crate::sph::setup::input::Parameters;
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 #[derive(Clone)]
 pub struct SESPH {

@@ -1,21 +1,4 @@
 //! Pressure solver algorithm module
-use nalgebra::Vector3;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-use serde::Deserialize;
-
-use crate::fluid::Fluid;
-use crate::for_each;
-use crate::iteration::for_each_collect;
-use crate::neighbor_search::NeighborList;
-use crate::setup::input::Parameters;
-use crate::sph::CurrentSystemProperties;
-use crate::sph::SystemParameters;
-use crate::sph::boundary_handling::ForceOntoBoundary;
-use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
-use crate::sph::kernel::KernelFn;
-use crate::utilities::vector;
-
 pub mod iisph;
 pub mod iisph_optimized_source_term;
 pub mod sesph;
@@ -25,6 +8,23 @@ pub use iisph::IISPH;
 pub use iisph_optimized_source_term::IISPHwOST;
 pub use sesph::SESPH;
 pub use sesph_with_splitting::SESPHwSplitting;
+
+use crate::for_each;
+use crate::iteration::for_each_collect;
+use crate::neighbor_search::NeighborList;
+use crate::sph::CurrentSystemProperties;
+use crate::sph::SystemParameters;
+use crate::sph::boundary_handling::ForceOntoBoundary;
+use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
+use crate::sph::fluid::Fluid;
+use crate::sph::kernel::KernelFn;
+use crate::sph::setup::input::Parameters;
+use crate::utilities::vector;
+
+use nalgebra::Vector3;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub enum PressureSolverVariant {

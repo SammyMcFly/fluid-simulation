@@ -1,20 +1,32 @@
 //! Implicit imcompressible SPH (SESPH) pressure solver with "optimized source term"
-use nalgebra::Matrix3;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-
-use crate::fluid::{Fluid, Len};
+//!
+//! # Limitation: no support for dynamic boundaries
+//!
+//! Unlike every other `PressureSolver` in this crate, `solve_and_add_acceleration`
+//! runs TWO separate global pressure solves per call (EQS1, EQS2), each time
+//! pressure is applied via `add_pressure_acceleration` with `custom_target == None`.
+//! To function correctly with this solver, dynamic boundaries will need to be able
+//! to update positions and velocities separately. Additionally, support for predicted
+//! positions and velocities will need to be added.
+//!
+//! To prevent silent failures, the combination of this solver running with dynamic
+//! boundaries is guarded from running.
 use crate::for_each;
 use crate::neighbor_search::NeighborList;
-use crate::setup::input::Parameters;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
+use crate::sph::fluid::{Fluid, Len};
 use crate::sph::kernel::KernelFn;
 use crate::sph::pressure_solver::iisph::{IISPH, TerminationCondition};
 use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::pressure_solver::{add_pressure_acceleration, set_pred_vel_by_applying_acc};
+use crate::sph::setup::input::Parameters;
 use crate::sph::{Outer, SystemParameters};
 use crate::utilities::vector;
+
+use nalgebra::Matrix3;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 #[derive(Clone)]
 pub struct IISPHwOST {

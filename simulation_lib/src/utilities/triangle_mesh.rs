@@ -5,7 +5,7 @@ use parry3d_f64::math::Vec3;
 use parry3d_f64::shape::{TriMesh, TriMeshFlags};
 use serde::{Deserialize, Serialize};
 
-use crate::setup::input::VertexNormalRenderOption;
+use crate::sph::setup::input::VertexNormalRenderOption;
 
 /// Errors that can occur while loading a triangle mesh asset.
 #[derive(Debug, thiserror::Error)]
