@@ -5,10 +5,7 @@ use crate::fluid::Fluid;
 use crate::integration_schemes::IntegrationScheme;
 
 #[derive(Default, Clone)]
-pub struct TakePredicted {
-    position_pred: Vec<Vector3<f64>>,
-    velocity_pred: Vec<Vector3<f64>>,
-}
+pub struct TakePredicted;
 
 impl IntegrationScheme for TakePredicted {
     fn integrate(&mut self, fluid: &mut Fluid, _dt: f64) {
