@@ -80,8 +80,8 @@ mod neighbor_list {
     impl NeighborList {
         pub fn new(len: usize) -> Self {
             Self {
-                indices: vec![usize::default(); len],
-                offsets: vec![usize::default(); len + 1],
+                indices: vec![0; len],
+                offsets: vec![0; len + 1],
                 unflattened_indices: vec![Vec::new(); len],
             }
         }
