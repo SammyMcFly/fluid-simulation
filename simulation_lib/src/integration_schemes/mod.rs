@@ -4,7 +4,6 @@ use serde::Deserialize;
 
 pub mod euler_cromer;
 pub mod explicit_euler;
-// pub mod implicit_euler;
 pub mod take_predicted;
 pub mod verlet;
 
