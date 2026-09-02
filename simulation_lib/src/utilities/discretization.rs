@@ -179,6 +179,21 @@ impl CubicSerendipityDiscretization {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    /// Anzahl Zellen pro Achse (nur für Diagnosemeldungen).
+    pub(crate) fn cell_count(&self) -> [usize; 3] {
+        self.n
+    }
+
+    /// Abstand zwischen benachbarten Interpolationsknoten (dx / 3) —
+    /// die tatsächliche Auflösung des Gitters (nur für Diagnosemeldungen).
+    pub(crate) fn node_spacing(&self) -> f64 {
+        self.dx / 3.0
+    }
+
     /// Reference coord (in {-1,-1/3,1/3,1}) -> lattice offset (in {0,1,2,3}).
     fn to_offset(r: f64) -> usize {
         (((r + 1.0) * 1.5).round()) as usize

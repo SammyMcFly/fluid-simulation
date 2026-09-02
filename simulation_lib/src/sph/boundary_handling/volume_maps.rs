@@ -396,6 +396,24 @@ struct DiscretizedBoundaryFields {
 }
 
 impl DiscretizedBoundaryFields {
+    /// Create new [`DiscretizedBoundaryFields`] from the given mesh and grid spacing.
+    ///
+    /// # Note on grid resolution
+    ///
+    /// Pruning operates node-based (sampling the 32 serendipity nodes per
+    /// cell), not analytically. For at least one node to fall inside the
+    /// relevant band (`±padding_sd`, or volume > 0), the node spacing
+    /// (`dx / 3`) must be significantly smaller than both the band width and
+    /// the smallest relevant object dimension. Otherwise, a cell that is
+    /// actually affected can be discarded entirely by mistake (see the
+    /// `is_empty()` check below for the runtime safeguard).
+    ///
+    /// Concretely: if `dx` is too coarse relative to `padding_sd` (or
+    /// `padding_vm`) and the mesh's own size, every node of a cell can end up
+    /// lying outside the padding band even though the surface geometrically
+    /// passes right through that cell — causing the entire cell (and
+    /// potentially the entire field) to be pruned as "outside", with no
+    /// boundary samples ever being produced from it.
     fn new(trimesh: &TriMesh, dx: f64, kernel_support_radius: f64) -> DiscretizedBoundaryFields {
         #[cfg(feature = "logging")]
         tracing::info!("Start cubic serendipity discretization.");
@@ -407,14 +425,32 @@ impl DiscretizedBoundaryFields {
         let padding_sd = 3.1 * kernel_support_radius;
         let sd_field = TriangleMeshWrapper::new(trimesh);
 
+        let padding_sd_vec = Vector3::new(padding_sd, padding_sd, padding_sd);
+        let x_min = aabb_min - padding_sd_vec;
+        let x_max = aabb_max + padding_sd_vec;
+
         let sdfn = CubicSerendipityDiscretization::new(
-            aabb_min - Vector3::new(padding_sd, padding_sd, padding_sd),
-            aabb_max + Vector3::new(padding_sd, padding_sd, padding_sd),
+            x_min,
+            x_max,
             Some(-padding_sd),
             Some(padding_sd),
             dx,
             &|p| sd_field.signed_distance(p),
         );
+        if sdfn.is_empty() {
+            let [nx, ny, nz] = sdfn.cell_count();
+            let node_spacing = sdfn.node_spacing();
+            panic!(
+                "Signed-distance field is completely empty after discretization: \
+                 no interpolation node fell inside the padding band ±{padding_sd} \
+                 around the mesh AABB [{aabb_min} .. {aabb_max}]. \
+                 Grid: {nx}x{ny}x{nz} cell(s), dx = {dx}, node spacing = dx/3 = {node_spacing}. \
+                 The node spacing must be small relative to the padding band width \
+                 and the mesh's own size (roughly node_spacing <= padding / 2) for \
+                 at least one node to survive pruning. \
+                 Reduce `rest_density_grid_spacing` (dx) or increase `kernel_support_radius`."
+            );
+        }
         let sd_field_wrapped = SDFnWrapper::new(&sdfn);
 
         #[cfg(feature = "logging")]
@@ -423,18 +459,31 @@ impl DiscretizedBoundaryFields {
         tracing::info!("Start volume integration.");
 
         let padding_vm = 2. * kernel_support_radius + dx / 6.0; // add dx / 6.0 so that the central difference can be evaluated with h = dx / 6.0
-        let vm = CubicSerendipityDiscretization::new(
-            aabb_min - Vector3::new(padding_vm, padding_vm, padding_vm),
-            aabb_max + Vector3::new(padding_vm, padding_vm, padding_vm),
-            Some(0.),
-            None,
-            dx,
-            &|p| {
-                sd_field_wrapped
-                    .volume(p, kernel_support_radius, VolumeMaps::INTEGRATION_ORDER)
-                    .map(|v| v.clamp(0.0, ball_volume(kernel_support_radius)))
-            },
-        );
+
+        let padding_vm_vec = Vector3::new(padding_vm, padding_vm, padding_vm);
+        let x_min = aabb_min - padding_vm_vec;
+        let x_max = aabb_max + padding_vm_vec;
+
+        let vm = CubicSerendipityDiscretization::new(x_min, x_max, Some(0.), None, dx, &|p| {
+            sd_field_wrapped
+                .volume(
+                    p,
+                    kernel_support_radius,
+                    VolumeMapBoundary::INTEGRATION_ORDER,
+                )
+                .map(|v| v.clamp(0.0, ball_volume(kernel_support_radius)))
+        });
+        if vm.is_empty() {
+            let [nx, ny, nz] = vm.cell_count();
+            let node_spacing = vm.node_spacing();
+            panic!(
+                "Volume map is completely empty after discretization: \
+                 no interpolation node fell inside the padding band ±{padding_vm} \
+                 around the mesh AABB [{aabb_min} .. {aabb_max}]. \
+                 Grid: {nx}x{ny}x{nz} cell(s), dx = {dx}, node spacing = dx/3 = {node_spacing}. \
+                 Reduce `rest_density_grid_spacing` (dx) or increase `kernel_support_radius`."
+            );
+        }
 
         #[cfg(feature = "logging")]
         tracing::info!("Finished volume integration.");
