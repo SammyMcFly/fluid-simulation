@@ -1,12 +1,12 @@
 //! Boundary handling module
 mod static_sample_boundary;
-mod volume_maps;
+mod volume_map_boundary;
 
 pub use rigid_body_motion::{
     RigidBodyMotion, RigidBodyMotionCheckpoint, SerRigidBodyMotionCheckpoint,
 };
 pub use static_sample_boundary::StaticSampleBoundary;
-pub use volume_maps::VolumeMapBoundary;
+pub use volume_map_boundary::VolumeMapBoundary;
 
 use crate::{
     neighbor_search::NeighborSearch,
