@@ -29,8 +29,14 @@ where
     let error: RefCell<Option<EvaluationError>> = RefCell::new(None);
 
     let result = quad.integrate(0.0, radius, |r| {
+        if error.borrow().is_some() {
+            return 0.0; // short-circuit remaining quadrature points
+        }
         r.powi(2)
             * quad.integrate(0.0, PI, |theta| {
+                if error.borrow().is_some() {
+                    return 0.0; // short-circuit remaining quadrature points
+                }
                 theta.sin()
                     * quad.integrate(0.0, 2. * PI, |phi| {
                         if error.borrow().is_some() {
