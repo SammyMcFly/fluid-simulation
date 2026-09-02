@@ -160,19 +160,11 @@ impl NeighborSearch for SpatialHashing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neighbor_search::NeighborList;
 
     // ─── Helper functions ───────────────────────────────────────────────
 
     fn pos(x: f64, y: f64, z: f64) -> Point3<f64> {
         Point3::new(x, y, z)
-    }
-
-    /// Collect neighbors of particle `id` as a sorted Vec for order-independent comparison
-    fn sorted_neighbors(nl: &NeighborList, id: usize) -> Vec<usize> {
-        let mut v = nl.get_neighbors(id).to_vec();
-        v.sort();
-        v
     }
 
     // ─── get_cell tests ─────────────────────────────────────────────────
@@ -252,6 +244,33 @@ mod tests {
         assert_ne!(h1, h2);
         assert_ne!(h1, h3);
         assert_ne!(h1, h4);
+    }
+
+    #[test]
+    fn hash_no_collisions_over_realistic_grid_range() {
+        // `map_int_to_uint_is_injective` only checks the 1D mapping. This
+        // extends that guarantee to the combined 3D `hash` function over a
+        // range representative of a real simulation domain, giving much higher
+        // confidence that collisions (which would silently merge unrelated
+        // cells' particle lists, hurting performance but not correctness,
+        // since `get_particles_in_range` still filters by exact distance
+        // afterwards) are rare in practice.
+        let range = -20..=20;
+        let mut seen = std::collections::HashSet::new();
+        let mut collisions = 0;
+        for k in range.clone() {
+            for l in range.clone() {
+                for m in range.clone() {
+                    if !seen.insert(SpatialHashing::hash(k, l, m)) {
+                        collisions += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            collisions, 0,
+            "found {collisions} hash collisions over a 41^3 grid range"
+        );
     }
 
     #[test]
@@ -350,6 +369,22 @@ mod tests {
 
         let result =
             SpatialHashing::get_particles_in_range(&map, &positions[0], &positions, 1.0, 1.0);
+        assert!(result.contains(&1));
+    }
+
+    #[test]
+    fn get_particles_in_range_finds_neighbor_across_negative_zero_boundary() {
+        // Cells straddling zero (e.g. cell -1 and cell 0) use different code
+        // paths in `map_int_to_uint` (positive vs. negative branch). This
+        // verifies the full hash-lookup pipeline — not just `map_int_to_uint`
+        // in isolation (already covered by `map_int_to_uint_is_injective`) —
+        // correctly finds neighbors whose cells lie on opposite sides of zero.
+        let mut map = FxHashMap::default();
+        let positions = vec![pos(-0.05, 0.0, 0.0), pos(0.05, 0.0, 0.0)];
+        SpatialHashing::populate(&mut map, &positions, 1.0);
+
+        let result =
+            SpatialHashing::get_particles_in_range(&map, &positions[0], &positions, 1.0, 0.2);
         assert!(result.contains(&1));
     }
 }

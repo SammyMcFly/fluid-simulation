@@ -332,3 +332,114 @@ pub fn build_transform(
     // Order: scale first, then rotate, then translate
     translation * rotation * scale
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tiny_triangle_loaded_mesh() -> LoadedMesh {
+        LoadedMesh {
+            positions: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+            ],
+            normals: vec![
+                Vector3::new(0.0, 0.0, 1.0),
+                Vector3::new(0.0, 0.0, 1.0),
+                Vector3::new(0.0, 0.0, 1.0),
+            ],
+            indices: vec![[0, 1, 2]],
+        }
+    }
+
+    // ─── MeshContainer: cache state (needs the private fields) ──────────
+
+    #[test]
+    fn new_starts_with_both_caches_empty() {
+        let container = MeshContainer::new(tiny_triangle_loaded_mesh());
+        assert!(container.trimesh.is_none());
+        assert!(container.render.is_none());
+    }
+
+    #[test]
+    fn trimesh_populates_the_private_cache() {
+        let mut container = MeshContainer::new(tiny_triangle_loaded_mesh());
+        assert!(container.trimesh.is_none());
+        let _ = container.trimesh();
+        assert!(container.trimesh.is_some());
+    }
+
+    #[test]
+    fn render_mesh_with_face_normals_does_not_touch_the_trimesh_cache() {
+        // `FaceNormals` goes through `from_loaded_mesh`, which never needs
+        // the parry3d TriMesh. Confirming the `trimesh` cache stays `None`
+        // afterwards can only be done via direct field access — calling the
+        // public `trimesh()` getter to check would itself populate it.
+        let mut container = MeshContainer::new(tiny_triangle_loaded_mesh());
+        let _ = container.render_mesh(VertexNormalRenderOption::FaceNormals);
+        assert!(container.render.is_some());
+        assert!(container.trimesh.is_none());
+    }
+
+    #[test]
+    fn render_mesh_with_angle_weighted_normals_also_populates_trimesh_cache() {
+        // `AngleWeightedPseudoNormals` internally calls `trimesh()`, so both
+        // caches end up populated as a documented side effect.
+        let mut container = MeshContainer::new(tiny_triangle_loaded_mesh());
+        let _ = container.render_mesh(VertexNormalRenderOption::AngleWeightedPseudoNormals);
+        assert!(container.render.is_some());
+        assert!(container.trimesh.is_some());
+    }
+
+    // ─── MeshContainer::transform: cache invalidation ────────────────────
+
+    #[test]
+    fn transform_with_identity_parameters_does_not_invalidate_caches() {
+        let mut container = MeshContainer::new(tiny_triangle_loaded_mesh());
+        let _ = container.trimesh();
+        let _ = container.render_mesh(VertexNormalRenderOption::FaceNormals);
+        assert!(container.trimesh.is_some());
+        assert!(container.render.is_some());
+
+        container.transform(&[0., 0., 0.], &[0., 0., 0.], &[1., 1., 1.]);
+
+        assert!(
+            container.trimesh.is_some(),
+            "identity transform must not invalidate the trimesh cache"
+        );
+        assert!(
+            container.render.is_some(),
+            "identity transform must not invalidate the render cache"
+        );
+    }
+
+    #[test]
+    fn transform_with_an_actual_change_invalidates_both_caches() {
+        let mut container = MeshContainer::new(tiny_triangle_loaded_mesh());
+        let _ = container.trimesh();
+        let _ = container.render_mesh(VertexNormalRenderOption::FaceNormals);
+        assert!(container.trimesh.is_some());
+        assert!(container.render.is_some());
+
+        container.transform(&[1., 0., 0.], &[0., 0., 0.], &[1., 1., 1.]);
+
+        assert!(
+            container.trimesh.is_none(),
+            "a real transform must invalidate the now-stale trimesh cache"
+        );
+        assert!(
+            container.render.is_none(),
+            "a real transform must invalidate the now-stale render cache"
+        );
+    }
+
+    #[test]
+    fn transform_actually_mutates_the_raw_positions() {
+        let mut container = MeshContainer::new(tiny_triangle_loaded_mesh());
+        container.transform(&[2., 0., 0.], &[0., 0., 0.], &[1., 1., 1.]);
+        assert_eq!(container.raw.positions[0], Point3::new(2., 0., 0.));
+        assert_eq!(container.raw.positions[1], Point3::new(3., 0., 0.));
+        assert_eq!(container.raw.positions[2], Point3::new(2., 1., 0.));
+    }
+}

@@ -497,3 +497,351 @@ impl CubicSerendipityDiscretization {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── to_offset / is_corner ──────────────────────────────────────
+
+    #[test]
+    fn to_offset_maps_reference_coordinates_to_lattice_offsets() {
+        assert_eq!(CubicSerendipityDiscretization::to_offset(-1.0), 0);
+        assert_eq!(CubicSerendipityDiscretization::to_offset(-1.0 / 3.0), 1);
+        assert_eq!(CubicSerendipityDiscretization::to_offset(1.0 / 3.0), 2);
+        assert_eq!(CubicSerendipityDiscretization::to_offset(1.0), 3);
+    }
+
+    #[test]
+    fn is_corner_identifies_extreme_reference_coordinates() {
+        assert!(CubicSerendipityDiscretization::is_corner(1.0));
+        assert!(CubicSerendipityDiscretization::is_corner(-1.0));
+        assert!(!CubicSerendipityDiscretization::is_corner(1.0 / 3.0));
+        assert!(!CubicSerendipityDiscretization::is_corner(-1.0 / 3.0));
+        assert!(!CubicSerendipityDiscretization::is_corner(0.0));
+    }
+
+    #[test]
+    fn is_corner_tolerates_floating_point_noise() {
+        assert!(CubicSerendipityDiscretization::is_corner(1.0 + 1e-12));
+        assert!(CubicSerendipityDiscretization::is_corner(-1.0 - 1e-12));
+    }
+
+    // ─── reference_nodes ─────────────────────────────────────────────
+
+    #[test]
+    fn reference_nodes_has_32_unique_nodes() {
+        let nodes = CubicSerendipityDiscretization::reference_nodes();
+        assert_eq!(nodes.len(), 32);
+        for i in 0..nodes.len() {
+            for j in (i + 1)..nodes.len() {
+                assert!(
+                    (nodes[i] - nodes[j]).norm() > 1e-9,
+                    "nodes {i} and {j} coincide: {:?} == {:?}",
+                    nodes[i],
+                    nodes[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reference_nodes_coordinates_are_all_valid_lattice_values() {
+        let valid = [-1.0, -1.0 / 3.0, 1.0 / 3.0, 1.0];
+        for node in CubicSerendipityDiscretization::reference_nodes() {
+            for c in [node.x, node.y, node.z] {
+                assert!(
+                    valid.iter().any(|&v| (v - c).abs() < 1e-9),
+                    "coordinate {c} is not one of {valid:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reference_nodes_are_either_corners_or_single_edge_nodes() {
+        // Serendipity elements omit face/interior nodes: every node is
+        // either a full corner (3 corner coordinates) or an edge-midpoint
+        // node (exactly 2 corner coordinates, 1 interior).
+        for node in CubicSerendipityDiscretization::reference_nodes() {
+            let corner_count = [node.x, node.y, node.z]
+                .iter()
+                .filter(|&&c| CubicSerendipityDiscretization::is_corner(c))
+                .count();
+            assert!(
+                corner_count == 2 || corner_count == 3,
+                "node {node:?} has {corner_count} corner coordinates, expected 2 or 3"
+            );
+        }
+    }
+
+    // ─── shape_functions ─────────────────────────────────────────────
+
+    #[test]
+    fn shape_functions_satisfy_kronecker_delta_at_reference_nodes() {
+        // Fundamental nodal-interpolation property: N_i(node_j) = delta_ij.
+        // Without this, `function()`'s weighted sum wouldn't even reproduce
+        // the sampled node values at their own locations. If this fails, it
+        // is a genuine correctness bug in `shape_functions`, not a flaw in
+        // this test.
+        let nodes = CubicSerendipityDiscretization::reference_nodes();
+        for (j, node_j) in nodes.iter().enumerate() {
+            let shp = CubicSerendipityDiscretization::shape_functions(
+                &nodes, node_j.x, node_j.y, node_j.z,
+            );
+            assert_eq!(shp.len(), 32);
+            for (i, &value) in shp.iter().enumerate() {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!(
+                    (value - expected).abs() < 1e-9,
+                    "N_{i}(node_{j}) = {value}, expected {expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shape_functions_sum_to_one_partition_of_unity() {
+        let nodes = CubicSerendipityDiscretization::reference_nodes();
+        for &(xi, eta, zeta) in &[
+            (0.0, 0.0, 0.0),
+            (0.3, -0.2, 0.5),
+            (-0.9, 0.9, -0.1),
+            (0.99, -0.99, 0.0),
+        ] {
+            let shp = CubicSerendipityDiscretization::shape_functions(&nodes, xi, eta, zeta);
+            let sum: f64 = shp.iter().sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-9,
+                "sum of shape functions at ({xi}, {eta}, {zeta}) = {sum}, expected 1.0"
+            );
+        }
+    }
+
+    // ─── shape_function_gradients (currently dead code) ─────────────
+
+    #[test]
+    fn shape_function_gradients_match_finite_difference_of_shape_functions() {
+        // `shape_function_gradients` is currently dead code (only
+        // referenced from the commented-out analytical `gradient` method).
+        // This documents that its formulas are at least internally
+        // consistent with `shape_functions`, in case it's ever revived.
+        let nodes = CubicSerendipityDiscretization::reference_nodes();
+        let h = 1e-6;
+
+        for &(xi, eta, zeta) in &[(0.1, 0.2, -0.3), (-0.5, 0.4, 0.6), (0.0, 0.0, 0.0)] {
+            let analytical =
+                CubicSerendipityDiscretization::shape_function_gradients(&nodes, xi, eta, zeta);
+
+            let d_dxi: Vec<f64> = {
+                let plus =
+                    CubicSerendipityDiscretization::shape_functions(&nodes, xi + h, eta, zeta);
+                let minus =
+                    CubicSerendipityDiscretization::shape_functions(&nodes, xi - h, eta, zeta);
+                plus.iter()
+                    .zip(&minus)
+                    .map(|(p, m)| (p - m) / (2.0 * h))
+                    .collect()
+            };
+            let d_deta: Vec<f64> = {
+                let plus =
+                    CubicSerendipityDiscretization::shape_functions(&nodes, xi, eta + h, zeta);
+                let minus =
+                    CubicSerendipityDiscretization::shape_functions(&nodes, xi, eta - h, zeta);
+                plus.iter()
+                    .zip(&minus)
+                    .map(|(p, m)| (p - m) / (2.0 * h))
+                    .collect()
+            };
+            let d_dzeta: Vec<f64> = {
+                let plus =
+                    CubicSerendipityDiscretization::shape_functions(&nodes, xi, eta, zeta + h);
+                let minus =
+                    CubicSerendipityDiscretization::shape_functions(&nodes, xi, eta, zeta - h);
+                plus.iter()
+                    .zip(&minus)
+                    .map(|(p, m)| (p - m) / (2.0 * h))
+                    .collect()
+            };
+
+            for i in 0..32 {
+                let numerical = Vector3::new(d_dxi[i], d_deta[i], d_dzeta[i]);
+                assert!(
+                    (analytical[i] - numerical).norm() < 1e-4,
+                    "node {i} at ({xi},{eta},{zeta}): analytical {:?} vs numerical {numerical:?}",
+                    analytical[i]
+                );
+            }
+        }
+    }
+
+    // ─── get_cube_idx ────────────────────────────────────────────────
+
+    #[test]
+    fn get_cube_idx_locates_interior_point() {
+        let disc = CubicSerendipityDiscretization::new(
+            Point3::new(0., 0., 0.),
+            Point3::new(2., 1., 1.),
+            None,
+            None,
+            1.0,
+            &|_p: &Point3<f64>| Ok(0.0),
+        );
+        assert_eq!(
+            disc.get_cube_idx(&Point3::new(0.5, 0.5, 0.5)).unwrap(),
+            [0, 0, 0]
+        );
+        assert_eq!(
+            disc.get_cube_idx(&Point3::new(1.5, 0.5, 0.5)).unwrap(),
+            [1, 0, 0]
+        );
+    }
+
+    #[test]
+    fn get_cube_idx_clamps_exact_upper_boundary_to_last_cell() {
+        let disc = CubicSerendipityDiscretization::new(
+            Point3::new(0., 0., 0.),
+            Point3::new(2., 1., 1.),
+            None,
+            None,
+            1.0,
+            &|_p: &Point3<f64>| Ok(0.0),
+        );
+        assert_eq!(
+            disc.get_cube_idx(&Point3::new(2.0, 1.0, 1.0)).unwrap(),
+            [1, 0, 0]
+        );
+    }
+
+    #[test]
+    fn get_cube_idx_rejects_points_outside_domain() {
+        let disc = CubicSerendipityDiscretization::new(
+            Point3::new(0., 0., 0.),
+            Point3::new(2., 1., 1.),
+            None,
+            None,
+            1.0,
+            &|_p: &Point3<f64>| Ok(0.0),
+        );
+        assert!(matches!(
+            disc.get_cube_idx(&Point3::new(-0.01, 0.5, 0.5)),
+            Err(EvaluationError::OutOfBounds)
+        ));
+        assert!(matches!(
+            disc.get_cube_idx(&Point3::new(2.01, 0.5, 0.5)),
+            Err(EvaluationError::OutOfBounds)
+        ));
+    }
+
+    // ─── new(): pruning behavior & shared-node retention ────────────
+
+    #[test]
+    fn pruned_cells_still_contribute_shared_boundary_nodes_from_unpruned_neighbors() {
+        // Two cells along x: [0,1] and [1,2]. `f` is below the prune
+        // threshold for x <= 1.0 (all of cell 0's nodes, INCLUDING the
+        // shared face at x=1) and above it for x > 1.0 (some of cell 1's
+        // nodes) — so cell 0 is pruned, cell 1 is not, and the physically
+        // shared node at x=1 must survive via cell 1's contribution even
+        // though cell 0 (which also "owns" that node) was skipped entirely.
+        let disc = CubicSerendipityDiscretization::new(
+            Point3::new(0., 0., 0.),
+            Point3::new(2., 1., 1.),
+            Some(5.0),
+            None,
+            1.0,
+            &|p: &Point3<f64>| Ok(if p.x <= 1.0 { 0.0 } else { 10.0 }),
+        );
+
+        // Corner node at lattice [3,0,0] == physical (1,0,0): shared by
+        // both cells, contributed by unpruned cell 1.
+        assert!(disc.values.contains_key(&[3, 0, 0]));
+        // Corner node at lattice [0,0,0] == physical (0,0,0): exclusive to
+        // pruned cell 0, never inserted.
+        assert!(!disc.values.contains_key(&[0, 0, 0]));
+
+        assert!(matches!(
+            disc.function(&Point3::new(0.5, 0.5, 0.5)),
+            Err(EvaluationError::PrunedCell)
+        ));
+    }
+
+    #[test]
+    fn function_prunes_cell_if_any_node_evaluation_errors() {
+        // A single-cell domain where the sampling function itself errors
+        // for one specific node — `new` must treat that cell as
+        // unbuildable (pruned), rather than propagating the error out of
+        // `new` (which has no `Result` return type) or panicking.
+        let disc = CubicSerendipityDiscretization::new(
+            Point3::new(0., 0., 0.),
+            Point3::new(1., 1., 1.),
+            None,
+            None,
+            1.0,
+            &|p: &Point3<f64>| {
+                if (p.x - 1.0).abs() < 1e-9 {
+                    Err(EvaluationError::OutOfBounds)
+                } else {
+                    Ok(0.0)
+                }
+            },
+        );
+
+        assert!(matches!(
+            disc.function(&Point3::new(0.5, 0.5, 0.5)),
+            Err(EvaluationError::PrunedCell)
+        ));
+    }
+
+    // ─── directional_derivative ──────────────────────────────────────
+
+    #[test]
+    fn directional_derivative_computes_central_difference_in_interior() {
+        let disc = CubicSerendipityDiscretization::new(
+            Point3::new(-1., -1., -1.),
+            Point3::new(1., 1., 1.),
+            None,
+            None,
+            1.0,
+            &|p: &Point3<f64>| Ok(3.0 * p.x),
+        );
+
+        let d = disc
+            .directional_derivative(&Point3::new(0., 0., 0.), 0, 0.1)
+            .unwrap();
+        assert!((d - 3.0).abs() < 1e-2);
+    }
+
+    #[test]
+    fn directional_derivative_propagates_error_without_one_sided_fallback() {
+        // `directional_derivative` is a pure central-difference approximation:
+        // if evaluating `function` at EITHER `p + h` or `p - h` fails (out of
+        // bounds, or in a pruned cell), that error is propagated as-is — there
+        // is no fallback to a one-sided difference near domain or pruned-cell
+        // boundaries.
+        //
+        // Consequence: `gradient()` (and therefore `signed_distance_gradient`/
+        // `volume_map_value` in `volume_map_boundary`) can fail purely because
+        // a point lies close to a domain/pruned-cell boundary, even where
+        // `function` itself would evaluate successfully at that exact point.
+        // This is a real limitation of the current gradient evaluation, not
+        // just a theoretical edge case — see `find_boundary_samples`, which
+        // silently skips any fluid particle whose gradient evaluation fails
+        // this way.
+        //
+        // This test pins down the current (fallback-free) behavior; if a
+        // one-sided fallback is added later, update this test to expect
+        // `Ok(..)`.
+        let disc = CubicSerendipityDiscretization::new(
+            Point3::new(-1., -1., -1.),
+            Point3::new(1., 1., 1.),
+            None,
+            None,
+            2.0,
+            &|_p: &Point3<f64>| Ok(0.0),
+        );
+
+        // p + h = 0.95 + 0.1 = 1.05, exceeds x_max = 1.0.
+        let result = disc.directional_derivative(&Point3::new(0.95, 0., 0.), 0, 0.1);
+        assert!(matches!(result, Err(EvaluationError::OutOfBounds)));
+    }
+}

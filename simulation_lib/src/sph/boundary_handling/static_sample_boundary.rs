@@ -593,3 +593,277 @@ impl Len for BoundaryType {
         self.positions().len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::{Matrix3, UnitQuaternion};
+
+    fn make_dynamic_boundary(position_body: Vec<Point3<f64>>, com: Point3<f64>) -> BoundaryType {
+        let len = position_body.len();
+        BoundaryType::DynamicBoundary {
+            position_body,
+            position: vec![Point3::origin(); len],
+            velocity: vec![Vector3::zeros(); len],
+            volume: vec![0.; len],
+            render_mesh: RenderMesh::default(),
+            render_mesh_id: 0,
+            state: RigidBodyMotion::new(
+                1.0,
+                Matrix3::identity(),
+                Matrix3::identity(),
+                com,
+                UnitQuaternion::identity(),
+                Vector3::zeros(),
+                Vector3::zeros(),
+            ),
+            boundary_neighbor_list: NeighborList::default(),
+        }
+    }
+
+    fn make_static_boundary(position: Vec<Point3<f64>>) -> BoundaryType {
+        let len = position.len();
+        BoundaryType::StaticBoundary {
+            position,
+            velocity: vec![Vector3::zeros(); len],
+            volume: vec![0.; len],
+            render_mesh: RenderMesh::default(),
+            render_mesh_id: 0,
+            boundary_neighbor_list: NeighborList::default(),
+        }
+    }
+
+    // ─── pose / update_positions_and_velocities ────────────────────
+
+    #[test]
+    fn static_boundary_pose_is_identity() {
+        let boundary = make_static_boundary(vec![Point3::new(1., 2., 3.)]);
+        assert_eq!(boundary.pose(), Isometry3::identity());
+    }
+
+    #[test]
+    fn update_positions_and_velocities_is_noop_for_static() {
+        let mut boundary = make_static_boundary(vec![Point3::new(1., 2., 3.)]);
+        let before = boundary.positions().clone();
+        boundary.update_positions_and_velocities();
+        assert_eq!(*boundary.positions(), before);
+    }
+
+    #[test]
+    fn update_positions_and_velocities_transforms_body_frame_to_world() {
+        let com = Point3::new(5., 0., 0.);
+        let mut boundary = make_dynamic_boundary(vec![Point3::new(1., 0., 0.)], com);
+
+        boundary.update_positions_and_velocities();
+
+        // Identity orientation, so world position = position_body + com.
+        assert_eq!(boundary.positions()[0], Point3::new(6., 0., 0.));
+    }
+
+    #[test]
+    fn update_positions_and_velocities_computes_rigid_body_velocity() {
+        // v(p) = v_cm + omega x (p - com)
+        let mut boundary = make_dynamic_boundary(vec![Point3::new(1., 0., 0.)], Point3::origin());
+        if let BoundaryType::DynamicBoundary { state, .. } = &mut boundary {
+            *state = RigidBodyMotion::new(
+                1.0,
+                Matrix3::identity(),
+                Matrix3::identity(),
+                Point3::origin(),
+                UnitQuaternion::identity(),
+                Vector3::new(1., 0., 0.),
+                Vector3::new(0., 0., 2.),
+            );
+        }
+
+        boundary.update_positions_and_velocities();
+
+        // world position of the sample is (1,0,0); velocity = (1,0,0) + (0,0,2) x (1,0,0) = (1,2,0)
+        assert_eq!(boundary.velocities()[0], Vector3::new(1., 2., 0.));
+    }
+
+    // ─── Boundary trait impl ────────────────────────────────────────
+
+    #[test]
+    fn pos_now_vel_now_volume_delegate_to_fields() {
+        let mut boundary =
+            make_static_boundary(vec![Point3::new(1., 2., 3.), Point3::new(4., 5., 6.)]);
+        boundary.velocities_mut()[0] = Vector3::new(0.1, 0.2, 0.3);
+        boundary.volumes_mut()[0] = 0.42;
+
+        assert_eq!(*boundary.position(0), Point3::new(1., 2., 3.));
+        assert_eq!(*boundary.velocity(0), Vector3::new(0.1, 0.2, 0.3));
+        assert_eq!(boundary.volume(0), 0.42);
+    }
+
+    #[test]
+    fn static_boundary_is_not_dynamic() {
+        let boundary = make_static_boundary(vec![Point3::origin()]);
+        assert!(!boundary.is_dynamic());
+        assert!(boundary.center_of_mass().is_none());
+    }
+
+    #[test]
+    fn dynamic_boundary_is_dynamic() {
+        let boundary = make_dynamic_boundary(vec![Point3::origin()], Point3::new(1., 1., 1.));
+        assert!(boundary.is_dynamic());
+        assert_eq!(boundary.center_of_mass(), Some(Point3::new(1., 1., 1.)));
+    }
+
+    #[test]
+    fn add_acceleration_is_noop_for_static() {
+        let mut boundary = make_static_boundary(vec![Point3::origin()]);
+        // Should not panic even though there is no rigid-body state.
+        boundary.add_acceleration(Vector3::new(0., -9.81, 0.));
+    }
+
+    #[test]
+    fn add_acceleration_applies_mass_scaled_force_at_center_of_mass() {
+        let mut boundary = make_dynamic_boundary(vec![Point3::origin()], Point3::origin());
+        boundary.add_acceleration(Vector3::new(0., -9.81, 0.));
+        boundary.step_forward_in_time(0.1);
+
+        if let BoundaryType::DynamicBoundary { state, .. } = &boundary {
+            assert!(state.velocity_at_cm().y < 0.);
+        } else {
+            panic!("expected DynamicBoundary");
+        }
+    }
+
+    // ─── checkpoint / restore ────────────────────────────────────────
+
+    #[test]
+    fn checkpoint_state_is_none_for_static() {
+        let boundary = make_static_boundary(vec![Point3::origin()]);
+        assert!(boundary.checkpoint_state().is_none());
+    }
+
+    #[test]
+    fn checkpoint_state_is_some_for_dynamic() {
+        let boundary = make_dynamic_boundary(vec![Point3::origin()], Point3::new(1., 2., 3.));
+        let checkpoint = boundary
+            .checkpoint_state()
+            .expect("dynamic boundary must checkpoint");
+        assert_eq!(checkpoint.center_of_mass, Point3::new(1., 2., 3.));
+    }
+
+    #[test]
+    fn restore_from_checkpoint_updates_world_position() {
+        let mut boundary = make_dynamic_boundary(vec![Point3::new(1., 0., 0.)], Point3::origin());
+        boundary.update_positions_and_velocities();
+        assert_eq!(boundary.positions()[0], Point3::new(1., 0., 0.));
+
+        let saved = Some(RigidBodyMotionCheckpoint {
+            center_of_mass: Point3::new(10., 0., 0.),
+            orientation: UnitQuaternion::identity(),
+            linear_velocity: Vector3::zeros(),
+            angular_momentum: Vector3::zeros(),
+            force: Vector3::zeros(),
+            torque: Vector3::zeros(),
+        });
+
+        boundary.restore_from_checkpoint(&saved);
+
+        // `restore_from_checkpoint` must recompute `position` from the new
+        // pose, not just overwrite `state` and leave stale cached data.
+        assert_eq!(boundary.positions()[0], Point3::new(11., 0., 0.));
+    }
+
+    #[test]
+    fn restore_from_checkpoint_is_noop_for_matching_static() {
+        let mut boundary = make_static_boundary(vec![Point3::new(1., 2., 3.)]);
+        let before = boundary.positions().clone();
+
+        boundary.restore_from_checkpoint(&None);
+
+        assert_eq!(*boundary.positions(), before);
+    }
+
+    #[test]
+    fn restore_from_checkpoint_type_mismatch_does_not_panic() {
+        // A stale checkpoint (e.g. scene changed between save and resume)
+        // should be diagnosed, not crash the worker thread.
+        let mut static_boundary = make_static_boundary(vec![Point3::origin()]);
+        let saved = Some(RigidBodyMotionCheckpoint {
+            center_of_mass: Point3::origin(),
+            orientation: UnitQuaternion::identity(),
+            linear_velocity: Vector3::zeros(),
+            angular_momentum: Vector3::zeros(),
+            force: Vector3::zeros(),
+            torque: Vector3::zeros(),
+        });
+        static_boundary.restore_from_checkpoint(&saved); // Some for a static boundary
+
+        let mut dynamic_boundary = make_dynamic_boundary(vec![Point3::origin()], Point3::origin());
+        dynamic_boundary.restore_from_checkpoint(&None); // None for a dynamic boundary
+        // Neither call should panic.
+    }
+
+    // ─── position_and_boundary_neighbor_list_mut ────────────────────
+
+    #[test]
+    fn position_and_boundary_neighbor_list_mut_returns_consistent_refs() {
+        let mut boundary = make_static_boundary(vec![Point3::new(1., 2., 3.)]);
+        let (position, neighbor_list) = boundary.position_and_boundary_neighbor_list_mut();
+        assert_eq!(position[0], Point3::new(1., 2., 3.));
+        assert_eq!(neighbor_list.num_samples(), 0); // freshly default-constructed
+    }
+
+    // ─── initialize (volume computation via real neighbor search) ───
+
+    #[test]
+    fn initialize_computes_nonzero_volume_for_isolated_samples() {
+        // Four samples far enough apart that each is its own only neighbor
+        // (distance 0 to itself) — makes the expected pseudo-volume exactly
+        // predictable: inverse_volume = W(0, h), so volume = weighting / W(0, h).
+        let spacing = 10.0; // far apart relative to kernel_support_radius
+        let mut boundary = make_static_boundary(vec![
+            Point3::new(0., 0., 0.),
+            Point3::new(spacing, 0., 0.),
+            Point3::new(0., spacing, 0.),
+            Point3::new(0., 0., spacing),
+        ]);
+
+        let mut neighbor_search = crate::neighbor_search::SpatialHashing::new(1.0);
+        let kernel_support_radius = 1.0;
+        let weighting = 2.0;
+
+        boundary.initialize::<crate::sph::kernel::CubicBSpline3D>(
+            &mut neighbor_search,
+            kernel_support_radius,
+            weighting,
+        );
+
+        let w0 = crate::sph::kernel::CubicBSpline3D::kernel_function(
+            &Vector3::zeros(),
+            kernel_support_radius,
+        );
+        let expected_volume = weighting / w0;
+
+        for i in 0..4 {
+            assert!(
+                (boundary.volumes()[i] - expected_volume).abs() < 1e-9,
+                "sample {i}: expected {expected_volume}, got {}",
+                boundary.volumes()[i]
+            );
+        }
+    }
+
+    #[test]
+    fn initialize_updates_position_before_computing_volume_for_dynamic() {
+        // `initialize` must call `update_positions_and_velocities` BEFORE
+        // running the neighbor search / volume computation, so that both
+        // operate on correct WORLD-space positions, not the
+        // `Point3::origin()` placeholders every `DynamicBoundary` is
+        // constructed with — regression test for the "dynamic boundary
+        // particles don't collide" bug fixed earlier.
+        let com = Point3::new(100., 0., 0.);
+        let mut boundary = make_dynamic_boundary(vec![Point3::origin()], com);
+        assert_eq!(boundary.positions()[0], Point3::origin()); // placeholder before initialize
+
+        let mut neighbor_search = crate::neighbor_search::SpatialHashing::new(1.0);
+        boundary.initialize::<crate::sph::kernel::CubicBSpline3D>(&mut neighbor_search, 1.0, 1.0);
+
+        assert_eq!(boundary.positions()[0], com);
+    }
+}

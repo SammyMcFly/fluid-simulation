@@ -176,3 +176,197 @@ pub fn sample_triangle_mesh_surface(mesh: &TriMesh, spacing: f64) -> Vec<Point3<
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── cross2 ───────────────────────────────────────────────────────
+
+    #[test]
+    fn cross2_of_orthogonal_unit_vectors_is_one() {
+        let a = Vector2::new(1.0, 0.0);
+        let b = Vector2::new(0.0, 1.0);
+        assert_eq!(cross2(a, b), 1.0);
+    }
+
+    #[test]
+    fn cross2_is_antisymmetric() {
+        let a = Vector2::new(2.0, 3.0);
+        let b = Vector2::new(-1.0, 4.0);
+        assert_eq!(cross2(a, b), -cross2(b, a));
+    }
+
+    #[test]
+    fn cross2_of_collinear_vectors_is_zero() {
+        let a = Vector2::new(2.0, 4.0);
+        let b = Vector2::new(1.0, 2.0); // scalar multiple of a
+        assert!(cross2(a, b).abs() < 1e-12);
+    }
+
+    #[test]
+    fn cross2_with_zero_vector_is_zero() {
+        let a = Vector2::new(3.0, -5.0);
+        assert_eq!(cross2(a, Vector2::new(0.0, 0.0)), 0.0);
+    }
+
+    // ─── point_in_triangle ────────────────────────────────────────────
+
+    fn unit_right_triangle() -> (Vector2<f64>, Vector2<f64>, Vector2<f64>) {
+        (
+            Vector2::new(0.0, 0.0),
+            Vector2::new(1.0, 0.0),
+            Vector2::new(0.0, 1.0),
+        )
+    }
+
+    #[test]
+    fn point_in_triangle_true_for_centroid() {
+        let (a, b, c) = unit_right_triangle();
+        assert!(point_in_triangle((a + b + c) / 3.0, a, b, c));
+    }
+
+    #[test]
+    fn point_in_triangle_false_for_point_outside() {
+        let (a, b, c) = unit_right_triangle();
+        assert!(!point_in_triangle(Vector2::new(2.0, 2.0), a, b, c));
+    }
+
+    #[test]
+    fn point_in_triangle_true_on_vertices() {
+        let (a, b, c) = unit_right_triangle();
+        assert!(point_in_triangle(a, a, b, c));
+        assert!(point_in_triangle(b, a, b, c));
+        assert!(point_in_triangle(c, a, b, c));
+    }
+
+    #[test]
+    fn point_in_triangle_true_on_edge_midpoint() {
+        let (a, b, c) = unit_right_triangle();
+        assert!(point_in_triangle((a + b) / 2.0, a, b, c));
+    }
+
+    #[test]
+    fn point_in_triangle_is_winding_order_independent() {
+        let (a, b, c) = unit_right_triangle();
+        let inside = Vector2::new(0.2, 0.2);
+        let outside = Vector2::new(0.9, 0.9);
+        assert_eq!(
+            point_in_triangle(inside, a, b, c),
+            point_in_triangle(inside, a, c, b)
+        );
+        assert_eq!(
+            point_in_triangle(outside, a, b, c),
+            point_in_triangle(outside, a, c, b)
+        );
+        assert!(point_in_triangle(inside, a, b, c));
+        assert!(!point_in_triangle(outside, a, b, c));
+    }
+
+    // ─── sample_triangle_surface ──────────────────────────────────────
+
+    #[test]
+    fn sample_triangle_surface_zero_length_edge_returns_empty() {
+        let v0 = Point3::new(0.0, 0.0, 0.0);
+        let v1 = Point3::new(0.0, 0.0, 0.0); // v0 == v1
+        let v2 = Point3::new(0.0, 1.0, 0.0);
+        assert!(sample_triangle_surface(&v0, &v1, &v2, 0.1).is_empty());
+    }
+
+    #[test]
+    fn sample_triangle_surface_collinear_points_returns_empty() {
+        let v0 = Point3::new(0.0, 0.0, 0.0);
+        let v1 = Point3::new(1.0, 0.0, 0.0);
+        let v2 = Point3::new(2.0, 0.0, 0.0); // collinear -> zero area
+        assert!(sample_triangle_surface(&v0, &v1, &v2, 0.1).is_empty());
+    }
+
+    #[test]
+    fn sample_triangle_surface_right_triangle_matches_expected_grid() {
+        // v0=(0,0,0), v1=(1,0,0), v2=(0,1,0) is exactly aligned with the
+        // orthonormal basis constructed internally (proj == 0), so the
+        // resulting grid is fully predictable by hand for spacing = 0.5.
+        let v0 = Point3::new(0.0, 0.0, 0.0);
+        let v1 = Point3::new(1.0, 0.0, 0.0);
+        let v2 = Point3::new(0.0, 1.0, 0.0);
+        let points = sample_triangle_surface(&v0, &v1, &v2, 0.5);
+
+        let expected = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.5, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 0.5, 0.0),
+            Point3::new(0.5, 0.5, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ];
+
+        assert_eq!(points.len(), expected.len());
+        for e in &expected {
+            assert!(
+                points.iter().any(|p| (p - e).norm() < 1e-9),
+                "expected point {e:?} not found in {points:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sample_triangle_surface_includes_origin_vertex() {
+        let v0 = Point3::new(0.0, 0.0, 0.0);
+        let v1 = Point3::new(1.0, 0.0, 0.0);
+        let v2 = Point3::new(0.0, 1.0, 0.0);
+        let points = sample_triangle_surface(&v0, &v1, &v2, 0.5);
+        assert!(points.iter().any(|p| (p - v0).norm() < 1e-9));
+    }
+
+    #[test]
+    fn sample_triangle_surface_all_points_lie_in_triangle_plane() {
+        // Non-axis-aligned, obtuse-at-v0 triangle (negative projection) to
+        // exercise the Gram-Schmidt basis construction with proj < 0.
+        let v0 = Point3::new(1.0, 1.0, 1.0);
+        let v1 = Point3::new(3.0, 1.0, 2.0);
+        let v2 = Point3::new(-2.0, 3.0, 0.5);
+        let normal = (v1 - v0).cross(&(v2 - v0)).normalize();
+
+        let points = sample_triangle_surface(&v0, &v1, &v2, 0.3);
+        assert!(!points.is_empty());
+        for p in &points {
+            let d = (p - v0).dot(&normal);
+            assert!(d.abs() < 1e-9, "point {p:?} deviates from plane by {d}");
+        }
+    }
+
+    #[test]
+    fn sample_triangle_surface_finer_spacing_yields_more_points() {
+        let v0 = Point3::new(0.0, 0.0, 0.0);
+        let v1 = Point3::new(2.0, 0.0, 0.0);
+        let v2 = Point3::new(0.0, 2.0, 0.0);
+        let coarse = sample_triangle_surface(&v0, &v1, &v2, 1.0);
+        let fine = sample_triangle_surface(&v0, &v1, &v2, 0.25);
+        assert!(fine.len() > coarse.len());
+    }
+
+    // ─── sample_triangle_mesh_surface: aggregation (needs the private
+    // helper for a ground-truth comparison, so it must live here) ──────
+
+    #[test]
+    fn sample_triangle_mesh_surface_of_single_triangle_matches_direct_call() {
+        let positions = vec![
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ];
+        let indices = vec![[0u32, 1, 2]];
+        let mesh = TriMesh::new(positions, indices).unwrap();
+
+        let spacing = 0.4;
+        let via_mesh = sample_triangle_mesh_surface(&mesh, spacing);
+        let direct = sample_triangle_surface(
+            &Point3::new(0.0, 0.0, 0.0),
+            &Point3::new(1.0, 0.0, 0.0),
+            &Point3::new(0.0, 1.0, 0.0),
+            spacing,
+        );
+
+        assert_eq!(via_mesh.len(), direct.len());
+    }
+}

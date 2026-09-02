@@ -917,3 +917,157 @@ impl From<SerSystemCheckpoint> for SystemCheckpoint {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── Fixtures / helpers ─────────────────────────────────────────────
+
+    fn make_test_params(rest_density_grid_spacing: f64) -> SystemParameters {
+        #[cfg(not(feature = "cfl_time_step"))]
+        {
+            SystemParameters::new(0.001, rest_density_grid_spacing, 0.1, -100.0, 0.0, 0.0, 0.0)
+        }
+        #[cfg(feature = "cfl_time_step")]
+        {
+            SystemParameters::new(
+                0.5,
+                0.4,
+                rest_density_grid_spacing,
+                0.1,
+                -100.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+        }
+    }
+
+    // ─── CurrentSystemProperties ────────────────────────────────────────
+
+    #[test]
+    fn current_system_properties_default_is_all_zero() {
+        let props = CurrentSystemProperties::default();
+        assert_eq!(props.average_density, 0.0);
+        assert_eq!(props.fluid_depth, 0.0);
+        assert_eq!(props.time_step_wall_clock_time, 0.0);
+    }
+
+    #[test]
+    fn set_fluid_depth_updates_the_field() {
+        let mut props = CurrentSystemProperties::default();
+        props.set_fluid_depth(3.5);
+        assert_eq!(props.fluid_depth, 3.5);
+    }
+
+    #[test]
+    fn update_sets_average_density_and_leaves_other_fields_untouched() {
+        let mut props = CurrentSystemProperties::default();
+        props.set_fluid_depth(2.0);
+        props.update(998.2);
+        assert_eq!(props.average_density, 998.2);
+        assert_eq!(props.fluid_depth, 2.0);
+    }
+
+    // ─── SystemParameters::new ──────────────────────────────────────────
+
+    #[test]
+    fn new_computes_rest_volume_as_cube_of_grid_spacing() {
+        let params = make_test_params(0.05);
+        assert!((params.rest_volume - 0.05_f64.powi(3)).abs() < 1e-15);
+    }
+
+    #[cfg(not(feature = "cfl_time_step"))]
+    #[test]
+    fn new_without_cfl_time_step_sets_time_increment_directly_and_zeroes_the_offset() {
+        let params = SystemParameters::new(0.002, 0.05, 0.1, -100., 0.01, 0.02, 1.0);
+        assert_eq!(params.time_increment, 0.002);
+        assert_eq!(params.time_offset, 0.0);
+        assert_eq!(params.time_offset_steps, 0);
+    }
+
+    #[cfg(feature = "cfl_time_step")]
+    #[test]
+    fn new_with_cfl_time_step_starts_time_increment_and_current_time_at_zero() {
+        let params = SystemParameters::new(0.5, 0.4, 0.05, 0.1, -100., 0.01, 0.02, 1.0);
+        assert_eq!(params.time_increment, 0.0);
+        assert_eq!(params.current_time, 0.0);
+        assert_eq!(params.max_time_increment, 0.5);
+        assert_eq!(params.cfl_number, 0.4);
+    }
+
+    // ─── SystemParameters::set_cfl_time_step ────────────────────────────
+
+    #[cfg(feature = "cfl_time_step")]
+    #[test]
+    fn set_cfl_time_step_is_limited_by_the_cfl_condition_when_particles_move_fast() {
+        let mut params = SystemParameters::new(1.0, 0.5, 0.05, 0.1, -100., 0., 0., 0.);
+        params.set_cfl_time_step(10.0);
+        let expected = (0.5_f64 * 0.05 / 10.0).min(1.0);
+        assert!((params.time_increment - expected).abs() < 1e-12);
+        assert!(
+            params.time_increment < 1.0,
+            "expected the CFL-limited step to be the binding constraint here"
+        );
+    }
+
+    #[cfg(feature = "cfl_time_step")]
+    #[test]
+    fn set_cfl_time_step_is_capped_by_max_time_increment_when_particles_move_slowly() {
+        let mut params = SystemParameters::new(0.001, 0.5, 0.05, 0.1, -100., 0., 0., 0.);
+        params.set_cfl_time_step(0.0001); // very slow -> CFL-limited step would be huge
+        assert_eq!(
+            params.time_increment, 0.001,
+            "expected max_time_increment to be the binding constraint here"
+        );
+    }
+
+    // ─── SystemCheckpoint ────────────────────────────────────────────────
+
+    fn make_test_checkpoint() -> SystemCheckpoint {
+        SystemCheckpoint {
+            time_steps_propagated: 42,
+            current_time: 12.5,
+            fluid: FluidCheckpoint {
+                fluid_id: vec![0, 0],
+                position: vec![Point3::new(1.0, 2.0, 3.0), Point3::new(4.0, 5.0, 6.0)],
+                velocity: vec![Vector3::new(0.1, 0.0, 0.0), Vector3::zeros()],
+                mass: vec![1.0, 1.5],
+            },
+            boundary: BoundaryCheckpoint {
+                dynamic_states: vec![None],
+            },
+        }
+    }
+
+    #[test]
+    fn system_checkpoint_getters_return_exactly_what_was_constructed() {
+        let checkpoint = make_test_checkpoint();
+        assert_eq!(checkpoint.get_time_steps_propagated(), 42);
+        assert_eq!(checkpoint.get_current_time(), 12.5);
+        assert_eq!(checkpoint.get_fluid().fluid_id, vec![0, 0]);
+        assert_eq!(checkpoint.get_boundary().dynamic_states.len(), 1);
+    }
+
+    #[test]
+    fn system_checkpoint_round_trips_through_ser_system_checkpoint() {
+        let checkpoint = make_test_checkpoint();
+        let ser: SerSystemCheckpoint = checkpoint.into();
+
+        assert_eq!(ser.time_steps_propagated, 42);
+        assert_eq!(ser.current_time, 12.5);
+        assert_eq!(ser.fluid.fluid_id, vec![0, 0]);
+        assert_eq!(ser.fluid.position, vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+        assert_eq!(ser.boundary.dynamic_states.len(), 1);
+
+        let restored: SystemCheckpoint = ser.into();
+        assert_eq!(restored.get_time_steps_propagated(), 42);
+        assert_eq!(restored.get_current_time(), 12.5);
+        assert_eq!(restored.get_fluid().position, checkpoint_positions());
+    }
+
+    fn checkpoint_positions() -> Vec<Point3<f64>> {
+        vec![Point3::new(1.0, 2.0, 3.0), Point3::new(4.0, 5.0, 6.0)]
+    }
+}

@@ -268,3 +268,329 @@ pub enum BoundarySampleColoring {
     Uniform,
     BoundaryId { ids: Vec<u32>, max_id: u32 },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::measurement::Measurement;
+    use crate::sph::boundary_handling::BoundaryCheckpoint;
+    use crate::sph::fluid::FluidCheckpoint;
+    use crate::sph::{SPHSystem, SystemCheckpoint};
+    use std::rc::Rc;
+
+    // ─── Mock SPHSystem ─────────────────────────────────────────────────
+
+    #[derive(Clone)]
+    struct MockSystem {
+        fluid_ids: Vec<u32>,
+        fluid_pos: Vec<[f32; 3]>,
+        fluid_surface: Vec<(u32, RenderMesh)>,
+        quantity_of_samples: Vec<f32>,
+        quantity_at_positions: Vec<f32>,
+        boundary_visualization_result: BoundaryVisualization,
+        time_steps_propagated: u64,
+    }
+
+    impl Default for MockSystem {
+        fn default() -> Self {
+            Self {
+                fluid_ids: vec![],
+                fluid_pos: vec![],
+                fluid_surface: vec![],
+                quantity_of_samples: vec![],
+                quantity_at_positions: vec![],
+                boundary_visualization_result: BoundaryVisualization::Samples {
+                    positions: vec![],
+                    coloring: BoundarySampleColoring::Uniform,
+                },
+                time_steps_propagated: 0,
+            }
+        }
+    }
+
+    impl SPHSystem for MockSystem {
+        fn time(&self) -> f64 {
+            unimplemented!("not exercised by render_info tests")
+        }
+        fn time_steps_propagated(&self) -> u64 {
+            self.time_steps_propagated
+        }
+        fn step_forward_in_time(&mut self) {
+            unimplemented!("not exercised by render_info tests")
+        }
+        fn take_measurement(&self) -> Measurement {
+            Measurement::default()
+        }
+        fn get_fluid_ids(&self) -> Vec<u32> {
+            self.fluid_ids.clone()
+        }
+        fn get_fluid_pos(&self) -> Vec<[f32; 3]> {
+            self.fluid_pos.clone()
+        }
+        fn get_fluid_checkpoint(&self) -> FluidCheckpoint {
+            unimplemented!("not exercised by render_info tests")
+        }
+        fn get_quantity_of_fluid_samples(&self, _quantity: &ScalarQuantity) -> Vec<f32> {
+            self.quantity_of_samples.clone()
+        }
+        fn get_quantity_at_positions(
+            &mut self,
+            _quantity: &ScalarQuantity,
+            _positions: &[[f32; 3]],
+        ) -> Vec<f32> {
+            self.quantity_at_positions.clone()
+        }
+        fn get_fluid_surface(&self) -> Vec<(u32, RenderMesh)> {
+            self.fluid_surface.clone()
+        }
+        fn get_boundary_visualization(
+            &self,
+            _selector: &BoundaryVisualization,
+        ) -> BoundaryVisualization {
+            self.boundary_visualization_result.clone()
+        }
+        fn get_boundary_checkpoint(&self) -> BoundaryCheckpoint {
+            unimplemented!("not exercised by render_info tests")
+        }
+        fn continue_from_checkpoint(&mut self, _checkpoint: Rc<SystemCheckpoint>) {
+            unimplemented!("not exercised by render_info tests")
+        }
+    }
+
+    // ─── FluidVisualization::from_system: TriangleMesh ───────────────────
+
+    #[test]
+    fn fluid_visualization_triangle_mesh_uses_fluid_surface_and_max_id() {
+        let mut mock = MockSystem {
+            fluid_ids: vec![2, 5, 1],
+            fluid_surface: vec![(2, RenderMesh::default()), (5, RenderMesh::default())],
+            ..Default::default()
+        };
+        let selector = FluidVisualization::TriangleMesh {
+            meshes: vec![],
+            max_fluid_id: 0,
+            coloring: FluidMeshColoring::FluidId,
+        };
+
+        let result = FluidVisualization::from_system(&mut mock, &selector);
+
+        match result {
+            FluidVisualization::TriangleMesh {
+                meshes,
+                max_fluid_id,
+                coloring,
+            } => {
+                assert_eq!(meshes.len(), 2);
+                // NOTE: `max_fluid_id` comes from `get_fluid_ids()` (every
+                // active particle), while `meshes` comes from
+                // `get_fluid_surface()`, which (per `Fluid::reconstruct_
+                // surfaces`'s doc comment) skips fluid ids whose surface
+                // reconstruction came out empty. So `max_fluid_id` can, in
+                // principle, reference an id that has no corresponding
+                // entry in `meshes` — harmless for a color-range upper
+                // bound, but worth documenting rather than assuming
+                // they're always in sync.
+                assert_eq!(max_fluid_id, 5);
+                assert_eq!(coloring, FluidMeshColoring::FluidId);
+            }
+            _ => panic!("expected TriangleMesh variant"),
+        }
+    }
+
+    #[test]
+    fn fluid_visualization_triangle_mesh_max_id_defaults_to_zero_with_no_fluid() {
+        let mut mock = MockSystem::default(); // fluid_ids empty
+        let selector = FluidVisualization::TriangleMesh {
+            meshes: vec![],
+            max_fluid_id: 0,
+            coloring: FluidMeshColoring::Uniform,
+        };
+
+        let result = FluidVisualization::from_system(&mut mock, &selector);
+
+        match result {
+            FluidVisualization::TriangleMesh { max_fluid_id, .. } => {
+                assert_eq!(max_fluid_id, 0);
+            }
+            _ => panic!("expected TriangleMesh variant"),
+        }
+    }
+
+    // ─── FluidVisualization::from_system: Samples ────────────────────────
+
+    #[test]
+    fn fluid_visualization_samples_uses_fluid_positions_and_delegates_coloring() {
+        let mut mock = MockSystem {
+            fluid_pos: vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+            ..Default::default()
+        };
+        let selector = FluidVisualization::Samples {
+            positions: vec![],
+            coloring: FluidSampleColoring::Uniform,
+        };
+
+        let result = FluidVisualization::from_system(&mut mock, &selector);
+
+        match result {
+            FluidVisualization::Samples {
+                positions,
+                coloring,
+            } => {
+                assert_eq!(positions, vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+                assert_eq!(coloring, FluidSampleColoring::Uniform);
+            }
+            _ => panic!("expected Samples variant"),
+        }
+    }
+
+    // ─── FluidVisualization::from_system: SensorPlane ────────────────────
+
+    #[test]
+    fn fluid_visualization_sensor_plane_fills_data_for_every_plane_preserving_metadata() {
+        let mut mock = MockSystem {
+            quantity_at_positions: vec![10.0, 20.0],
+            ..Default::default()
+        };
+        let plane_a = SensorPlaneData {
+            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            data: vec![], // deliberately stale/empty, must be overwritten
+            rows: 1,
+            cols: 2,
+        };
+        let plane_b = SensorPlaneData {
+            positions: vec![[0.0, 1.0, 0.0]],
+            data: vec![999.0], // deliberately WRONG, must be overwritten
+            rows: 1,
+            cols: 1,
+        };
+        let selector = FluidVisualization::SensorPlane {
+            quantity: ScalarQuantity::Pressure,
+            planes: vec![plane_a.clone(), plane_b.clone()],
+        };
+
+        let result = FluidVisualization::from_system(&mut mock, &selector);
+
+        match result {
+            FluidVisualization::SensorPlane { quantity, planes } => {
+                assert_eq!(quantity, ScalarQuantity::Pressure);
+                assert_eq!(planes.len(), 2);
+                for plane in &planes {
+                    assert_eq!(plane.data, vec![10.0, 20.0]);
+                }
+                assert_eq!(planes[0].positions, plane_a.positions);
+                assert_eq!(planes[0].rows, plane_a.rows);
+                assert_eq!(planes[0].cols, plane_a.cols);
+                assert_eq!(planes[1].positions, plane_b.positions);
+            }
+            _ => panic!("expected SensorPlane variant"),
+        }
+    }
+
+    #[test]
+    fn fluid_visualization_sensor_plane_with_no_planes_yields_no_planes() {
+        let mut mock = MockSystem::default();
+        let selector = FluidVisualization::SensorPlane {
+            quantity: ScalarQuantity::Speed,
+            planes: vec![],
+        };
+
+        let result = FluidVisualization::from_system(&mut mock, &selector);
+
+        match result {
+            FluidVisualization::SensorPlane { planes, .. } => assert!(planes.is_empty()),
+            _ => panic!("expected SensorPlane variant"),
+        }
+    }
+
+    // ─── FluidSampleColoring::from_system ─────────────────────────────────
+
+    #[test]
+    fn fluid_sample_coloring_uniform_stays_uniform() {
+        let mock = MockSystem {
+            fluid_ids: vec![1, 2, 3],
+            ..Default::default()
+        };
+        let result = FluidSampleColoring::from_system(&mock, &FluidSampleColoring::Uniform);
+        assert_eq!(result, FluidSampleColoring::Uniform);
+    }
+
+    #[test]
+    fn fluid_sample_coloring_fluid_id_reports_ids_and_max() {
+        let mock = MockSystem {
+            fluid_ids: vec![3, 1, 4, 1, 5],
+            ..Default::default()
+        };
+        let selector = FluidSampleColoring::FluidId {
+            id: vec![],
+            max_id: 0,
+        };
+
+        let result = FluidSampleColoring::from_system(&mock, &selector);
+
+        match result {
+            FluidSampleColoring::FluidId { id, max_id } => {
+                assert_eq!(id, vec![3, 1, 4, 1, 5]);
+                assert_eq!(max_id, 5);
+            }
+            _ => panic!("expected FluidId variant"),
+        }
+    }
+
+    #[test]
+    fn fluid_sample_coloring_fluid_id_max_defaults_to_zero_when_empty() {
+        let mock = MockSystem::default();
+        let selector = FluidSampleColoring::FluidId {
+            id: vec![],
+            max_id: 0,
+        };
+        let result = FluidSampleColoring::from_system(&mock, &selector);
+        match result {
+            FluidSampleColoring::FluidId { max_id, .. } => assert_eq!(max_id, 0),
+            _ => panic!("expected FluidId variant"),
+        }
+    }
+
+    #[test]
+    fn fluid_sample_coloring_quantity_graded_preserves_quantity_and_replaces_data() {
+        let mock = MockSystem {
+            quantity_of_samples: vec![0.1, 0.2, 0.3],
+            ..Default::default()
+        };
+        let selector = FluidSampleColoring::QuantityGraded {
+            quantity: ScalarQuantity::KineticEnergy,
+            data: vec![999.0], // stale, must be overwritten
+        };
+
+        let result = FluidSampleColoring::from_system(&mock, &selector);
+
+        match result {
+            FluidSampleColoring::QuantityGraded { quantity, data } => {
+                assert_eq!(quantity, ScalarQuantity::KineticEnergy);
+                assert_eq!(data, vec![0.1, 0.2, 0.3]);
+            }
+            _ => panic!("expected QuantityGraded variant"),
+        }
+    }
+
+    // ─── BoundaryVisualization::from_system ───────────────────────────────
+
+    #[test]
+    fn boundary_visualization_from_system_delegates_to_the_system() {
+        let canned = BoundaryVisualization::TriangleMesh {
+            meshes: vec![],
+            coloring: BoundaryMeshColoring::Uniform,
+        };
+        let mock = MockSystem {
+            boundary_visualization_result: canned.clone(),
+            ..Default::default()
+        };
+        let selector = BoundaryVisualization::Samples {
+            positions: vec![],
+            coloring: BoundarySampleColoring::Uniform,
+        };
+
+        let result = BoundaryVisualization::from_system(&mock, &selector);
+
+        assert_eq!(result, canned);
+    }
+}
