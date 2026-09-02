@@ -927,6 +927,15 @@ mod neighbor_list {
     }
 
     impl NeighborList {
+        /// Total number of flattened neighbor entries across all samples in
+        /// this list — i.e. the length of `positions`/`velocities`/`volumes`/
+        /// `indices`, NOT the number of samples. Used by `BoundaryType::pos_now`/
+        /// `vel_now`/`volume` as the offset separating this list's entries from
+        /// a second list's (`boundary_neighbor_list` vs.
+        /// `boundary_neighbor_list_viscosity`) in a combined global index space.
+        ///
+        /// Not to be confused with `neighbor_search::NeighborList::num_samples`,
+        /// which counts samples rather than flattened entries.
         pub fn len(&self) -> usize {
             self.positions.len()
         }
@@ -1045,33 +1054,659 @@ mod neighbor_list {
             &self.volumes[id]
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        // ─── Helper functions ───────────────────────────────────────────────
+
+        fn pos(x: f64, y: f64, z: f64) -> Point3<f64> {
+            Point3::new(x, y, z)
+        }
+
+        fn vel(x: f64, y: f64, z: f64) -> Vector3<f64> {
+            Vector3::new(x, y, z)
+        }
+
+        // ─── Construction / empty-state tests ────────────────────────────────
+
+        #[test]
+        fn default_is_empty() {
+            let nl = NeighborList::default();
+            assert_eq!(nl.len(), 0);
+        }
+
+        #[test]
+        fn rebuild_from_default_grows_correctly() {
+            // Mirrors actual production usage in `find_boundary_samples`:
+            // `NeighborList::default()` is held across time steps, and the
+            // first real call is `rebuild` growing it to the current sample
+            // count.
+            let mut nl = NeighborList::default();
+            nl.rebuild(2, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.)];
+                velocities[0] = vec![vel(0.1, 0., 0.)];
+                volumes[0] = vec![0.5];
+                indices[0] = vec![0];
+            });
+
+            assert_eq!(nl.len(), 1);
+            assert_eq!(nl.get_neighbors(0), &[0]);
+            assert_eq!(*nl.pos_now(0), pos(1., 0., 0.));
+            assert_eq!(*nl.vel_now(0), vel(0.1, 0., 0.));
+            assert_eq!(*nl.volume(0), 0.5);
+            // Particle 1 has no neighbors
+            assert_eq!(nl.get_neighbors(1), &[]);
+        }
+
+        // ─── flatten: ordering / consistency ─────────────────────────────────
+
+        #[test]
+        fn flatten_empty_list() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(3, 0, |_| {
+                // fill does nothing — no sample has any neighbors
+            });
+
+            assert_eq!(nl.len(), 0);
+            for i in 0..3 {
+                assert_eq!(nl.get_neighbors(i), &[]);
+            }
+        }
+
+        #[test]
+        fn rebuild_single_particle_with_neighbor() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(1, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(2., 3., 4.)];
+                velocities[0] = vec![vel(0.5, 0.6, 0.7)];
+                volumes[0] = vec![1.25];
+                indices[0] = vec![0];
+            });
+
+            assert_eq!(nl.get_neighbors(0), &[0]);
+            assert_eq!(*nl.pos_now(0), pos(2., 3., 4.));
+            assert_eq!(*nl.vel_now(0), vel(0.5, 0.6, 0.7));
+            assert_eq!(*nl.volume(0), 1.25);
+        }
+
+        #[test]
+        fn rebuild_multiple_particles_preserves_order() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(2, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.), pos(2., 0., 0.)];
+                velocities[0] = vec![vel(0.1, 0., 0.), vel(0.2, 0., 0.)];
+                volumes[0] = vec![0.1, 0.2];
+                indices[0] = vec![0, 1];
+
+                positions[1] = vec![pos(9., 0., 0.)];
+                velocities[1] = vec![vel(0.9, 0., 0.)];
+                volumes[1] = vec![0.9];
+                indices[1] = vec![0];
+            });
+
+            // Particle 0's two neighbors keep their relative order
+            assert_eq!(*nl.pos_now(0), pos(1., 0., 0.));
+            assert_eq!(*nl.pos_now(1), pos(2., 0., 0.));
+            // Particle 1's single neighbor is appended after particle 0's data
+            assert_eq!(*nl.pos_now(2), pos(9., 0., 0.));
+            assert_eq!(*nl.volume(2), 0.9);
+        }
+
+        // ─── flatten: global_offset semantics (unique to volume_map_boundary) ───────
+
+        #[test]
+        fn flatten_applies_global_offset_uniformly() {
+            // `global_offset` is added uniformly to every stored index, so
+            // `id - global_offset` must always yield a valid index into this
+            // list's own `pos_now`/`vel_now`/`volume` — this is exactly the
+            // invariant `BoundaryType::pos_now`/`vel_now`/`volume` rely on when
+            // dispatching between `boundary_neighbor_list` and
+            // `boundary_neighbor_list_viscosity` by comparing `id` against the
+            // first list's `len()`.
+            let global_offset = 100;
+            let mut nl = NeighborList::default();
+            nl.rebuild(1, global_offset, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(5., 5., 5.)];
+                velocities[0] = vec![vel(1., 1., 1.)];
+                volumes[0] = vec![0.42];
+                indices[0] = vec![0];
+            });
+
+            let stored_id = nl.get_neighbors(0)[0];
+            assert_eq!(stored_id, global_offset);
+
+            let local_id = stored_id - global_offset;
+            assert_eq!(*nl.pos_now(local_id), pos(5., 5., 5.));
+            assert_eq!(*nl.vel_now(local_id), vel(1., 1., 1.));
+            assert_eq!(*nl.volume(local_id), 0.42);
+        }
+
+        #[test]
+        fn flatten_accumulates_offset_across_particles() {
+            // The trickiest part of `flatten`'s bookkeeping: a later particle's
+            // local neighbor index (0, 1, 2, ...) must be shifted by the number
+            // of neighbor entries already flattened for *earlier* particles in
+            // this same list — not just by `global_offset`. Particle 0 has 2
+            // neighbors (occupying flat slots 0 and 1), so particle 1's first
+            // neighbor (local index 0) must land at flat slot 2.
+            let mut nl = NeighborList::default();
+            nl.rebuild(2, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.), pos(2., 0., 0.)];
+                velocities[0] = vec![vel(0., 0., 0.), vel(0., 0., 0.)];
+                volumes[0] = vec![0., 0.];
+                indices[0] = vec![0, 1];
+
+                positions[1] = vec![pos(9., 9., 9.)];
+                velocities[1] = vec![vel(0., 0., 0.)];
+                volumes[1] = vec![0.];
+                indices[1] = vec![0]; // local index 0 within particle 1's own data
+            });
+
+            assert_eq!(nl.get_neighbors(0), &[0, 1]);
+            assert_eq!(nl.get_neighbors(1), &[2]);
+            assert_eq!(*nl.pos_now(2), pos(9., 9., 9.));
+        }
+
+        // ─── resize / clear (direct access, same module as production code) ─
+
+        #[test]
+        fn resize_grows() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(2, 0, |b| {
+                let (positions, _, _, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.)];
+                indices[0] = vec![0];
+            });
+
+            nl.resize(5);
+
+            assert_eq!(nl.unflattened_indices.len(), 5);
+            // Existing data preserved
+            assert_eq!(nl.unflattened_indices[0], vec![0]);
+            // New entries are empty
+            for i in 2..5 {
+                assert!(nl.unflattened_indices[i].is_empty());
+                assert!(nl.unflattened_positions[i].is_empty());
+            }
+        }
+
+        #[test]
+        fn resize_shrinks() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(5, 0, |b| {
+                let (positions, _, _, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.)];
+                indices[0] = vec![0];
+            });
+
+            nl.resize(2);
+
+            assert_eq!(nl.unflattened_indices.len(), 2);
+            assert_eq!(nl.unflattened_positions[0], vec![pos(1., 0., 0.)]);
+        }
+
+        #[test]
+        fn clear_resets_all_unflattened_data() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(2, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.)];
+                velocities[0] = vec![vel(1., 0., 0.)];
+                volumes[0] = vec![1.];
+                indices[0] = vec![0];
+            });
+
+            nl.clear();
+
+            assert!(nl.unflattened_positions.iter().all(|v| v.is_empty()));
+            assert!(nl.unflattened_velocities.iter().all(|v| v.is_empty()));
+            assert!(nl.unflattened_volumes.iter().all(|v| v.is_empty()));
+            assert!(nl.unflattened_indices.iter().all(|v| v.is_empty()));
+        }
+
+        // ─── rebuild: shrink/grow and no-stale-data guarantees ──────────────
+
+        #[test]
+        fn rebuild_shrink_then_grow_has_no_stale_data() {
+            // `resize` truncates when shrinking rather than caching removed
+            // elements, so growing back must yield fresh, empty slots — not
+            // stale data from before the shrink.
+            let mut nl = NeighborList::default();
+            nl.rebuild(3, 0, |b| {
+                let (positions, _, _, indices) = b.neighbors_mut();
+                for i in 0..3 {
+                    positions[i] = vec![pos(i as f64, 0., 0.)];
+                    indices[i] = vec![0];
+                }
+            });
+
+            nl.rebuild(1, 0, |b| {
+                let (positions, _, _, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(99., 0., 0.)];
+                indices[0] = vec![0];
+            });
+
+            nl.rebuild(3, 0, |b| {
+                let (positions, _, _, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(42., 0., 0.)];
+                indices[0] = vec![0];
+                // slots 1, 2 intentionally left untouched by `fill`
+            });
+
+            assert_eq!(nl.get_neighbors(0), &[0]);
+            assert_eq!(*nl.pos_now(0), pos(42., 0., 0.));
+            for i in 1..3 {
+                assert_eq!(
+                    nl.get_neighbors(i),
+                    &[],
+                    "slot {i} should be empty, not stale"
+                );
+            }
+        }
+
+        #[test]
+        fn rebuild_fill_noop_clears_previous_data() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(2, 0, |b| {
+                let (positions, _, _, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.)];
+                indices[0] = vec![0];
+            });
+
+            nl.rebuild(2, 0, |_| {
+                // fill does nothing
+            });
+
+            assert_eq!(nl.get_neighbors(0), &[]);
+            assert_eq!(nl.get_neighbors(1), &[]);
+            assert_eq!(nl.len(), 0);
+        }
+
+        #[test]
+        fn rebuild_called_twice_replaces_data() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(1, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.)];
+                velocities[0] = vec![vel(1., 0., 0.)];
+                volumes[0] = vec![1.];
+                indices[0] = vec![0];
+            });
+
+            nl.rebuild(1, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(2., 0., 0.), pos(3., 0., 0.)];
+                velocities[0] = vec![vel(2., 0., 0.), vel(3., 0., 0.)];
+                volumes[0] = vec![2., 3.];
+                indices[0] = vec![0, 1];
+            });
+
+            assert_eq!(nl.get_neighbors(0), &[0, 1]);
+            assert_eq!(*nl.pos_now(0), pos(2., 0., 0.));
+            assert_eq!(*nl.pos_now(1), pos(3., 0., 0.));
+        }
+
+        // ─── data-consistency & range-indexing tests ─────────────────────────
+
+        #[test]
+        fn get_data_length_consistency() {
+            let mut nl = NeighborList::default();
+            nl.rebuild(4, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.), pos(2., 0., 0.), pos(3., 0., 0.)];
+                velocities[0] = vec![vel(0., 0., 0.); 3];
+                volumes[0] = vec![0.; 3];
+                indices[0] = vec![0, 1, 2];
+
+                positions[2] = vec![pos(4., 0., 0.); 4];
+                velocities[2] = vec![vel(0., 0., 0.); 4];
+                volumes[2] = vec![0.; 4];
+                indices[2] = vec![0, 1, 2, 3];
+            });
+
+            let total: usize = (0..4).map(|i| nl.get_neighbors(i).len()).sum();
+            assert_eq!(total, nl.positions.len());
+            assert_eq!(total, nl.velocities.len());
+            assert_eq!(total, nl.volumes.len());
+            assert_eq!(total, nl.indices.len());
+            assert_eq!(nl.offsets.len(), 5); // num_particles + 1
+        }
+
+        #[test]
+        fn pos_now_vel_now_volume_support_range_indexing() {
+            // `pos_now`/`vel_now`/`volume` are generic over `SliceIndex`, not
+            // just `usize` — used by callers that want a contiguous slice
+            // rather than a single element.
+            let mut nl = NeighborList::default();
+            nl.rebuild(1, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                positions[0] = vec![pos(1., 0., 0.), pos(2., 0., 0.), pos(3., 0., 0.)];
+                velocities[0] = vec![vel(1., 0., 0.), vel(2., 0., 0.), vel(3., 0., 0.)];
+                volumes[0] = vec![1., 2., 3.];
+                indices[0] = vec![0, 1, 2];
+            });
+
+            assert_eq!(nl.pos_now(0..2), &[pos(1., 0., 0.), pos(2., 0., 0.)]);
+            assert_eq!(nl.vel_now(1..3), &[vel(2., 0., 0.), vel(3., 0., 0.)]);
+            assert_eq!(nl.volume(..), &[1., 2., 3.]);
+        }
+
+        #[test]
+        fn large_neighbor_list() {
+            let n = 1000;
+            let mut nl = NeighborList::default();
+            nl.rebuild(n, 0, |b| {
+                let (positions, velocities, volumes, indices) = b.neighbors_mut();
+                for i in 0..n {
+                    positions[i] = vec![pos(i as f64, 0., 0.)];
+                    velocities[i] = vec![vel(0., 0., 0.)];
+                    volumes[i] = vec![1.0];
+                    indices[i] = vec![0];
+                }
+            });
+
+            assert_eq!(nl.len(), n);
+            for i in 0..n {
+                assert_eq!(nl.get_neighbors(i), &[i]);
+                assert_eq!(*nl.pos_now(i), pos(i as f64, 0., 0.));
+            }
+        }
+    }
 }
 
-// #[test]
-// fn boundary_index_offset_is_consistent() {
-//     let mut vm = /* VolumeMaps mit mind. 1 Boundary aufbauen */;
-//     let positions = /* ein paar Testpartikel nahe der Wand */;
-//     vm.find_boundary_samples(&mut ns, within_range, &positions, dx);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use parry3d_f64::{math::Vec3, shape::TriMeshFlags};
 
-//     let n_normal = vm.boundary_neighbor_list.len();
-//     let n_visc   = vm.boundary_neighbor_list_viscosity.len();
+    // ─── ball_volume ────────────────────────────────────────────────
 
-//     for id in 0..positions.len() {
-//         // Normal-Indizes müssen in [0, n_normal) liegen
-//         for &nb in vm.get_neighbors(id, RequestMode::Normal) {
-//             assert!(nb < n_normal, "Normal-Index {nb} >= {n_normal}");
-//             let _ = vm.volume(nb);   // darf nicht paniken
-//             let _ = vm.pos_now(nb);
-//         }
-//         // Viskositäts-Indizes müssen in [n_normal, n_normal + n_visc) liegen
-//         for &nb in vm.get_neighbors(id, RequestMode::ViscosityAcceleration) {
-//             assert!(
-//                 (n_normal..n_normal + n_visc).contains(&nb),
-//                 "Visc-Index {nb} nicht in [{n_normal}, {})",
-//                 n_normal + n_visc
-//             );
-//             let _ = vm.volume(nb);
-//             let _ = vm.pos_now(nb);
-//         }
-//     }
-// }
+    #[test]
+    fn ball_volume_zero_radius_is_zero() {
+        assert_eq!(ball_volume(0.0), 0.0);
+    }
+
+    #[test]
+    fn ball_volume_unit_radius() {
+        let expected = 4.0 / 3.0 * std::f64::consts::PI;
+        assert!((ball_volume(1.0) - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ball_volume_scales_with_cube_of_radius() {
+        // V(2r) = 8 * V(r), a basic sanity check on the r^3 scaling.
+        let r = 0.7;
+        assert!((ball_volume(2.0 * r) - 8.0 * ball_volume(r)).abs() < 1e-9);
+    }
+
+    // ─── cubic_extension_fn ─────────────────────────────────────────
+    //
+    // Deliberately tests only qualitative, kernel-formula-independent
+    // properties (boundary values, monotonicity, continuity) rather than
+    // exact numeric values — the precise `CubicBSpline3D::kernel_function`
+    // polynomial isn't something I've verified in this conversation, so
+    // hardcoding expected magnitudes here would risk asserting values I
+    // can't actually justify.
+
+    #[test]
+    fn cubic_extension_fn_is_one_at_and_below_zero() {
+        assert_eq!(cubic_extension_fn(0.0, 1.0), 1.0);
+        assert_eq!(cubic_extension_fn(-0.5, 1.0), 1.0);
+    }
+
+    #[test]
+    fn cubic_extension_fn_is_zero_at_and_beyond_support_radius() {
+        assert_eq!(cubic_extension_fn(1.0, 1.0), 0.0);
+        assert_eq!(cubic_extension_fn(1.5, 1.0), 0.0);
+    }
+
+    #[test]
+    fn cubic_extension_fn_is_monotonically_decreasing_in_between() {
+        let h = 1.0;
+        let v1 = cubic_extension_fn(0.1 * h, h);
+        let v2 = cubic_extension_fn(0.5 * h, h);
+        let v3 = cubic_extension_fn(0.9 * h, h);
+        assert!(v1 > v2, "{v1} should be > {v2}");
+        assert!(v2 > v3, "{v2} should be > {v3}");
+        assert!(v3 > 0.0 && v3 < 1.0);
+    }
+
+    #[test]
+    fn cubic_extension_fn_approaches_zero_continuously_near_support_radius() {
+        // Standard cubic B-spline SPH kernels vanish smoothly at their
+        // compact support radius, so the ratio-based value just inside `h`
+        // should already be close to the `0.0` returned for `sd >= h`.
+        let h = 1.0;
+        let just_inside = cubic_extension_fn(h - 1e-6, h);
+        assert!(
+            just_inside < 1e-3,
+            "expected near-zero continuity at h, got {just_inside}"
+        );
+    }
+
+    // ─── TriangleMeshWrapper::signed_distance ───────────────────────
+
+    /// Cube of side length 2 centered at the origin, outward-facing
+    /// winding — the same fixture used for `SampleBoundary` tests.
+    fn cube_trimesh() -> TriMesh {
+        let positions = vec![
+            Vec3::new(1., 1., 1.),
+            Vec3::new(1., 1., -1.),
+            Vec3::new(1., -1., 1.),
+            Vec3::new(1., -1., -1.),
+            Vec3::new(-1., 1., 1.),
+            Vec3::new(-1., 1., -1.),
+            Vec3::new(-1., -1., 1.),
+            Vec3::new(-1., -1., -1.),
+        ];
+        let indices: Vec<[u32; 3]> = vec![
+            [4, 2, 0],
+            [2, 7, 3],
+            [6, 5, 7],
+            [1, 7, 5],
+            [0, 3, 1],
+            [4, 1, 5],
+            [4, 6, 2],
+            [2, 6, 7],
+            [6, 4, 5],
+            [1, 3, 7],
+            [0, 2, 3],
+            [4, 0, 1],
+        ];
+        TriMesh::with_flags(
+            positions,
+            indices,
+            TriMeshFlags::ORIENTED
+                | TriMeshFlags::MERGE_DUPLICATE_VERTICES
+                | TriMeshFlags::FIX_INTERNAL_EDGES,
+        )
+        .expect("valid cube mesh")
+    }
+
+    #[test]
+    fn signed_distance_outside_is_positive_and_matches_face_distance() {
+        let mesh = cube_trimesh();
+        let wrapper = TriangleMeshWrapper::new(&mesh);
+        let sd = wrapper.signed_distance(&Point3::new(2., 0., 0.)).unwrap();
+        assert!((sd - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn signed_distance_inside_is_negative() {
+        let mesh = cube_trimesh();
+        let wrapper = TriangleMeshWrapper::new(&mesh);
+        let sd = wrapper.signed_distance(&Point3::origin()).unwrap();
+        assert!((sd - (-1.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn signed_distance_on_surface_is_near_zero() {
+        let mesh = cube_trimesh();
+        let wrapper = TriangleMeshWrapper::new(&mesh);
+        let sd = wrapper.signed_distance(&Point3::new(1., 0., 0.)).unwrap();
+        assert!(sd.abs() < 1e-9);
+    }
+    // ─── SDFnWrapper::volume ──────────────────────────────────────────
+    //
+    // Built directly via `CubicSerendipityDiscretization::new`'s public API
+    // with a single cell (dx == domain size) and a CONSTANT signed-distance
+    // function, rather than through a real mesh + AABB + padding pipeline.
+    // This is deliberately fast (32 node evaluations to build the field) and
+    // makes `volume()`'s three branches exactly predictable: a constant
+    // field is reproduced EXACTLY everywhere by the discretization's
+    // partition-of-unity property, so `sd_center` is known precisely.
+
+    fn constant_sdfn(value: f64) -> CubicSerendipityDiscretization {
+        CubicSerendipityDiscretization::new(
+            Point3::new(-1., -1., -1.),
+            Point3::new(1., 1., 1.),
+            None,
+            None,
+            2.0, // dx == domain size -> single cell
+            &move |_p: &Point3<f64>| Ok(value),
+        )
+    }
+
+    #[test]
+    fn sdfn_wrapper_volume_returns_zero_fully_outside_support() {
+        let sdfn = constant_sdfn(0.5); // signed distance uniformly 0.5 (far outside)
+        let wrapper = SDFnWrapper::new(&sdfn);
+        let h = 0.1; // 2h = 0.2 <= 0.5 -> fast "fully outside" path
+        let v = wrapper.volume(&Point3::origin(), h, 5).unwrap();
+        assert_eq!(v, 0.0);
+    }
+
+    #[test]
+    fn sdfn_wrapper_volume_returns_full_ball_when_fully_inside_support() {
+        let sdfn = constant_sdfn(-0.5); // signed distance uniformly -0.5 (well inside)
+        let wrapper = SDFnWrapper::new(&sdfn);
+        let h = 0.1; // -h = -0.1 >= -0.5 -> fast "fully inside" path
+        let v = wrapper.volume(&Point3::origin(), h, 5).unwrap();
+        let expected = ball_volume(h);
+        assert!((v - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn sdfn_wrapper_volume_integrates_via_quadrature_on_surface() {
+        // sd = 0.0 uniformly: `cubic_extension_fn` is exactly 1.0 everywhere
+        // (the `sd <= 0.` branch), so this exercises the real quadrature
+        // code path while the expected result is still fully predictable —
+        // the full ball volume, same as the "fully inside" fast path, just
+        // computed the expensive way.
+        let sdfn = constant_sdfn(0.0);
+        let wrapper = SDFnWrapper::new(&sdfn);
+        let h = 0.1; // 0.0 is neither >= 2h (0.2) nor <= -h (-0.1) -> quadrature
+        let v = wrapper.volume(&Point3::origin(), h, 6).unwrap();
+        let expected = ball_volume(h);
+        assert!(
+            (v - expected).abs() / expected < 1e-4,
+            "expected ≈{expected}, got {v}"
+        );
+    }
+
+    #[test]
+    fn sdfn_wrapper_volume_treats_out_of_bounds_center_as_zero() {
+        // A point far outside the sdfn's domain ([-1,1]^3) makes the initial
+        // `sdfn.function(point)` lookup for `sd_center` return
+        // `Err(OutOfBounds)`. Per the `// pruned cell → outside band → treat
+        // as 0` comment, `volume()` treats this as "outside the support
+        // band" and returns `Ok(0.0)` — it does NOT propagate the error.
+        let sdfn = constant_sdfn(0.0);
+        let wrapper = SDFnWrapper::new(&sdfn);
+        let v = wrapper.volume(&Point3::new(100., 0., 0.), 0.1, 5).unwrap();
+        assert_eq!(v, 0.0);
+    }
+
+    #[test]
+    fn sdfn_wrapper_volume_propagates_error_when_integration_sphere_exceeds_domain() {
+        // Contrasts with the previous test: here the CENTER lookup succeeds
+        // (point is inside the domain), but the quadrature samples points
+        // within radius `h` of it — some of which fall outside the domain
+        // because the point is close to its boundary. Unlike the center
+        // lookup, this error IS propagated, not converted to `Ok(0.0)`.
+        let sdfn = constant_sdfn(0.0);
+        let wrapper = SDFnWrapper::new(&sdfn);
+        let h = 0.5; // large enough that the sphere exceeds the [-1,1]^3 domain
+        let result = wrapper.volume(&Point3::new(0.95, 0., 0.), h, 5);
+        assert!(matches!(result, Err(EvaluationError::OutOfBounds)));
+    }
+
+    // ─── BoundaryType: Normal-/Viscosity-Index-Offset-Konsistenz ────
+
+    #[test]
+    fn boundary_index_offset_is_consistent() {
+        // Weißbox-Test: baut ein `BoundaryType::StaticBoundary` direkt
+        // (ohne teure `add_static_boundary`-Diskretisierung) mit einem
+        // linearen SDF (von der Serendipity-Interpolation nahezu exakt
+        // reproduziert) und einem konstanten, positiven Volume-Map-Feld,
+        // sodass ein einzelner Fluidpartikel nahe der Ebene sd(x)=0
+        // zuverlässig sowohl Normal- als auch Viscosity-Nachbarn erzeugt.
+        let sd_field = CubicSerendipityDiscretization::new(
+            Point3::new(-1., -1., -1.),
+            Point3::new(1., 1., 1.),
+            None,
+            None,
+            2.0,                        // einzelne Zelle
+            &|p: &Point3<f64>| Ok(p.x), // Ebene bei x = 0
+        );
+        let volume_map = CubicSerendipityDiscretization::new(
+            Point3::new(-1., -1., -1.),
+            Point3::new(1., 1., 1.),
+            Some(0.),
+            None,
+            2.0,
+            &|_p: &Point3<f64>| Ok(1.0),
+        );
+
+        let mut vm = VolumeMapBoundary {
+            boundaries: vec![BoundaryType::StaticBoundary {
+                signed_distance_field: sd_field,
+                volume_map,
+                render_mesh: RenderMesh::default(), // ggf. anpassen, s. Hinweis unten
+                render_mesh_id: 0,
+                boundary_neighbor_list: NeighborList::default(),
+                boundary_neighbor_list_viscosity: NeighborList::default(),
+            }],
+        };
+
+        let within_range = 0.5;
+        let rest_density_grid_spacing = 0.1;
+        let mut ns = crate::neighbor_search::SpatialHashing::new(within_range);
+        let positions = vec![Point3::new(0.1, 0.0, 0.0)];
+
+        vm.find_boundary_samples(&mut ns, within_range, &positions, rest_density_grid_spacing);
+
+        let boundary = &vm.boundaries[0];
+        let n_normal = boundary.boundary_neighbor_list().len();
+        let n_visc = boundary.boundary_neighbor_list_viscosity().len();
+        assert!(n_normal > 0, "expected at least one normal neighbor sample");
+        assert!(
+            n_visc > 0,
+            "expected at least one viscosity neighbor sample"
+        );
+
+        for id in 0..positions.len() {
+            for &nb in boundary.get_neighbors(id, RequestMode::Normal) {
+                assert!(nb < n_normal, "Normal index {nb} >= {n_normal}");
+                let _ = boundary.volume(nb);
+                let _ = boundary.position(nb);
+            }
+            for &nb in boundary.get_neighbors(id, RequestMode::ViscosityAcceleration) {
+                assert!(
+                    (n_normal..n_normal + n_visc).contains(&nb),
+                    "Viscosity index {nb} not in [{n_normal}, {})",
+                    n_normal + n_visc
+                );
+                let _ = boundary.volume(nb);
+                let _ = boundary.position(nb);
+            }
+        }
+    }
+}
