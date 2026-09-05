@@ -187,20 +187,43 @@ fn integrate_does_not_modify_acceleration() {
     assert_eq!(fluid.acceleration[0], acc0);
 }
 
-// ─── Observable buffer semantics ───────────────────────────────────────────
+// ─── Contract: no `Fluid`-level scratch slots required ─────────────────────
 
 #[test]
-fn position_prev_and_velocity_prev_hold_the_pre_step_state() {
+fn euler_cromer_requires_no_integrator_slots() {
+    // Unlike `Verlet` (which needs one persistent position slot to hold
+    // x(t-1) across calls), `EulerCromer`'s update is purely local per
+    // particle — the pre-step position/velocity are captured inside
+    // `integrate` itself (`let pos_prev = *id_pos_now;`) and never need to
+    // survive in a `Fluid`-owned buffer. This is what lets
+    // `POSITION_SLOTS`/`VELOCITY_SLOTS` stay at the `IntegrationScheme`
+    // trait's default of `0`.
+    assert_eq!(EulerCromer::POSITION_SLOTS, 0);
+    assert_eq!(EulerCromer::VELOCITY_SLOTS, 0);
+}
+
+#[test]
+fn integrate_works_without_resize_slots_ever_being_called() {
+    // Corollary of the above, made explicit: every test in this file
+    // already relies on this implicitly (none of them call
+    // `Fluid::resize_slots`) — this test just states the contract directly,
+    // so a future change that accidentally makes `integrate` depend on a
+    // sized slot pool fails loudly here instead of only in some other
+    // scheme's test file.
     let mut fluid = fluid_with_at_least(1);
-    let pos0 = Point3::new(1.0, 1.0, 1.0);
-    let vel0 = Vector3::new(0.2, 0.3, 0.4);
-    set_particle_state(&mut fluid, 0, pos0, vel0, Vector3::new(1.0, 0.0, 0.0));
+    assert!(fluid.integrator_position_slots.is_empty());
+    assert!(fluid.integrator_velocity_slots.is_empty());
+
+    set_particle_state(
+        &mut fluid,
+        0,
+        Point3::new(1.0, 1.0, 1.0),
+        Vector3::new(0.2, 0.3, 0.4),
+        Vector3::new(1.0, 0.0, 0.0),
+    );
 
     let mut scheme = EulerCromer;
-    scheme.integrate(&mut fluid, 0.1);
-
-    assert_eq!(fluid.position_prev[0], pos0);
-    assert_eq!(fluid.velocity_prev[0], vel0);
+    scheme.integrate(&mut fluid, 0.1); // must not panic
 }
 
 // ─── Multiple particles are independent ────────────────────────────────────
@@ -234,13 +257,14 @@ fn multiple_particles_are_updated_independently() {
     assert_point_approx(fluid.position[1], expected_pos_b, 1e-9);
 }
 
-// ─── Multi-step composition (buffer-recycling regression check) ──────────
+// ─── Multi-step composition ────────────────────────────────────────────────
 
 #[test]
 fn repeated_steps_under_constant_acceleration_match_the_manual_recurrence() {
-    // Regresses against the swap-based position/velocity buffer recycling:
-    // calling `integrate` repeatedly must keep composing correctly, not
-    // just work correctly for a single isolated call.
+    // `integrate` captures the pre-step position/velocity as local values
+    // rather than reading them back from a `Fluid`-owned buffer; this
+    // confirms that pattern still composes correctly across repeated calls,
+    // not just for a single isolated one.
     let mut fluid = fluid_with_at_least(1);
     let g = Vector3::new(0.0, 0.0, -9.81);
     set_particle_state(&mut fluid, 0, Point3::origin(), Vector3::zeros(), g);

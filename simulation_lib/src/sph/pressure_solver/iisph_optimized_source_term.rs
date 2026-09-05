@@ -341,7 +341,15 @@ mod tests {
         fluid
     }
 
-    fn with_slots(mut fluid: Fluid) -> Fluid {
+    /// Mirrors what `System::new_boxed` does via `PressureSolver::POSITION_SLOTS`/
+    /// `VELOCITY_SLOTS` before any solver method runs on a `Fluid`. `IISPH`
+    /// declares `POSITION_SLOTS = 1`/`VELOCITY_SLOTS = 1` (see
+    /// `pressure_solver/iisph.rs`), so every test that calls
+    /// `set_source_term_vp`, `set_diagonal_element`, `resolve_pressure_globally`,
+    /// or `solve_and_add_acceleration` needs this — those methods index
+    /// `fluid.solver_position_slots[0]`/`solver_velocity_slots[0]`
+    /// unconditionally, even when `with_pred_positions == false`.
+    fn with_solver_slots(mut fluid: Fluid) -> Fluid {
         fluid.resize_slots(1, 1, 1, 1); // integrator: 1/1, solver: 1/1
         fluid
     }
@@ -518,7 +526,7 @@ mod tests {
         let params = make_system_params(dt, h, 0.3, 0.0);
         let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-        let mut fluid = with_slots(fluid_with_at_least(1));
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }
@@ -580,7 +588,7 @@ mod tests {
         let params = make_system_params(0.05, h, 0.3, weighting);
         let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-        let mut fluid = with_slots(fluid_with_at_least(1));
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }
@@ -627,7 +635,7 @@ mod tests {
         let params = make_system_params(0.05, h, 0.3, weighting);
         let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-        let mut fluid = with_slots(fluid_with_at_least(1));
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }

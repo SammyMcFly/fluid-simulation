@@ -10,7 +10,6 @@ use parry3d_f64::shape::TriMesh;
 
 use simulation_lib::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
 use simulation_lib::render_info::BoundaryVisualization;
-use simulation_lib::sph::CurrentSystemProperties;
 use simulation_lib::sph::SystemParameters;
 use simulation_lib::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
@@ -132,6 +131,18 @@ fn fluid_with_at_least(min_n: usize) -> Fluid {
     let mut fluid = Fluid::new();
     fluid.add_samples(&mesh, 0, 1000.0, 0.5);
     assert!(fluid.len() >= min_n);
+    fluid
+}
+
+/// Mirrors what `System::new_boxed` does via `PressureSolver::POSITION_SLOTS`/
+/// `VELOCITY_SLOTS` before any solver method runs on a `Fluid`. `IISPH`
+/// declares `POSITION_SLOTS = 1`/`VELOCITY_SLOTS = 1`, so every test below
+/// that touches `fluid.solver_position_slots`/`solver_velocity_slots`
+/// (directly, or via `set_diagonal_element`/`set_source_term_vde`/
+/// `set_source_term_vp`) needs this -- those methods index into these pools
+/// unconditionally, even when `with_pred_positions == false`.
+fn with_solver_slots(mut fluid: Fluid) -> Fluid {
+    fluid.resize_slots(0, 0, 0, 1);
     fluid
 }
 
@@ -295,7 +306,7 @@ fn resize_scratch_does_not_panic_and_is_idempotent_with_solve_and_add_accelerati
     let params = make_system_params(0.05, h, 0.3, 0.0);
     let mut solver = SESPHwSplitting::new(&make_solver_params(500.0));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     fluid.position[0] = Point3::origin();
     fluid.velocity[0] = Vector3::zeros();
     fluid.mass[0] = 0.5;
@@ -327,7 +338,7 @@ fn solve_and_add_acceleration_on_an_isolated_particle_yields_zero_pressure() {
     let params = make_system_params(0.05, h, 0.3, 0.0);
     let mut solver = SESPHwSplitting::new(&make_solver_params(500.0));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     fluid.position[0] = Point3::origin();
     fluid.velocity[0] = Vector3::zeros();
     fluid.mass[0] = 0.5;
@@ -365,7 +376,7 @@ fn solve_and_add_acceleration_matches_manual_formula_for_a_compressed_pair() {
     let stiffness = 500.0;
     let mut solver = SESPHwSplitting::new(&make_solver_params(stiffness));
 
-    let mut fluid = fluid_with_at_least(2);
+    let mut fluid = with_solver_slots(fluid_with_at_least(2));
     let positions = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(0.3, 0.0, 0.0)];
     for i in 0..2 {
         fluid.position[i] = positions[i];
@@ -420,7 +431,7 @@ fn solve_and_add_acceleration_includes_boundary_contribution_without_reaction_fo
     let params = make_system_params(0.05, h, 0.3, weighting);
     let mut solver = SESPHwSplitting::new(&make_solver_params(500.0));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     fluid.position[0] = Point3::origin();
     fluid.velocity[0] = Vector3::zeros();
     fluid.mass[0] = 0.5;
@@ -462,7 +473,7 @@ fn solve_and_add_acceleration_registers_newtons_third_law_reaction_force_on_dyna
     let params = make_system_params(0.05, h, 0.3, weighting);
     let mut solver = SESPHwSplitting::new(&make_solver_params(500.0));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     fluid.position[0] = Point3::origin();
     fluid.velocity[0] = Vector3::zeros();
     fluid.mass[0] = 0.5;

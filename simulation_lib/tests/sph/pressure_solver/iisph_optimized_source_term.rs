@@ -10,7 +10,6 @@ use parry3d_f64::shape::TriMesh;
 
 use simulation_lib::neighbor_search::{NeighborList, NeighborSearch};
 use simulation_lib::render_info::BoundaryVisualization;
-use simulation_lib::sph::CurrentSystemProperties;
 use simulation_lib::sph::SystemParameters;
 use simulation_lib::sph::boundary_handling::VolumeMapBoundary;
 use simulation_lib::sph::boundary_handling::{
@@ -129,6 +128,19 @@ fn fluid_with_at_least(min_n: usize) -> Fluid {
     let mut fluid = Fluid::new();
     fluid.add_samples(&mesh, 0, 1000.0, 0.5);
     assert!(fluid.len() >= min_n);
+    fluid
+}
+
+/// Mirrors what `System::new_boxed` does via `PressureSolver::POSITION_SLOTS`/
+/// `VELOCITY_SLOTS` before any solver method runs on a `Fluid`. `IISPH`
+/// declares `POSITION_SLOTS = 1`/`VELOCITY_SLOTS = 1` (see
+/// `pressure_solver/iisph.rs`), so every test that calls
+/// `set_source_term_vp`, `set_diagonal_element`, `resolve_pressure_globally`,
+/// or `solve_and_add_acceleration` needs this — those methods index
+/// `fluid.solver_position_slots[0]`/`solver_velocity_slots[0]`
+/// unconditionally, even when `with_pred_positions == false`.
+fn with_solver_slots(mut fluid: Fluid) -> Fluid {
+    fluid.resize_slots(1, 1, 1, 1); // integrator: 1/1, solver: 1/1
     fluid
 }
 
@@ -280,7 +292,7 @@ fn solve_and_add_acceleration_on_an_isolated_particle_matches_the_exact_hand_der
     let params = make_system_params(dt, h, 0.3, 0.0);
     let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     for v in fluid.volume.iter_mut() {
         *v = rest_volume_for(0.3);
     }
@@ -314,10 +326,18 @@ fn solve_and_add_acceleration_on_an_isolated_particle_matches_the_exact_hand_der
     );
 
     let expected_vel_pred = vel0 + dt * g;
-    assert!((fluid.velocity_pred[0] - expected_vel_pred).norm() < 1e-9);
+    assert!(
+        (fluid.integrator_velocity_slots[0][0] - expected_vel_pred).norm() < 1e-9,
+        "expected {expected_vel_pred:?}, got {:?}",
+        fluid.integrator_velocity_slots[0][0]
+    );
 
     let expected_pos_pred = pos0 + dt * expected_vel_pred;
-    assert!((fluid.position_pred[0] - expected_pos_pred).norm() < 1e-9);
+    assert!(
+        (fluid.integrator_position_slots[0][0] - expected_pos_pred).norm() < 1e-9,
+        "expected {expected_pos_pred:?}, got {:?}",
+        fluid.integrator_position_slots[0][0]
+    );
 }
 
 // ─── Dynamic boundary: force registered once per stage (2 total) ───────
@@ -329,7 +349,7 @@ fn solve_and_add_acceleration_registers_a_reaction_force_once_per_stage_on_dynam
     let params = make_system_params(0.05, h, 0.3, weighting);
     let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     for v in fluid.volume.iter_mut() {
         *v = rest_volume_for(0.3);
     }
@@ -376,7 +396,7 @@ fn solve_and_add_acceleration_registers_no_reaction_force_for_static_boundaries(
     let params = make_system_params(0.05, h, 0.3, weighting);
     let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     for v in fluid.volume.iter_mut() {
         *v = rest_volume_for(0.3);
     }

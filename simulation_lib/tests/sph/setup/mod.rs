@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use simulation_lib::neighbor_search::{NeighborSearchVariant, SpatialHashing};
-use simulation_lib::sph::SerSystemCheckpoint;
 use simulation_lib::sph::boundary_handling::{
     BoundaryHandling, BoundaryHandlingVariant, SerBoundaryCheckpoint, VolumeMapBoundary,
 };

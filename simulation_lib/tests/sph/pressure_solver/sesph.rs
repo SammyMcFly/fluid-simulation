@@ -10,7 +10,6 @@ use parry3d_f64::shape::TriMesh;
 
 use simulation_lib::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
 use simulation_lib::render_info::BoundaryVisualization;
-use simulation_lib::sph::CurrentSystemProperties;
 use simulation_lib::sph::SystemParameters;
 use simulation_lib::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,

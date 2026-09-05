@@ -71,24 +71,38 @@ fn fluid_from_checkpoint_stores_correct_values() {
 #[test]
 fn fluid_from_checkpoint_resets_derived_fields() {
     // `FluidCheckpoint` only carries `fluid_id`/`position`/`velocity`/
-    // `mass` — deliberately not `position_prev`/`position_pred`/
-    // `velocity_prev`/`velocity_pred`/`acceleration`/`volume`/`pressure`,
-    // which are transient, step-local integration state recomputed by the
-    // solver every time step, not part of the physical state that needs to
-    // survive a checkpoint/resume.
+    // `mass` — deliberately not `acceleration`/`volume`/`pressure`, which
+    // are transient, step-local integration state recomputed by the solver
+    // every time step, not part of the physical state that needs to survive
+    // a checkpoint/resume. The same holds for the scratch slot pools
+    // (`integrator_position_slots`/`integrator_velocity_slots`/
+    // `solver_position_slots`/`solver_velocity_slots`), which are left
+    // empty here and only sized afterward via `resize_slots` once the
+    // active `IntegrationScheme`/`PressureSolver` are known — see
+    // `fluid_from_checkpoint_leaves_slot_pools_empty`.
     let fluid = make_fluid(
         vec![pos(1.0, 2.0, 3.0)],
         vec![vel(1.0, 1.0, 1.0)],
         vec![5.0],
     );
 
-    assert_eq!(fluid.position_prev[0], Point3::origin());
-    assert_eq!(fluid.position_pred[0], Point3::origin());
-    assert_eq!(fluid.velocity_prev[0], Vector3::zeros());
-    assert_eq!(fluid.velocity_pred[0], Vector3::zeros());
     assert_eq!(fluid.acceleration[0], Vector3::zeros());
     assert_eq!(fluid.volume[0], 0.0);
     assert_eq!(fluid.pressure[0], 0.0);
+}
+
+#[test]
+fn fluid_from_checkpoint_leaves_slot_pools_empty() {
+    let fluid = make_fluid(
+        vec![pos(1.0, 2.0, 3.0)],
+        vec![vel(1.0, 1.0, 1.0)],
+        vec![5.0],
+    );
+
+    assert!(fluid.integrator_position_slots.is_empty());
+    assert!(fluid.integrator_velocity_slots.is_empty());
+    assert!(fluid.solver_position_slots.is_empty());
+    assert!(fluid.solver_velocity_slots.is_empty());
 }
 
 #[test]
@@ -230,56 +244,60 @@ fn fluid_disable_all() {
     assert_eq!(fluid.total_len(), 2);
 }
 
-// ─── Fluid: rotate_position / rotate_velocity ─────────────────────
+// ─── Fluid: resize_slots ───────────────────────────────────────────
 
 #[test]
-fn fluid_rotate_position() {
-    let mut fluid = make_fluid(vec![pos(1.0, 0.0, 0.0)], vec![Vector3::zeros()], vec![1.0]);
-    // `position_prev` defaults to `Point3::origin()` via the `FluidCheckpoint`
-    // conversion (see `fluid_from_checkpoint_resets_derived_fields`); set
-    // explicitly here so this test doesn't rely on that default.
-    fluid.position_prev[0] = pos(0.0, 0.0, 0.0);
-    fluid.position_pred[0] = pos(2.0, 0.0, 0.0);
-
-    fluid.rotate_position();
-
-    assert_eq!(fluid.position[0], pos(2.0, 0.0, 0.0)); // new position = old position_pred
-    assert_eq!(fluid.position_prev[0], pos(1.0, 0.0, 0.0)); // new position_prev = old position
-    assert_eq!(fluid.position_pred[0], pos(0.0, 0.0, 0.0)); // new position_pred = old position_prev
-}
-
-#[test]
-fn fluid_rotate_velocity() {
-    let mut fluid = make_fluid(
-        vec![pos(0.0, 0.0, 0.0)],
-        vec![vel(1.0, 0.0, 0.0)],
-        vec![1.0],
-    );
-    fluid.velocity_pred[0] = vel(5.0, 0.0, 0.0);
-
-    fluid.rotate_velocity();
-
-    assert_eq!(fluid.velocity[0], vel(5.0, 0.0, 0.0));
-    assert_eq!(fluid.velocity_prev[0], vel(1.0, 0.0, 0.0));
-}
-
-#[test]
-fn fluid_rotate_position_multiple_particles() {
+fn resize_slots_creates_the_requested_number_of_pools_sized_to_total_len() {
     let mut fluid = make_fluid(
         vec![pos(1.0, 0.0, 0.0), pos(2.0, 0.0, 0.0)],
         vec![Vector3::zeros(); 2],
         vec![1.0, 1.0],
     );
 
-    fluid.position_pred[0] = pos(10.0, 0.0, 0.0);
-    fluid.position_pred[1] = pos(20.0, 0.0, 0.0);
+    fluid.resize_slots(1, 2, 0, 1);
 
-    fluid.rotate_position();
+    assert_eq!(fluid.integrator_position_slots.len(), 1);
+    assert_eq!(fluid.integrator_velocity_slots.len(), 2);
+    assert_eq!(fluid.solver_position_slots.len(), 0);
+    assert_eq!(fluid.solver_velocity_slots.len(), 1);
 
-    assert_eq!(fluid.position[0], pos(10.0, 0.0, 0.0));
-    assert_eq!(fluid.position[1], pos(20.0, 0.0, 0.0));
-    assert_eq!(fluid.position_prev[0], pos(1.0, 0.0, 0.0));
-    assert_eq!(fluid.position_prev[1], pos(2.0, 0.0, 0.0));
+    for slot in &fluid.integrator_position_slots {
+        assert_eq!(slot.len(), 2);
+        assert!(slot.iter().all(|p| *p == Point3::origin()));
+    }
+    for slot in &fluid.integrator_velocity_slots {
+        assert_eq!(slot.len(), 2);
+        assert!(slot.iter().all(|v| *v == Vector3::zeros()));
+    }
+    for slot in &fluid.solver_velocity_slots {
+        assert_eq!(slot.len(), 2);
+    }
+}
+
+#[test]
+fn resize_slots_can_be_called_again_to_change_the_pool_counts() {
+    let mut fluid = make_fluid(vec![pos(1.0, 0.0, 0.0)], vec![Vector3::zeros()], vec![1.0]);
+
+    fluid.resize_slots(2, 0, 0, 0);
+    assert_eq!(fluid.integrator_position_slots.len(), 2);
+
+    fluid.resize_slots(1, 1, 1, 1);
+    assert_eq!(fluid.integrator_position_slots.len(), 1);
+    assert_eq!(fluid.integrator_velocity_slots.len(), 1);
+    assert_eq!(fluid.solver_position_slots.len(), 1);
+    assert_eq!(fluid.solver_velocity_slots.len(), 1);
+}
+
+#[test]
+fn resize_slots_with_all_zero_counts_leaves_pools_empty() {
+    let mut fluid = make_fluid(vec![pos(1.0, 0.0, 0.0)], vec![Vector3::zeros()], vec![1.0]);
+
+    fluid.resize_slots(0, 0, 0, 0);
+
+    assert!(fluid.integrator_position_slots.is_empty());
+    assert!(fluid.integrator_velocity_slots.is_empty());
+    assert!(fluid.solver_position_slots.is_empty());
+    assert!(fluid.solver_velocity_slots.is_empty());
 }
 
 // ─── FluidCheckpoint / SerFluidCheckpoint: empty defaults ─────────

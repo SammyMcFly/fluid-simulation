@@ -9,7 +9,6 @@ use parry3d_f64::shape::TriMesh;
 
 use simulation_lib::neighbor_search::{NeighborList, NeighborSearch};
 use simulation_lib::render_info::BoundaryVisualization;
-use simulation_lib::sph::CurrentSystemProperties;
 use simulation_lib::sph::SystemParameters;
 use simulation_lib::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
@@ -133,6 +132,19 @@ fn fluid_with_at_least(min_n: usize) -> Fluid {
     let mut fluid = Fluid::new();
     fluid.add_samples(&mesh, 0, 1000.0, 0.5);
     assert!(fluid.len() >= min_n);
+    fluid
+}
+
+/// Mirrors what `System::new_boxed` does via `PressureSolver::POSITION_SLOTS`/
+/// `VELOCITY_SLOTS` before any solver method runs on a `Fluid`. `IISPH`
+/// declares `POSITION_SLOTS = 1`/`VELOCITY_SLOTS = 1` (see
+/// `pressure_solver/iisph.rs`), so every test that calls
+/// `set_source_term_vp`, `set_diagonal_element`, `resolve_pressure_globally`,
+/// or `solve_and_add_acceleration` needs this — those methods index
+/// `fluid.solver_position_slots[0]`/`solver_velocity_slots[0]`
+/// unconditionally, even when `with_pred_positions == false`.
+fn with_solver_slots(mut fluid: Fluid) -> Fluid {
+    fluid.resize_slots(0, 0, 1, 1);
     fluid
 }
 
@@ -303,7 +315,7 @@ fn resolve_pressure_globally_after_iteration_zero_never_enters_the_loop() {
     let params = make_system_params(0.05, h, 0.3, 0.0);
     let mut solver = IISPH::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     fluid.position[0] = Point3::origin();
     fluid.volume[0] = rest_volume_for(0.3);
     fluid.mass[0] = 0.5;
@@ -332,7 +344,7 @@ fn resolve_pressure_globally_after_iteration_runs_exactly_the_requested_count() 
     let params = make_system_params(0.05, h, 0.3, 0.0);
     let mut solver = IISPH::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     fluid.position[0] = Point3::origin();
     fluid.volume[0] = rest_volume_for(0.3) * 0.5;
     fluid.mass[0] = 0.5;
@@ -369,10 +381,10 @@ fn resolve_pressure_globally_clamps_negative_pressure_to_zero_on_expansion() {
     let params = make_system_params(0.05, h, 0.3, weighting);
     let mut solver = IISPH::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     fluid.position[0] = Point3::origin();
     fluid.velocity[0] = Vector3::zeros();
-    fluid.velocity_pred[0] = Vector3::zeros();
+    fluid.solver_velocity_slots[0][0] = Vector3::zeros();
     fluid.acceleration[0] = Vector3::zeros();
     fluid.volume[0] = rest_volume_for(0.3) * 2.0; // expanded -> s_f > 0
     fluid.mass[0] = 0.5;
@@ -418,10 +430,10 @@ fn resolve_pressure_globally_matches_manual_formula_on_compression() {
     let params = make_system_params(dt, h, 0.3, weighting);
     let mut solver = IISPH::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     fluid.position[0] = Point3::origin();
     fluid.velocity[0] = Vector3::zeros();
-    fluid.velocity_pred[0] = Vector3::zeros();
+    fluid.solver_velocity_slots[0][0] = Vector3::zeros();
     fluid.acceleration[0] = Vector3::zeros();
     let volume = rest_volume_for(0.3) * 0.5; // compressed -> s_f < 0
     fluid.volume[0] = volume;
@@ -485,7 +497,7 @@ fn solve_and_add_acceleration_on_an_isolated_particle_at_rest_volume_is_a_noop()
     let params = make_system_params(0.05, h, 0.3, 0.0);
     let mut solver = IISPH::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     for v in fluid.volume.iter_mut() {
         *v = rest_volume_for(0.3);
     }
@@ -529,7 +541,7 @@ fn solve_and_add_acceleration_registers_reaction_force_exactly_once_on_a_dynamic
     let params = make_system_params(0.05, h, 0.3, weighting);
     let mut solver = IISPH::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_solver_slots(fluid_with_at_least(1));
     for v in fluid.volume.iter_mut() {
         *v = rest_volume_for(0.3);
     }

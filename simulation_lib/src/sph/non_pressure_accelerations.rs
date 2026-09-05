@@ -245,6 +245,17 @@ mod tests {
         fluid
     }
 
+    /// Mirrors what `System::new_boxed` does via `PressureSolver::POSITION_SLOTS`/
+    /// `VELOCITY_SLOTS` before any solver method runs on a `Fluid`.
+    /// `SESPHwSplitting` declares `POSITION_SLOTS = 0`/`VELOCITY_SLOTS = 1` --
+    /// only the predicted-velocity slot is used (by `calc_predicted_density`,
+    /// and, via `set_pred_vel_by_applying_acc`, by `solve_and_add_acceleration`
+    /// itself).
+    fn with_solver_slots(mut fluid: Fluid) -> Fluid {
+        fluid.resize_slots(0, 0, 0, 1);
+        fluid
+    }
+
     fn build_fluid_neighbor_list(positions: &[Point3<f64>], radius: f64) -> NeighborList {
         let mut ns = SpatialHashing::new(radius);
         let mut neighbor_list = NeighborList::new(positions.len());

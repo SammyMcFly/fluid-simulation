@@ -4,11 +4,14 @@
 //! `x_{n+1} = 2*x_n - x_{n-1} + dt^2 * a_n`, with velocity estimated
 //! afterwards as `v_{n+1} = (x_{n+1} - x_n) / dt`.
 //!
-//! Per the internal buffer-rotation comments, at call time the scheme reads
-//! `x_n` from what was `fluid.position` before the call, and `x_{n-1}` from
-//! what was `fluid.position_prev` before the call — `fluid.position_pred`'s
-//! pre-call value is irrelevant, since it is only used as scratch space to
-//! be overwritten.
+//! At call time the scheme reads `x_n` from `fluid.position` and `x_{n-1}`
+//! from `fluid.integrator_position_slots[0]` (both pre-call values), then
+//! writes the new position/velocity into `fluid.position`/`fluid.velocity`
+//! and rolls the old `x_n` into `integrator_position_slots[0]` for the next
+//! call. Only ONE persistent slot is needed -- the old two-field design
+//! (`position_prev`/`position_pred`) was an artifact of a since-removed
+//! shared 3-way rotation trick, not a requirement of the recurrence itself.
+//! `POSITION_SLOTS` is `1`.
 
 use nalgebra::{Point3, Vector3};
 use parry3d_f64::math::Vec3;
@@ -58,6 +61,15 @@ fn fluid_with_at_least(min_n: usize) -> Fluid {
     fluid
 }
 
+/// Mirrors what `System::new_boxed` does via `Verlet::POSITION_SLOTS` before
+/// `integrate` ever runs on a `Fluid` — required since `integrate` asserts
+/// (`debug_assert_eq!`) that `integrator_position_slots` is sized to exactly
+/// `1`, and `set_particle_state` below writes into that slot directly.
+fn with_integrator_slots(mut fluid: Fluid) -> Fluid {
+    fluid.resize_slots(1, 0, 0, 0);
+    fluid
+}
+
 /// Sets up particle `id` as if it were at step `n`, with `x_n = current`
 /// and `x_{n-1} = previous`. The pre-call `position_pred` value is
 /// deliberately left at its sampled default, since it must not influence
@@ -70,7 +82,7 @@ fn set_particle_state(
     acceleration: Vector3<f64>,
 ) {
     fluid.position[id] = current;
-    fluid.position_prev[id] = previous;
+    fluid.integrator_position_slots[0][id] = previous;
     fluid.acceleration[id] = acceleration;
 }
 
@@ -92,7 +104,7 @@ fn assert_vector_approx(actual: Vector3<f64>, expected: Vector3<f64>, eps: f64) 
 
 #[test]
 fn single_particle_matches_stormer_verlet_update() {
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_integrator_slots(fluid_with_at_least(1));
     let x_n = Point3::new(1.0, 0.0, 0.0);
     let x_prev = Point3::new(0.5, 0.0, 0.0);
     let acc = Vector3::new(0.0, -9.81, 0.0);
@@ -109,38 +121,13 @@ fn single_particle_matches_stormer_verlet_update() {
     assert_vector_approx(fluid.velocity[0], expected_vel, 1e-9);
 }
 
-#[test]
-fn pre_call_position_pred_value_does_not_affect_the_result() {
-    // `position_pred`'s pre-call value is pure scratch space that gets
-    // overwritten; the Verlet formula must only depend on the pre-call
-    // `position` (x_n) and `position_prev` (x_{n-1}).
-    let x_n = Point3::new(2.0, 1.0, 0.0);
-    let x_prev = Point3::new(1.0, 1.0, 0.0);
-    let acc = Vector3::new(1.0, 0.0, 0.0);
-    let dt = 0.05;
-
-    let mut fluid_a = fluid_with_at_least(1);
-    set_particle_state(&mut fluid_a, 0, x_n, x_prev, acc);
-    fluid_a.position_pred[0] = Point3::new(100.0, 100.0, 100.0);
-
-    let mut fluid_b = fluid_with_at_least(1);
-    set_particle_state(&mut fluid_b, 0, x_n, x_prev, acc);
-    fluid_b.position_pred[0] = Point3::new(-100.0, -100.0, -100.0);
-
-    Verlet.integrate(&mut fluid_a, dt);
-    Verlet.integrate(&mut fluid_b, dt);
-
-    assert_point_approx(fluid_a.position[0], fluid_b.position[0], 1e-9);
-    assert_vector_approx(fluid_a.velocity[0], fluid_b.velocity[0], 1e-9);
-}
-
 // ─── Degenerate cases ───────────────────────────────────────────────────────
 
 #[test]
 fn zero_acceleration_extrapolates_at_constant_step() {
     // With a = 0, standard Verlet reduces to constant-velocity
     // extrapolation: x_{n+1} = x_n + (x_n - x_{n-1}).
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_integrator_slots(fluid_with_at_least(1));
     let x_n = Point3::new(3.0, 0.0, 0.0);
     let x_prev = Point3::new(1.0, 0.0, 0.0); // step of (2,0,0) per dt
     set_particle_state(&mut fluid, 0, x_n, x_prev, Vector3::zeros());
@@ -157,7 +144,7 @@ fn zero_acceleration_extrapolates_at_constant_step() {
 
 #[test]
 fn stationary_particle_with_zero_acceleration_stays_at_rest() {
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_integrator_slots(fluid_with_at_least(1));
     let x = Point3::new(5.0, 5.0, 5.0);
     set_particle_state(&mut fluid, 0, x, x, Vector3::zeros());
 
@@ -172,7 +159,7 @@ fn stationary_particle_with_zero_acceleration_stays_at_rest() {
 
 #[test]
 fn integrate_does_not_modify_acceleration() {
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_integrator_slots(fluid_with_at_least(1));
     let acc0 = Vector3::new(3.0, -4.0, 5.0);
     set_particle_state(&mut fluid, 0, Point3::origin(), Point3::origin(), acc0);
 
@@ -185,8 +172,8 @@ fn integrate_does_not_modify_acceleration() {
 // ─── Observable buffer semantics ───────────────────────────────────────────
 
 #[test]
-fn position_prev_holds_the_pre_step_current_position() {
-    let mut fluid = fluid_with_at_least(1);
+fn integrator_position_slot_holds_the_pre_step_current_position() {
+    let mut fluid = with_integrator_slots(fluid_with_at_least(1));
     let x_n = Point3::new(1.0, 1.0, 1.0);
     let x_prev = Point3::new(0.0, 0.0, 0.0);
     set_particle_state(&mut fluid, 0, x_n, x_prev, Vector3::new(1.0, 0.0, 0.0));
@@ -194,14 +181,14 @@ fn position_prev_holds_the_pre_step_current_position() {
     let mut scheme = Verlet;
     scheme.integrate(&mut fluid, 0.1);
 
-    assert_eq!(fluid.position_prev[0], x_n);
+    assert_eq!(fluid.integrator_position_slots[0][0], x_n);
 }
 
 // ─── Multiple particles are independent ────────────────────────────────────
 
 #[test]
 fn multiple_particles_are_updated_independently() {
-    let mut fluid = fluid_with_at_least(2);
+    let mut fluid = with_integrator_slots(fluid_with_at_least(2));
 
     let x_n_a = Point3::new(1.0, 0.0, 0.0);
     let x_prev_a = Point3::new(0.0, 0.0, 0.0);
@@ -228,7 +215,7 @@ fn multiple_particles_are_updated_independently() {
 
 #[test]
 fn repeated_steps_under_constant_acceleration_match_the_manual_recurrence() {
-    let mut fluid = fluid_with_at_least(1);
+    let mut fluid = with_integrator_slots(fluid_with_at_least(1));
     let g = Vector3::new(0.0, 0.0, -9.81);
     let x0 = Point3::new(0.0, 0.0, 10.0);
     // Start at rest: x_{-1} == x_0 so the first step has zero initial velocity.
@@ -266,4 +253,18 @@ fn verlet_implements_integration_scheme_default_and_clone() {
     assert_impls_integration_scheme::<Verlet>();
     let scheme = Verlet;
     let _cloned = scheme.clone();
+}
+
+// ─── Contract: exactly one integrator position slot, no velocity slot ─────
+
+#[test]
+fn verlet_declares_exactly_one_position_slot() {
+    // Unlike the pre-refactor implementation (which repurposed TWO fields --
+    // `position_prev`/`position_pred` -- via a shared 3-way rotation trick
+    // with `EulerCromer`/`ExplicitEuler`/`TakePredicted`), the actual
+    // recurrence only ever needs x(t-1) as persistent state; x(t) is
+    // already available directly as `fluid.position`. Pins down that
+    // `POSITION_SLOTS` reflects this, not the old field count.
+    assert_eq!(Verlet::POSITION_SLOTS, 1);
+    assert_eq!(Verlet::VELOCITY_SLOTS, 0);
 }

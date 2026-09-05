@@ -649,6 +649,18 @@ mod tests {
         fluid
     }
 
+    /// Mirrors what `System::new_boxed` does via `PressureSolver::POSITION_SLOTS`/
+    /// `VELOCITY_SLOTS` before any solver method runs on a `Fluid`. `IISPH`
+    /// declares `POSITION_SLOTS = 1`/`VELOCITY_SLOTS = 1`, so every test below
+    /// that touches `fluid.solver_position_slots`/`solver_velocity_slots`
+    /// (directly, or via `set_diagonal_element`/`set_source_term_vde`/
+    /// `set_source_term_vp`) needs this -- those methods index into these pools
+    /// unconditionally, even when `with_pred_positions == false`.
+    fn with_solver_slots(mut fluid: Fluid) -> Fluid {
+        fluid.resize_slots(0, 0, 1, 1);
+        fluid
+    }
+
     fn build_fluid_neighbor_list(positions: &[Point3<f64>], radius: f64) -> NeighborList {
         let mut ns = SpatialHashing::new(radius);
         let mut nl = NeighborList::new(positions.len());
@@ -690,7 +702,7 @@ mod tests {
         let mut solver = make_solver(0.01, 0.5, 1e-9);
         solver.resize_scratch(1);
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }
@@ -721,7 +733,7 @@ mod tests {
         let params = make_system_params(dt, h, 0.3, 0.0);
         let mut solver = make_solver(0.01, 0.5, 1e-9);
 
-        let mut fluid = fluid_with_at_least(2);
+        let mut fluid = with_solver_slots(fluid_with_at_least(2));
         fluid.position[0] = Point3::new(0.0, 0.0, 0.0);
         fluid.position[1] = Point3::new(0.3, 0.0, 0.0);
         fluid.solver_velocity_slots[0][0] = Vector3::new(1.0, 0.0, 0.0);
@@ -755,7 +767,7 @@ mod tests {
         let params = make_system_params(dt, h, 0.3, 0.0);
         let mut solver = make_solver(0.01, 0.5, 1e-9);
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }
@@ -788,7 +800,7 @@ mod tests {
         let params = make_system_params(dt, h, 0.3, 0.0);
         let mut solver = make_solver(0.01, 0.5, 1e-9);
 
-        let mut fluid = fluid_with_at_least(2);
+        let mut fluid = with_solver_slots(fluid_with_at_least(2));
         // Real positions far apart (not neighbors); predicted positions close.
         fluid.position[0] = Point3::new(0.0, 0.0, 0.0);
         fluid.position[1] = Point3::new(1000.0, 0.0, 0.0);
@@ -827,7 +839,7 @@ mod tests {
         let params = make_system_params(dt, h, 0.3, 0.0);
         let mut solver = make_solver(0.01, 0.5, 1e-9);
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }
@@ -860,7 +872,7 @@ mod tests {
         let params = make_system_params(dt, h, 0.3, weighting);
         let mut solver = make_solver(0.01, 0.5, 1e-9);
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }
@@ -992,7 +1004,7 @@ mod tests {
     #[test]
     fn initialize_sets_zero_pressure_when_diagonal_is_near_zero() {
         let mut solver = make_solver(0.01, 0.5, 1e-6);
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         solver.resize_scratch(fluid.len()); // fixed: was resize_scratch(1)
         solver.s_f[0] = -5.0;
         solver.a_ff[0] = 0.0; // within [-min_diag, min_diag]
@@ -1005,7 +1017,7 @@ mod tests {
     #[test]
     fn initialize_clamps_negative_pressure_to_zero_when_clamp_pressure_is_true() {
         let mut solver = make_solver(0.01, 0.5, 1e-9);
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         solver.resize_scratch(fluid.len()); // fixed: was resize_scratch(1)
         solver.s_f[0] = 1.0;
         solver.a_ff[0] = -2.0;
@@ -1018,7 +1030,7 @@ mod tests {
     #[test]
     fn initialize_allows_negative_pressure_when_clamp_pressure_is_false() {
         let mut solver = make_solver(0.01, 0.5, 1e-9);
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         solver.resize_scratch(fluid.len()); // fixed: was resize_scratch(1)
         solver.s_f[0] = 1.0;
         solver.a_ff[0] = -2.0;
@@ -1033,7 +1045,7 @@ mod tests {
     #[test]
     fn initialize_matches_manual_formula_when_positive() {
         let mut solver = make_solver(0.01, 0.5, 1e-9);
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         solver.resize_scratch(fluid.len()); // fixed: was resize_scratch(1)
         solver.s_f[0] = -1.0;
         solver.a_ff[0] = -2.0;
