@@ -334,3 +334,149 @@ pub fn new_boxed_system3d(
         KernelFnVariant::CubicBSpline3D => with_integrator!(CubicBSpline3D),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use parry3d_f64::math::Vec3;
+    use parry3d_f64::shape::TriMesh;
+    use std::rc::Rc;
+
+    fn cube_trimesh(side: f64) -> TriMesh {
+        let h = side / 2.0;
+        let positions = vec![
+            Vec3::new(h, h, h),
+            Vec3::new(h, h, -h),
+            Vec3::new(h, -h, h),
+            Vec3::new(h, -h, -h),
+            Vec3::new(-h, h, h),
+            Vec3::new(-h, h, -h),
+            Vec3::new(-h, -h, h),
+            Vec3::new(-h, -h, -h),
+        ];
+        let indices: Vec<[u32; 3]> = vec![
+            [4, 2, 0],
+            [2, 7, 3],
+            [6, 5, 7],
+            [1, 7, 5],
+            [0, 3, 1],
+            [4, 1, 5],
+            [4, 6, 2],
+            [2, 6, 7],
+            [6, 4, 5],
+            [1, 3, 7],
+            [0, 2, 3],
+            [4, 0, 1],
+        ];
+        TriMesh::new(positions, indices).expect("valid cube mesh")
+    }
+
+    fn make_solver_params() -> Parameters {
+        Parameters {
+            buffer_length_limit: 10,
+            #[cfg(not(feature = "cfl_time_step"))]
+            time_increment: 0.001,
+            #[cfg(feature = "cfl_time_step")]
+            max_time_increment: 0.001,
+            #[cfg(feature = "cfl_time_step")]
+            cfl_number: 0.4,
+            fluid: vec![],
+            rest_density_grid_spacing: 0.3,
+            kernel_support_radius: 1.0,
+            disable_particles_below: -1e9,
+            fluid_viscosity: 0.0,
+            boundary_viscosity: 0.0,
+            boundary_pressure_acceleration_weighting: 0.0,
+            boundary_rest_volume_weighting: 0.0,
+            stiffness: 0.0,
+            target_density_error: 0.01,
+            relaxation_factor: 0.5,
+            min_diagonal_element: 1e-9,
+        }
+    }
+
+    /// Mirrors the construction in `SystemConstructor::new` exactly, so the
+    /// `SystemParameters::new` argument order/feature-gating here can't
+    /// silently drift out of sync with the real code path.
+    fn make_system_params(params: &Parameters) -> SystemParameters {
+        SystemParameters::new(
+            #[cfg(not(feature = "cfl_time_step"))]
+            params.time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            params.max_time_increment,
+            #[cfg(feature = "cfl_time_step")]
+            params.cfl_number,
+            params.rest_density_grid_spacing,
+            params.kernel_support_radius,
+            params.disable_particles_below,
+            params.fluid_viscosity,
+            params.boundary_viscosity,
+            params.boundary_pressure_acceleration_weighting,
+        )
+    }
+
+    /// Regression test for a panic where `System::continue_from_checkpoint`
+    /// reassigned `self.fluid` from a checkpoint -- which always resets all
+    /// four scratch slot pools to empty via the `FluidCheckpoint -> Fluid`
+    /// conversion, since checkpoint data intentionally excludes solver/
+    /// integrator-local scratch state -- without re-calling `resize_slots`
+    /// afterward. The subsequent `self.update()` call then indexed into an
+    /// empty `solver_position_slots`/`solver_velocity_slots` and panicked
+    /// with "index out of bounds: the len is 0 but the index is 0".
+    ///
+    /// Uses `IISPH` specifically because it declares nonzero
+    /// `POSITION_SLOTS`/`VELOCITY_SLOTS`, making it index-panic if the
+    /// pools are left unsized -- a solver with the trait's default `0`
+    /// slots would never have exercised this bug in the first place.
+    ///
+    /// Builds a `SystemConstructor` directly via struct literal rather than
+    /// through `SystemConstructor::new` (which requires real scene/mesh
+    /// files on disk) -- legal here specifically because this test module
+    /// is a descendant of `sph::setup`, giving it access to the private
+    /// `_kernel_fn` field.
+    #[test]
+    fn continue_from_checkpoint_resizes_slots_before_first_update() {
+        let mesh = cube_trimesh(4.0);
+        let mut fluid = Fluid::new();
+        fluid.add_samples(&mesh, 0, 1000.0, 0.5);
+        assert!(
+            !fluid.is_empty(),
+            "fixture must sample at least one particle"
+        );
+
+        let params = make_solver_params();
+        let system_parameters = make_system_params(&params);
+
+        let constructor = SystemConstructor::<
+            CubicBSpline3D,
+            ExplicitEuler,
+            IISPH,
+            SpatialHashing,
+            VolumeMapBoundary,
+        > {
+            fluid,
+            boundary: VolumeMapBoundary::new(),
+            system_parameters,
+            initial_time_steps_propagated: 0,
+            initial_current_time: 0.0,
+            _kernel_fn: std::marker::PhantomData,
+            integrator: ExplicitEuler,
+            pressure_solver: IISPH::new(&params),
+            neighbor_search: SpatialHashing::new(params.kernel_support_radius),
+        };
+
+        let mut system = System::new_boxed(constructor);
+
+        // A checkpoint of the just-constructed system: identical physical
+        // state, but exercises the exact `FluidCheckpoint -> Fluid`
+        // round-trip that empties the slot pools.
+        let checkpoint = Rc::new(SystemCheckpoint::from_sph_system(&*system));
+
+        // Must not panic -- this is the actual regression check.
+        system.continue_from_checkpoint(checkpoint);
+
+        // Confirms the system is left fully usable afterward, not just that
+        // the one call inside `continue_from_checkpoint` survived.
+        system.step_forward_in_time();
+    }
+}

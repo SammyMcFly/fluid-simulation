@@ -366,6 +366,12 @@ impl<
             self.parameters.current_time = checkpoint.get_current_time();
         }
         self.fluid = checkpoint.get_fluid().clone().into();
+        self.fluid.resize_slots(
+            I::POSITION_SLOTS,
+            I::VELOCITY_SLOTS,
+            P::POSITION_SLOTS,
+            P::VELOCITY_SLOTS,
+        );
         self.boundary
             .restore_from_checkpoint(checkpoint.get_boundary());
         self.update();
