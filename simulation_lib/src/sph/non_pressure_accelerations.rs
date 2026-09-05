@@ -28,45 +28,45 @@ pub fn reset_acceleration(fluid: &mut Fluid) {
 /// Add gravity acceleration to all not boundary particles
 pub fn add_gravity_acceleration<B: BoundaryHandling>(fluid: &mut Fluid, boundary: &mut B) {
     let strength_of_gravity = 9.81;
-    // // gravitate downwards
-    // for_each!(
-    //     mut [fluid.acceleration],
-    //     ref [],
-    //     |_id, id_acceleration| {
-    //         *id_acceleration +=  Vector3::new(0.0, 0.0, -strength_of_gravity);
-    //     }
-    // );
-    // for b in boundary.iter_mut() {
-    //     b.add_acceleration(Vector3::new(0.0, 0.0, -strength_of_gravity));
-    // }
-
-    // gravitate around point
-    //
-    /// Small regularization term (relative to the squared distance) to avoid a
-    /// singular/unstable acceleration for particles very close to the
-    /// gravitation center — same style of softening already used for the
-    /// denominator in `add_viscosity_acceleration`.
-    const GRAVITATION_SOFTENING: f64 = 1e-4;
+    // gravitate downwards
     for_each!(
         mut [fluid.acceleration],
-        ref [position = fluid.position],
-        |id, id_acceleration| {
-            use nalgebra::Point3;
-            let gravitation_center = Point3::new(0.0, 0.0, 0.0);
-            let direction = vector(&position[id], &gravitation_center);
-            let dist = (direction.norm_squared() + GRAVITATION_SOFTENING).sqrt();
-            *id_acceleration += strength_of_gravity * direction / dist;
+        ref [],
+        |_id, id_acceleration| {
+            *id_acceleration +=  Vector3::new(0.0, 0.0, -strength_of_gravity);
         }
     );
     for b in boundary.iter_mut() {
-        use nalgebra::Point3;
-        let gravitation_center = Point3::new(0.0, 0.0, 0.0);
-        if let Some(cm) = b.center_of_mass() {
-            let direction = vector(&cm, &gravitation_center);
-            let dist = (direction.norm_squared() + GRAVITATION_SOFTENING).sqrt();
-            b.add_acceleration(strength_of_gravity * direction / dist);
-        }
+        b.add_acceleration(Vector3::new(0.0, 0.0, -strength_of_gravity));
     }
+
+    // // gravitate around point
+    // //
+    // /// Small regularization term (relative to the squared distance) to avoid a
+    // /// singular/unstable acceleration for particles very close to the
+    // /// gravitation center — same style of softening already used for the
+    // /// denominator in `add_viscosity_acceleration`.
+    // const GRAVITATION_SOFTENING: f64 = 1e-4;
+    // for_each!(
+    //     mut [fluid.acceleration],
+    //     ref [position = fluid.position],
+    //     |id, id_acceleration| {
+    //         use nalgebra::Point3;
+    //         let gravitation_center = Point3::new(0.0, 0.0, 0.0);
+    //         let direction = vector(&position[id], &gravitation_center);
+    //         let dist = (direction.norm_squared() + GRAVITATION_SOFTENING).sqrt();
+    //         *id_acceleration += strength_of_gravity * direction / dist;
+    //     }
+    // );
+    // for b in boundary.iter_mut() {
+    //     use nalgebra::Point3;
+    //     let gravitation_center = Point3::new(0.0, 0.0, 0.0);
+    //     if let Some(cm) = b.center_of_mass() {
+    //         let direction = vector(&cm, &gravitation_center);
+    //         let dist = (direction.norm_squared() + GRAVITATION_SOFTENING).sqrt();
+    //         b.add_acceleration(strength_of_gravity * direction / dist);
+    //     }
+    // }
 }
 
 /// Calculate viscosity acceleration at current time and add it to respective particles

@@ -36,6 +36,9 @@ pub struct IISPH {
 }
 
 impl PressureSolver for IISPH {
+    const POSITION_SLOTS: usize = 1; // kept alive only for the currently-dead `with_pred_positions=true` path
+    const VELOCITY_SLOTS: usize = 1; // live: written by `set_pred_vel_by_applying_acc`, read by `set_source_term_vp`/`set_diagonal_element`
+
     fn new(params: &Parameters) -> Self {
         Self {
             target_density_error: params.target_density_error,
@@ -114,7 +117,7 @@ impl IISPH {
             mut [self.s_f],
             ref [
                 pos_now = fluid.position,
-                vel_pred = fluid.velocity_pred,
+                vel_pred = fluid.solver_velocity_slots[0],
                 volume = fluid.volume,
                 neighbors = neighbor_list,
                 boundary = boundary
@@ -173,8 +176,8 @@ impl IISPH {
             mut [self.s_f],
             ref [
                 pos_now = fluid.position,
-                pos_pred = fluid.position_pred,
-                vel_pred = fluid.velocity_pred,
+                pos_pred = fluid.solver_position_slots[0],
+                vel_pred = fluid.solver_velocity_slots[0],
                 volume = fluid.volume,
                 neighbors = neighbor_list,
                 boundary = boundary
@@ -252,7 +255,7 @@ impl IISPH {
             mut [self.a_ff],
             ref [
                 pos_now = fluid.position,
-                pos_pred = fluid.position_pred,
+                pos_pred = fluid.solver_position_slots[0],
                 mass = fluid.mass,
                 volume = fluid.volume,
                 neighbors = neighbor_list,
@@ -425,7 +428,7 @@ impl IISPH {
                 mut [fluid.pressure, pred_density_errors],
                 ref [
                     pos_now = fluid.position,
-                    pos_pred = fluid.position_pred,
+                    pos_pred = fluid.solver_position_slots[0],
                     pressure_acc_f = self.pressure_acc_f,
                     volume = fluid.volume,
                     neighbors = neighbor_list,
@@ -692,7 +695,7 @@ mod tests {
             *v = params.rest_volume;
         }
         fluid.position[0] = Point3::origin();
-        fluid.velocity_pred[0] = Vector3::new(1.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][0] = Vector3::new(1.0, 0.0, 0.0);
         fluid.volume[0] = 0.02;
 
         let neighbor_list = NeighborList::new(fluid.len());
@@ -721,8 +724,8 @@ mod tests {
         let mut fluid = fluid_with_at_least(2);
         fluid.position[0] = Point3::new(0.0, 0.0, 0.0);
         fluid.position[1] = Point3::new(0.3, 0.0, 0.0);
-        fluid.velocity_pred[0] = Vector3::new(1.0, 0.0, 0.0);
-        fluid.velocity_pred[1] = Vector3::new(-1.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][0] = Vector3::new(1.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][1] = Vector3::new(-1.0, 0.0, 0.0);
         fluid.volume[0] = 0.02;
         fluid.volume[1] = 0.02;
         solver.resize_scratch(fluid.len());
@@ -737,7 +740,7 @@ mod tests {
             let r_vec = vector(&fluid.position[j], &fluid.position[0]);
             expected -= dt
                 * fluid.volume[j]
-                * (fluid.velocity_pred[0] - fluid.velocity_pred[j])
+                * (fluid.solver_velocity_slots[0][0] - fluid.solver_velocity_slots[0][j])
                     .dot(&CubicBSpline3D::kernel_gradient(&r_vec, h));
         }
         assert!((solver.s_f[0] - expected).abs() < 1e-9);
@@ -757,7 +760,7 @@ mod tests {
             *v = params.rest_volume;
         }
         fluid.position[0] = Point3::origin();
-        fluid.velocity_pred[0] = Vector3::zeros();
+        fluid.solver_velocity_slots[0][0] = Vector3::zeros();
         fluid.volume[0] = params.rest_volume * 0.5; // compressed
         solver.resize_scratch(fluid.len());
 
@@ -789,15 +792,15 @@ mod tests {
         // Real positions far apart (not neighbors); predicted positions close.
         fluid.position[0] = Point3::new(0.0, 0.0, 0.0);
         fluid.position[1] = Point3::new(1000.0, 0.0, 0.0);
-        fluid.position_pred[0] = Point3::new(0.0, 0.0, 0.0);
-        fluid.position_pred[1] = Point3::new(0.3, 0.0, 0.0);
-        fluid.velocity_pred[0] = Vector3::new(1.0, 0.0, 0.0);
-        fluid.velocity_pred[1] = Vector3::new(0.0, 0.0, 0.0);
+        fluid.solver_position_slots[0][0] = Point3::new(0.0, 0.0, 0.0);
+        fluid.solver_position_slots[0][1] = Point3::new(0.3, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][0] = Vector3::new(1.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][1] = Vector3::new(0.0, 0.0, 0.0);
         fluid.volume[0] = params.rest_volume;
         fluid.volume[1] = params.rest_volume;
         solver.resize_scratch(fluid.len());
 
-        let neighbor_list = build_fluid_neighbor_list(&fluid.position_pred, h);
+        let neighbor_list = build_fluid_neighbor_list(&fluid.solver_position_slots[0], h);
         assert!(!neighbor_list.get_neighbors(0).is_empty());
         let boundary = VolumeMapBoundary::default();
 

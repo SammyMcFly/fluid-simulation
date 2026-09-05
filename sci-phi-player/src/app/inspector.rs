@@ -5,7 +5,6 @@ use crate::fl;
 use cosmic::iced::Alignment;
 use cosmic::iced::core::Element;
 use cosmic::prelude::*;
-use cosmic::widget::text_editor::default;
 use cosmic::widget::{self, icon};
 use cosmic::{cosmic_theme, theme};
 use simulation_lib::measurement::RecordingStatus;

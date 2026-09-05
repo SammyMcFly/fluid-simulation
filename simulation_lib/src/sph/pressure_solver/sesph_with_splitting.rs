@@ -21,6 +21,8 @@ pub struct SESPHwSplitting {
 }
 
 impl PressureSolver for SESPHwSplitting {
+    const VELOCITY_SLOTS: usize = 1;
+
     fn new(params: &Parameters) -> Self {
         Self {
             stiffness: params.stiffness,
@@ -87,7 +89,7 @@ impl SESPHwSplitting {
             mut [self.density_pred],
             ref [
                 pos_now = fluid.position,
-                vel_pred = fluid.velocity_pred,
+                vel_pred = fluid.solver_velocity_slots[0],
                 mass = fluid.mass,
                 neighbors = neighbor_list,
                 boundary = boundary,
@@ -286,9 +288,9 @@ mod tests {
 
     #[derive(Debug, Clone, Copy)]
     struct RecordedForce {
-        id: usize,
+        _id: usize,
         force: Vector3<f64>,
-        force_location: Point3<f64>,
+        _force_location: Point3<f64>,
     }
 
     #[derive(Clone, Default)]
@@ -340,9 +342,9 @@ mod tests {
         }
         fn add_force_onto_boundary(&mut self, force: ForceOntoBoundary) {
             self.recorded_forces.push(RecordedForce {
-                id: force.id,
+                _id: force.id,
                 force: force.force,
-                force_location: force.force_location,
+                _force_location: force.force_location,
             });
         }
         fn step_forward_in_time(&mut self, _dt: f64) {}
@@ -403,7 +405,7 @@ mod tests {
 
         let mut fluid = fluid_with_at_least(1);
         fluid.position[0] = Point3::origin();
-        fluid.velocity_pred[0] = Vector3::new(1.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][0] = Vector3::new(1.0, 0.0, 0.0);
         fluid.mass[0] = 0.5;
         solver.resize_scratch(fluid.len());
 
@@ -430,8 +432,8 @@ mod tests {
         let mut fluid = fluid_with_at_least(2);
         fluid.position[0] = Point3::new(0.0, 0.0, 0.0);
         fluid.position[1] = Point3::new(0.3, 0.0, 0.0);
-        fluid.velocity_pred[0] = Vector3::new(1.0, 0.0, 0.0);
-        fluid.velocity_pred[1] = Vector3::new(-1.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][0] = Vector3::new(1.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][1] = Vector3::new(-1.0, 0.0, 0.0);
         fluid.mass[0] = 0.5;
         fluid.mass[1] = 0.6;
         solver.resize_scratch(fluid.len());
@@ -450,7 +452,7 @@ mod tests {
         for &j in neighbor_list.get_neighbors(0) {
             let r_vec = vector(&fluid.position[j], &fluid.position[0]);
             expected += fluid.mass[j] * CubicBSpline3D::kernel_function(&r_vec, h)
-                + dt * (fluid.velocity_pred[0] - fluid.velocity_pred[j])
+                + dt * (fluid.solver_velocity_slots[0][0] - fluid.solver_velocity_slots[0][j])
                     .dot(&CubicBSpline3D::kernel_gradient(&r_vec, h));
         }
         assert!((solver.density_pred[0] - expected).abs() < 1e-9);
@@ -465,7 +467,7 @@ mod tests {
 
         let mut fluid = fluid_with_at_least(1);
         fluid.position[0] = Point3::origin();
-        fluid.velocity_pred[0] = Vector3::new(1.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][0] = Vector3::new(1.0, 0.0, 0.0);
         fluid.mass[0] = 0.5;
         solver.resize_scratch(fluid.len());
 
@@ -495,7 +497,8 @@ mod tests {
         let expected = boundary_vol
             * (fluid.mass[0] / params.rest_volume)
             * CubicBSpline3D::kernel_function(&r_vec, h)
-            + dt * fluid.velocity_pred[0].dot(&CubicBSpline3D::kernel_gradient(&r_vec, h));
+            + dt * fluid.solver_velocity_slots[0][0]
+                .dot(&CubicBSpline3D::kernel_gradient(&r_vec, h));
 
         assert!((solver.density_pred[0] - expected).abs() < 1e-9);
     }

@@ -27,16 +27,43 @@ pub struct Fluid {
     num_active: usize,
     pub fluid_id: Vec<u32>,
     pub position: Vec<Point3<f64>>,
-    pub position_prev: Vec<Point3<f64>>,
-    pub position_pred: Vec<Point3<f64>>,
     pub velocity: Vec<Vector3<f64>>,
-    pub velocity_prev: Vec<Vector3<f64>>,
-    pub velocity_pred: Vec<Vector3<f64>>,
     pub acceleration: Vec<Vector3<f64>>,
     pub mass: Vec<f64>,
     /// volume (necessary for sph fluid)
     pub volume: Vec<f64>,
     pub pressure: Vec<f64>,
+    /// Scratch position slots owned by the active [IntegrationScheme].
+    /// Count and meaning are scheme-specific (e.g. [Verlet] uses slot 0 to
+    /// store the position of the previous time step).
+    ///
+    /// Sized to [Self::total_len]` by [Self::resize_slots]; kept in sync
+    /// by [Self::swap]/[Self::disable]/[Self::drop_inactive] like every other
+    /// per-particle field.
+    pub integrator_position_slots: Vec<Vec<Point3<f64>>>,
+    /// Scratch velocity slots owned by the active [IntegrationScheme].
+    /// Count and meaning are scheme-specific.
+    ///
+    /// Sized to [Self::total_len]` by [Self::resize_slots]; kept in sync
+    /// by [Self::swap]/[Self::disable]/[Self::drop_inactive] like every other
+    /// per-particle field.
+    pub integrator_velocity_slots: Vec<Vec<Vector3<f64>>>,
+    /// Scratch position slots owned by the active [PressureSolver].
+    /// Count and meaning are scheme-specific (e.g. [IISPH]/[IISPHwOST]
+    /// both use slot 0 as predicted position).
+    ///
+    /// Sized to [Self::total_len]` by [Self::resize_slots]; kept in sync
+    /// by [Self::swap]/[Self::disable]/[Self::drop_inactive] like every other
+    /// per-particle field.
+    pub solver_position_slots: Vec<Vec<Point3<f64>>>,
+    /// Scratch position slots owned by the active [PressureSolver].
+    /// Count and meaning are scheme-specific (e.g. [IISPH]/[IISPHwOST]
+    /// both use slot 0 as predicted velocity).
+    ///
+    /// Sized to [Self::total_len]` by [Self::resize_slots]; kept in sync
+    /// by [Self::swap]/[Self::disable]/[Self::drop_inactive] like every other
+    /// per-particle field.
+    pub solver_velocity_slots: Vec<Vec<Vector3<f64>>>,
 }
 
 impl Len for Fluid {
@@ -63,71 +90,66 @@ impl Fluid {
             num_active: len,
             fluid_id: vec![fluid_id; len],
             position,
-            position_prev: vec![Point3::origin(); len],
-            position_pred: vec![Point3::origin(); len],
             velocity: vec![Vector3::zeros(); len],
-            velocity_prev: vec![Vector3::zeros(); len],
-            velocity_pred: vec![Vector3::zeros(); len],
             acceleration: vec![Vector3::zeros(); len],
             mass: vec![mass; len],
             volume: vec![0.; len],
             pressure: vec![0.; len],
+            integrator_position_slots: Vec::new(),
+            integrator_velocity_slots: Vec::new(),
+            solver_position_slots: Vec::new(),
+            solver_velocity_slots: Vec::new(),
         };
         self.extend(fluid);
     }
 
-    // fn push(&mut self, fluid_id: u32, position: Point3<f64>, velocity: Vector3<f64>, mass: f64) {
-    //     self.fluid_id.push(fluid_id);
-    //     self.position.push(position);
-    //     self.position_prev.push(position);
-    //     self.position_pred.push(Point3::origin());
-    //     self.velocity.push(velocity);
-    //     self.velocity_prev.push(Vector3::zeros());
-    //     self.velocity_pred.push(Vector3::zeros());
-    //     self.acceleration.push(Vector3::zeros());
-    //     self.mass.push(mass);
-    //     self.volume.push(0.);
-    //     self.pressure.push(0.);
-
-    //     let insert_at = self.num_active;
-    //     let last = self.position.len() - 1;
-
-    //     if insert_at != last {
-    //         self.swap(insert_at, last);
-    //     }
-
-    //     self.num_active += 1;
-    // }
+    /// (Re-)sizes the per-role scratch slot pools to [Self::total_len], according to
+    /// the counts declared by the active [IntegrationScheme]/[PressureSolver].
+    ///
+    /// Must be called once [Fluid] is fully populated and [IntegrationScheme]/[PressureSolver]
+    /// are known -- [Self::add_samples]/[Self::extend] deliberately leave these pools empty,
+    /// since the required counts aren't known until then. See [System::new_boxed] and
+    /// [SPHSystem::continue_from_checkpoint].
+    pub fn resize_slots(
+        &mut self,
+        integrator_position_slots: usize,
+        integrator_velocity_slots: usize,
+        pressure_solver_position_slots: usize,
+        pressure_solver_velocity_slots: usize,
+    ) {
+        let len = self.total_len();
+        self.integrator_position_slots = vec![vec![Point3::origin(); len]; integrator_position_slots];
+        self.integrator_velocity_slots = vec![vec![Vector3::zeros(); len]; integrator_velocity_slots];
+        self.solver_position_slots = vec![vec![Point3::origin(); len]; pressure_solver_position_slots];
+        self.solver_velocity_slots = vec![vec![Vector3::zeros(); len]; pressure_solver_velocity_slots];
+    }
 
     fn extend(&mut self, other: Self) {
-        assert!(self.num_active == self.total_len());
+        assert_eq!(self.num_active, self.total_len());
         self.num_active += other.num_active;
         self.fluid_id.extend(other.fluid_id);
         self.position.extend(other.position);
-        self.position_prev.extend(other.position_prev);
-        self.position_pred.extend(other.position_pred);
         self.velocity.extend(other.velocity);
-        self.velocity_prev.extend(other.velocity_prev);
-        self.velocity_pred.extend(other.velocity_pred);
         self.acceleration.extend(other.acceleration);
         self.mass.extend(other.mass);
         self.volume.extend(other.volume);
         self.pressure.extend(other.pressure);
+        // Slots are intentionally left untouched here: `extend` is only ever
+        // called (via `add_samples`) before `resize_slots` runs, so they're
+        // still empty at this point. `resize_slots` sizes them correctly
+        // afterward, once `I`/`P` are known.
+        assert!(
+            self.integrator_position_slots.is_empty()
+                && self.integrator_velocity_slots.is_empty()
+                && self.solver_position_slots.is_empty()
+                && self.solver_velocity_slots.is_empty(),
+            "extend() called after resize_slots(); slot growth on extend is not implemented"
+        );
     }
 
-    /// Gesamtzahl inkl. inaktiver
+    /// Total numer of fluid samples contained in [Fluid].
     pub fn total_len(&self) -> usize {
         self.position.len()
-    }
-
-    pub fn rotate_position(&mut self) {
-        std::mem::swap(&mut self.position_prev, &mut self.position);
-        std::mem::swap(&mut self.position, &mut self.position_pred);
-    }
-
-    pub fn rotate_velocity(&mut self) {
-        std::mem::swap(&mut self.velocity_prev, &mut self.velocity);
-        std::mem::swap(&mut self.velocity, &mut self.velocity_pred);
     }
 
     pub fn disable(&mut self, id: usize) {
@@ -142,29 +164,45 @@ impl Fluid {
         }
         self.fluid_id.swap(a, b);
         self.position.swap(a, b);
-        self.position_prev.swap(a, b);
-        self.position_pred.swap(a, b);
         self.velocity.swap(a, b);
-        self.velocity_prev.swap(a, b);
-        self.velocity_pred.swap(a, b);
         self.acceleration.swap(a, b);
         self.mass.swap(a, b);
         self.volume.swap(a, b);
         self.pressure.swap(a, b);
+        for slot in &mut self.integrator_position_slots {
+            slot.swap(a, b);
+        }
+        for slot in &mut self.integrator_velocity_slots {
+            slot.swap(a, b);
+        }
+        for slot in &mut self.solver_position_slots {
+            slot.swap(a, b);
+        }
+        for slot in &mut self.solver_velocity_slots {
+            slot.swap(a, b);
+        }
     }
 
     pub fn drop_inactive(&mut self) {
         self.fluid_id.truncate(self.num_active);
         self.position.truncate(self.num_active);
-        self.position_prev.truncate(self.num_active);
-        self.position_pred.truncate(self.num_active);
         self.velocity.truncate(self.num_active);
-        self.velocity_prev.truncate(self.num_active);
-        self.velocity_pred.truncate(self.num_active);
         self.acceleration.truncate(self.num_active);
         self.mass.truncate(self.num_active);
         self.volume.truncate(self.num_active);
         self.pressure.truncate(self.num_active);
+        for slot in &mut self.integrator_position_slots {
+            slot.truncate(self.num_active);
+        }
+        for slot in &mut self.integrator_velocity_slots {
+            slot.truncate(self.num_active);
+        }
+        for slot in &mut self.solver_position_slots {
+            slot.truncate(self.num_active);
+        }
+        for slot in &mut self.solver_velocity_slots {
+            slot.truncate(self.num_active);
+        }
     }
 
     /// Reconstruct one mesh per distinct fluid_id.
@@ -332,15 +370,17 @@ impl From<FluidCheckpoint> for Fluid {
             num_active: len,
             fluid_id: fluid_checkpoint.fluid_id,
             position: fluid_checkpoint.position,
-            position_prev: vec![Point3::origin(); len],
-            position_pred: vec![Point3::origin(); len],
             velocity: fluid_checkpoint.velocity,
-            velocity_prev: vec![Vector3::zeros(); len],
-            velocity_pred: vec![Vector3::zeros(); len],
             acceleration: vec![Vector3::zeros(); len],
             mass: fluid_checkpoint.mass,
             volume: vec![0.; len],
             pressure: vec![0.; len],
+            // Left empty on purpose -- sized via `resize_slots` once `I`/`P`
+            // are known; see `SPHSystem::continue_from_checkpoint`.
+            integrator_position_slots: Vec::new(),
+            integrator_velocity_slots: Vec::new(),
+            solver_position_slots: Vec::new(),
+            solver_velocity_slots: Vec::new(),
         }
     }
 }
@@ -401,15 +441,15 @@ mod tests {
             num_active,
             fluid_id: vec![0; len],
             position: positions,
-            position_prev: vec![Point3::origin(); len],
-            position_pred: vec![Point3::origin(); len],
             velocity: vec![Vector3::zeros(); len],
-            velocity_prev: vec![Vector3::zeros(); len],
-            velocity_pred: vec![Vector3::zeros(); len],
             acceleration: vec![Vector3::zeros(); len],
             mass: masses,
             volume: vec![0.; len],
             pressure: vec![0.; len],
+            integrator_position_slots: Vec::new(),
+            integrator_velocity_slots: Vec::new(),
+            solver_position_slots: Vec::new(),
+            solver_velocity_slots: Vec::new(),
         }
     }
 
@@ -472,40 +512,28 @@ mod tests {
         // that would otherwise go unnoticed.
         let mut fluid = raw_fluid(2, vec![pos(1., 0., 0.), pos(2., 0., 0.)], vec![1., 2.]);
         fluid.fluid_id = vec![10, 20];
-        fluid.position_prev = vec![pos(1.1, 0., 0.), pos(2.1, 0., 0.)];
-        fluid.position_pred = vec![pos(1.2, 0., 0.), pos(2.2, 0., 0.)];
         fluid.velocity = vec![vel(1., 1., 1.), vel(2., 2., 2.)];
-        fluid.velocity_prev = vec![vel(1.1, 1., 1.), vel(2.1, 2., 2.)];
-        fluid.velocity_pred = vec![vel(1.2, 1., 1.), vel(2.2, 2., 2.)];
         fluid.acceleration = vec![vel(9., 0., 0.), vel(8., 0., 0.)];
         fluid.volume = vec![0.1, 0.2];
         fluid.pressure = vec![100., 200.];
+        fluid.integrator_position_slots = vec![vec![pos(1.1, 0., 0.), pos(2.1, 0., 0.)]];
+        fluid.integrator_velocity_slots = vec![vec![vel(1.2, 0., 0.), vel(2.2, 0., 0.)]];
+        fluid.solver_position_slots = vec![vec![pos(1.3, 0., 0.), pos(2.3, 0., 0.)]];
+        fluid.solver_velocity_slots = vec![vec![vel(1.4, 0., 0.), vel(2.4, 0., 0.)]];
 
         fluid.swap(0, 1);
 
         assert_eq!(fluid.fluid_id, vec![20, 10]);
         assert_eq!(fluid.position, vec![pos(2., 0., 0.), pos(1., 0., 0.)]);
-        assert_eq!(
-            fluid.position_prev,
-            vec![pos(2.1, 0., 0.), pos(1.1, 0., 0.)]
-        );
-        assert_eq!(
-            fluid.position_pred,
-            vec![pos(2.2, 0., 0.), pos(1.2, 0., 0.)]
-        );
         assert_eq!(fluid.velocity, vec![vel(2., 2., 2.), vel(1., 1., 1.)]);
-        assert_eq!(
-            fluid.velocity_prev,
-            vec![vel(2.1, 2., 2.), vel(1.1, 1., 1.)]
-        );
-        assert_eq!(
-            fluid.velocity_pred,
-            vec![vel(2.2, 2., 2.), vel(1.2, 1., 1.)]
-        );
         assert_eq!(fluid.acceleration, vec![vel(8., 0., 0.), vel(9., 0., 0.)]);
         assert_eq!(fluid.mass, vec![2., 1.]);
         assert_eq!(fluid.volume, vec![0.2, 0.1]);
         assert_eq!(fluid.pressure, vec![200., 100.]);
+        assert_eq!(fluid.integrator_position_slots[0], vec![pos(2.1, 0., 0.), pos(1.1, 0., 0.)]);
+        assert_eq!(fluid.integrator_velocity_slots[0], vec![vel(2.2, 0., 0.), vel(1.2, 0., 0.)]);
+        assert_eq!(fluid.solver_position_slots[0], vec![pos(2.3, 0., 0.), pos(1.3, 0., 0.)]);
+        assert_eq!(fluid.solver_velocity_slots[0], vec![vel(2.4, 0., 0.), vel(1.4, 0., 0.)]);
     }
 
     #[test]

@@ -8,28 +8,27 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 pub struct Verlet;
 
 impl IntegrationScheme for Verlet {
+    const POSITION_SLOTS: usize = 1;
+
     fn integrate(&mut self, fluid: &mut Fluid, dt: f64) {
-        // Rotate buffers
-        fluid.rotate_position();
-        fluid.rotate_velocity();
-        // position = old position_prev (will be overwritten), position_prev = old position
+        debug_assert_eq!(
+            fluid.integrator_position_slots.len(),
+            Self::POSITION_SLOTS,
+            "did `resize_slots` get called with `Verlet::POSITION_SLOTS`?"
+        );
+        // slot 0 = x(t-1), i.e. position one step before the current
+        // `fluid.position` = x(t)
         for_each!(
-            mut [fluid.position, fluid.velocity],
+            mut [fluid.position, fluid.velocity, fluid.integrator_position_slots[0]],
             ref [
-                pos_prev = fluid.position_prev,   // = old "position"
-                pos_pred = fluid.position_pred,   // = old "position_prev"
                 acceleration = fluid.acceleration,
             ],
-            |id, id_pos_now, id_vel_now| {
-                // update positions
-                *id_pos_now =  (
-                    2.0 * pos_prev[id]
-                    - pos_pred[id]
-                    + dt.powi(2) * acceleration[id]
-                ).into();
-                // update velocities
-                *id_vel_now = (*id_pos_now - pos_prev[id])
-                    / dt;
+            |id, id_pos_now, id_vel_now, id_pos_prev| {
+                let new_pos =
+                    *id_pos_now + (*id_pos_now - *id_pos_prev) + dt.powi(2) * acceleration[id];
+                *id_vel_now = (new_pos - *id_pos_now) / dt;
+                *id_pos_prev = *id_pos_now;
+                *id_pos_now = new_pos;
             }
         );
     }

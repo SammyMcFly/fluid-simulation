@@ -21,7 +21,7 @@ use crate::sph::kernel::KernelFn;
 use crate::sph::setup::input::Parameters;
 use crate::utilities::vector;
 
-use nalgebra::Vector3;
+use nalgebra::{Point3, Vector3};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use serde::Deserialize;
@@ -43,6 +43,11 @@ pub trait PressureSolver: Send + Sync + Clone {
     /// build a system pairing such a solver with a scene that defines at
     /// least one dynamic boundary.
     const SUPPORTS_DYNAMIC_BOUNDARIES: bool = true;
+
+    /// Number of `Fluid::solver_position_slots` this solver requires.
+    const POSITION_SLOTS: usize = 0;
+    /// Number of `Fluid::solver_velocity_slots` this solver requires.
+    const VELOCITY_SLOTS: usize = 0;
 
     fn new(params: &Parameters) -> Self;
 
@@ -77,7 +82,7 @@ pub struct SolverMeasurementInfo {
 /// calculate and set predicted velocity due to currently set acceleration
 fn set_pred_vel_by_applying_acc(fluid: &mut Fluid, params: &SystemParameters, to_pred_vel: bool) {
     for_each!(
-        mut [fluid.velocity_pred],
+        mut [fluid.solver_velocity_slots[0]],
         ref [
             vel_now = fluid.velocity,
             acceleration = fluid.acceleration,
@@ -116,12 +121,16 @@ fn add_pressure_acceleration<K: KernelFn>(
     } else {
         &mut fluid.acceleration
     };
+    let pos_source: &[Point3<f64>] = if with_pred_positions {
+        &fluid.solver_position_slots[0]
+    } else {
+        &fluid.position
+    };
     // compute pressure acceleration
     let forces_onto_boundary: Vec<ForceOntoBoundary> = for_each_collect!(
         mut [target],
         ref [
-            pos_now = fluid.position,
-            pos_pred = fluid.position_pred,
+            pos = pos_source,
             mass = fluid.mass,
             volume = fluid.volume,
             pressure = fluid.pressure,
@@ -130,19 +139,9 @@ fn add_pressure_acceleration<K: KernelFn>(
         ],
         |id, target_acceleration, local_forces| {
             let mut accu = Vector3::zeros();
-            let particle_pos = if with_pred_positions {
-                pos_pred[id]
-            } else {
-                pos_now[id]
-            };
 
             for &neighbor in neighbors.get_neighbors(id) {
-                let fluid_neighbor_pos = if with_pred_positions {
-                    pos_pred[neighbor]
-                } else {
-                    pos_now[neighbor]
-                };
-                let r_vec = vector(&fluid_neighbor_pos, &particle_pos);
+                let r_vec = vector(&pos[neighbor], &pos[id]);
                 accu -= volume[id] / mass[id]
                     * volume[neighbor]
                     * (pressure[id] + pressure[neighbor])
@@ -152,7 +151,7 @@ fn add_pressure_acceleration<K: KernelFn>(
             for (i, b) in boundary.iter().enumerate() {
                 for &boundary_neighbor in b.get_neighbors(id, RequestMode::Normal) {
                     let weighting = params.boundary_pressure_acceleration_weighting;
-                    let r_vec = vector(b.position(boundary_neighbor), &particle_pos);
+                    let r_vec = vector(b.position(boundary_neighbor), &pos[id]);
                     let force = 2. * weighting * volume[id]
                         * b.volume(boundary_neighbor)
                         * pressure[id]
@@ -277,6 +276,13 @@ mod tests {
             "expected at least {min_n} sampled particles, got {}",
             fluid.len()
         );
+        fluid
+    }
+
+    /// Mirrors what `System::new_boxed` does via `PressureSolver::POSITION_SLOTS`/
+    /// `VELOCITY_SLOTS` before any solver method runs on a `Fluid`.
+    fn with_solver_slots(mut fluid: Fluid) -> Fluid {
+        fluid.resize_slots(0, 0, 1, 1);
         fluid
     }
 
@@ -437,17 +443,17 @@ mod tests {
     fn set_pred_vel_from_velocity_matches_formula_and_ignores_stale_pred() {
         let dt = 0.1;
         let params = make_params(dt, 1.0, 0.3, 0.0);
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         fluid.velocity[0] = Vector3::new(1.0, 2.0, 3.0);
         fluid.acceleration[0] = Vector3::new(0.0, 0.0, -9.81);
         // Deliberately stale garbage: with `to_pred_vel == false`, this must
         // be fully overwritten, never read from.
-        fluid.velocity_pred[0] = Vector3::new(999.0, 999.0, 999.0);
+        fluid.solver_velocity_slots[0][0] = Vector3::new(999.0, 999.0, 999.0);
 
         set_pred_vel_by_applying_acc(&mut fluid, &params, false);
 
         let expected = fluid.velocity[0] + dt * fluid.acceleration[0];
-        assert!((fluid.velocity_pred[0] - expected).norm() < 1e-12);
+        assert!((fluid.solver_velocity_slots[0][0] - expected).norm() < 1e-12);
     }
 
     #[test]
@@ -458,35 +464,35 @@ mod tests {
         // reset back to `velocity + dt*acc` each time.
         let dt = 0.1;
         let params = make_params(dt, 1.0, 0.3, 0.0);
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         fluid.velocity[0] = Vector3::new(5.0, 5.0, 5.0); // must be ignored entirely
         fluid.acceleration[0] = Vector3::new(1.0, 0.0, 0.0);
-        fluid.velocity_pred[0] = Vector3::new(0.0, 0.0, 0.0);
+        fluid.solver_velocity_slots[0][0] = Vector3::new(0.0, 0.0, 0.0);
 
         set_pred_vel_by_applying_acc(&mut fluid, &params, true);
-        assert!((fluid.velocity_pred[0] - Vector3::new(dt, 0.0, 0.0)).norm() < 1e-12);
+        assert!((fluid.solver_velocity_slots[0][0] - Vector3::new(dt, 0.0, 0.0)).norm() < 1e-12);
 
         set_pred_vel_by_applying_acc(&mut fluid, &params, true);
-        assert!((fluid.velocity_pred[0] - Vector3::new(2.0 * dt, 0.0, 0.0)).norm() < 1e-12);
+        assert!((fluid.solver_velocity_slots[0][0] - Vector3::new(2.0 * dt, 0.0, 0.0)).norm() < 1e-12);
     }
 
     #[test]
     fn set_pred_vel_with_zero_acceleration_leaves_the_base_velocity_unchanged() {
         let params = make_params(0.1, 1.0, 0.3, 0.0);
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         let v = Vector3::new(2.0, -1.0, 0.5);
         fluid.velocity[0] = v;
         fluid.acceleration[0] = Vector3::zeros();
 
         set_pred_vel_by_applying_acc(&mut fluid, &params, false);
-        assert!((fluid.velocity_pred[0] - v).norm() < 1e-12);
+        assert!((fluid.solver_velocity_slots[0][0] - v).norm() < 1e-12);
     }
 
     #[test]
     fn set_pred_vel_updates_every_particle_independently() {
         let dt = 0.1;
         let params = make_params(dt, 1.0, 0.3, 0.0);
-        let mut fluid = fluid_with_at_least(2);
+        let mut fluid = with_solver_slots(fluid_with_at_least(2));
         fluid.velocity[0] = Vector3::new(1.0, 0.0, 0.0);
         fluid.acceleration[0] = Vector3::new(1.0, 0.0, 0.0);
         fluid.velocity[1] = Vector3::new(0.0, 2.0, 0.0);
@@ -494,8 +500,8 @@ mod tests {
 
         set_pred_vel_by_applying_acc(&mut fluid, &params, false);
 
-        assert!((fluid.velocity_pred[0] - Vector3::new(1.0 + dt, 0.0, 0.0)).norm() < 1e-12);
-        assert!((fluid.velocity_pred[1] - Vector3::new(0.0, 2.0 + dt, 0.0)).norm() < 1e-12);
+        assert!((fluid.solver_velocity_slots[0][0] - Vector3::new(1.0 + dt, 0.0, 0.0)).norm() < 1e-12);
+        assert!((fluid.solver_velocity_slots[0][1] - Vector3::new(0.0, 2.0 + dt, 0.0)).norm() < 1e-12);
     }
 
     // ─── add_pressure_acceleration: fluid-fluid contribution ─────────────
@@ -506,7 +512,7 @@ mod tests {
         let dx = 0.3;
         let params = make_params(0.1, h, dx, 0.0);
 
-        let mut fluid = fluid_with_at_least(3);
+        let mut fluid = with_solver_slots(fluid_with_at_least(3));
         let positions = [
             Point3::new(0.0, 0.0, 0.0),
             Point3::new(0.3, 0.0, 0.0),
@@ -557,7 +563,7 @@ mod tests {
     fn add_pressure_acceleration_with_overwrite_discards_preexisting_acceleration() {
         let h = 1.0;
         let params = make_params(0.1, h, 0.3, 0.0);
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         fluid.position[0] = Point3::origin();
         fluid.pressure[0] = 0.0; // no neighbors -> zero contribution
         fluid.volume[0] = 0.02;
@@ -583,7 +589,7 @@ mod tests {
     fn add_pressure_acceleration_with_pred_positions_uses_position_pred_for_fluid_particles() {
         let h = 1.0;
         let params = make_params(0.1, h, 0.3, 0.0);
-        let mut fluid = fluid_with_at_least(2);
+        let mut fluid = with_solver_slots(fluid_with_at_least(2));
 
         // Real (`position`) values placed far apart -> would NOT be
         // neighbors within `h`; predicted (`position_pred`) values placed
@@ -592,8 +598,8 @@ mod tests {
         // detectably different (near-zero) result.
         fluid.position[0] = Point3::new(0.0, 0.0, 0.0);
         fluid.position[1] = Point3::new(1000.0, 0.0, 0.0);
-        fluid.position_pred[0] = Point3::new(0.0, 0.0, 0.0);
-        fluid.position_pred[1] = Point3::new(0.3, 0.0, 0.0);
+        fluid.solver_position_slots[0][0] = Point3::new(0.0, 0.0, 0.0);
+        fluid.solver_position_slots[0][1] = Point3::new(0.3, 0.0, 0.0);
         fluid.pressure[0] = 100.0;
         fluid.pressure[1] = 100.0;
         fluid.volume[0] = 0.02;
@@ -607,7 +613,7 @@ mod tests {
         // to find this pair as neighbors — mirroring how a real caller
         // would need to re-run the neighbor search on predicted positions
         // before calling with `with_pred_positions = true`.
-        let neighbor_list = build_fluid_neighbor_list(&fluid.position_pred, h);
+        let neighbor_list = build_fluid_neighbor_list(&fluid.solver_position_slots[0], h);
         assert!(!neighbor_list.get_neighbors(0).is_empty());
 
         let mut boundary = VolumeMapBoundary::default();
@@ -637,7 +643,7 @@ mod tests {
         let weighting = 0.5;
         let params = make_params(0.1, h, dx, weighting);
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         fluid.position[0] = Point3::origin();
         fluid.pressure[0] = 200.0;
         fluid.volume[0] = 0.02;
@@ -692,7 +698,7 @@ mod tests {
         let weighting = 1.0;
         let params = make_params(0.1, h, 0.3, weighting);
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         fluid.position[0] = Point3::origin();
         fluid.pressure[0] = 150.0;
         fluid.volume[0] = 0.02;
@@ -746,7 +752,7 @@ mod tests {
         let h = 1.0;
         let params = make_params(0.1, h, 0.3, 1.0);
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         fluid.position[0] = Point3::origin();
         fluid.pressure[0] = 150.0;
         fluid.volume[0] = 0.02;
@@ -802,9 +808,9 @@ mod tests {
         let h = 1.0;
         let params = make_params(0.1, h, 0.3, 1.0);
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_solver_slots(fluid_with_at_least(1));
         fluid.position[0] = Point3::new(0.2, 0.0, 0.0);
-        fluid.position_pred[0] = Point3::new(0.2, 0.0, 0.0); // identical on purpose
+        fluid.solver_position_slots[0][0] = Point3::new(0.2, 0.0, 0.0); // identical on purpose
         fluid.pressure[0] = 150.0;
         fluid.volume[0] = 0.02;
         fluid.mass[0] = 0.5;

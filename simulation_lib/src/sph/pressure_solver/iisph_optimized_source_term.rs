@@ -1,10 +1,15 @@
 //! Implicit imcompressible SPH (SESPH) pressure solver with "optimized source term"
 //!
-//! # Limitation: no support for dynamic boundaries
-//!
 //! Unlike every other `PressureSolver` in this crate, `solve_and_add_acceleration`
 //! runs TWO separate global pressure solves per call (EQS1, EQS2), each time
 //! pressure is applied via `add_pressure_acceleration` with `custom_target == None`.
+//!
+//! The actual position/velocity update happens within this solver by computing into
+//! solver_position_slots[0]/solver_velocity_slots[0] — the field for the predicted position
+//! and velocity. No real IntegrationScheme involvement needed; pair with
+//! IntegrationSchemeVariant::TakePredicted.
+//!
+//! # Limitation: no support for dynamic boundaries
 //! To function correctly with this solver, dynamic boundaries will need to be able
 //! to update positions and velocities separately. Additionally, support for predicted
 //! positions and velocities will need to be added.
@@ -35,6 +40,8 @@ pub struct IISPHwOST {
 
 impl PressureSolver for IISPHwOST {
     const SUPPORTS_DYNAMIC_BOUNDARIES: bool = false;
+    const POSITION_SLOTS: usize = 1;
+    const VELOCITY_SLOTS: usize = 1;
 
     fn new(params: &Parameters) -> Self {
         Self {
@@ -89,10 +96,10 @@ impl PressureSolver for IISPHwOST {
             set_pred_vel_by_applying_acc(fluid, params, true);
             // set predicted position
             for_each!(
-                mut [fluid.position_pred],
+                mut [fluid.solver_position_slots[0]],
                 ref [
                     pos_now = fluid.position,
-                    vel_pred = fluid.velocity_pred,
+                    vel_pred = fluid.solver_velocity_slots[0],
                 ],
                 |id, id_position_pred| {
                     *id_position_pred = pos_now[id] + params.time_increment * vel_pred[id];
@@ -128,10 +135,10 @@ impl PressureSolver for IISPHwOST {
         // write new positions and resampled velocities to predicted velocity and position field of each particle
         {
             for_each!(
-                mut [fluid.position_pred, self.inner.pressure_acc_f],
+                mut [fluid.solver_position_slots[0], self.inner.pressure_acc_f],
                 ref [
                     pos_now = fluid.position,
-                    vel_pred = fluid.velocity_pred,
+                    vel_pred = fluid.solver_velocity_slots[0],
                     acceleration = fluid.acceleration,
                     volume = fluid.volume,
                     neighbors = neighbor_list,
@@ -183,7 +190,7 @@ impl PressureSolver for IISPHwOST {
             );
             // move velocity from pressure_acc_f to predicted velocity
             for_each!(
-                mut [fluid.velocity_pred],
+                mut [fluid.solver_velocity_slots[0]],
                 ref [
                     pressure_acc_f = self.inner.pressure_acc_f,
                 ],
@@ -194,6 +201,18 @@ impl PressureSolver for IISPHwOST {
         }
         // pressure acceleration is applied to particle movement implicitly
         // resulting in the velocity and position predictions
+        // Those predicted positions and velocities are commited to in the TakePredicted
+        // integration scheme, which is the mandatory pairing with this solver type.
+        debug_assert_eq!(fluid.integrator_position_slots.len(), 1);
+        debug_assert_eq!(fluid.integrator_velocity_slots.len(), 1);
+        std::mem::swap(
+            &mut fluid.integrator_position_slots[0],
+            &mut fluid.solver_position_slots[0],
+        );
+        std::mem::swap(
+            &mut fluid.integrator_velocity_slots[0],
+            &mut fluid.solver_velocity_slots[0],
+        );
     }
 
     fn measurement_info(&self) -> SolverMeasurementInfo {
@@ -320,6 +339,11 @@ mod tests {
         let mut fluid = Fluid::new();
         fluid.add_samples(&mesh, 0, 1000.0, 0.5);
         assert!(fluid.len() >= min_n);
+        fluid
+    }
+
+    fn with_slots(mut fluid: Fluid) -> Fluid {
+        fluid.resize_slots(1, 1, 1, 1); // integrator: 1/1, solver: 1/1
         fluid
     }
 
@@ -495,7 +519,7 @@ mod tests {
         let params = make_system_params(dt, h, 0.3, 0.0);
         let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }
@@ -529,16 +553,16 @@ mod tests {
 
         let expected_vel_pred = vel0 + dt * g;
         assert!(
-            (fluid.velocity_pred[0] - expected_vel_pred).norm() < 1e-9,
+            (fluid.integrator_velocity_slots[0][0] - expected_vel_pred).norm() < 1e-9,
             "expected {expected_vel_pred:?}, got {:?}",
-            fluid.velocity_pred[0]
+            fluid.integrator_velocity_slots[0][0]
         );
 
         let expected_pos_pred = pos0 + dt * expected_vel_pred;
         assert!(
-            (fluid.position_pred[0] - expected_pos_pred).norm() < 1e-9,
+            (fluid.integrator_position_slots[0][0] - expected_pos_pred).norm() < 1e-9,
             "expected {expected_pos_pred:?}, got {:?}",
-            fluid.position_pred[0]
+            fluid.integrator_position_slots[0][0]
         );
     }
 
@@ -557,7 +581,7 @@ mod tests {
         let params = make_system_params(0.05, h, 0.3, weighting);
         let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }
@@ -604,7 +628,7 @@ mod tests {
         let params = make_system_params(0.05, h, 0.3, weighting);
         let mut solver = IISPHwOST::new(&make_solver_params(0.01, 0.5, 1e-9));
 
-        let mut fluid = fluid_with_at_least(1);
+        let mut fluid = with_slots(fluid_with_at_least(1));
         for v in fluid.volume.iter_mut() {
             *v = params.rest_volume;
         }

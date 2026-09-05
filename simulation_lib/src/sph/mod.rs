@@ -17,7 +17,7 @@ use kernel::KernelFn;
 use pressure_solver::PressureSolver;
 use quantities::get_volume;
 
-use crate::measurement::{self, Measurement};
+use crate::measurement::Measurement;
 use crate::neighbor_search::{NeighborList, NeighborSearch};
 use crate::render_info::{BoundaryVisualization, ScalarQuantity};
 use crate::sph::boundary_handling::{BoundaryCheckpoint, BoundaryHandling, SerBoundaryCheckpoint};
@@ -163,7 +163,7 @@ impl<
 
         let solver_info = self.pressure_solver.measurement_info();
 
-        measurement::Measurement {
+        Measurement {
             time: self.time(),
             density: self.properties.average_density,
             density_error: self.calc_average_mass_density_error(),
@@ -394,6 +394,12 @@ impl<
             pressure_solver: constructor.pressure_solver,
             neighbor_search: constructor.neighbor_search,
         };
+        system.fluid.resize_slots(
+            I::POSITION_SLOTS,
+            I::VELOCITY_SLOTS,
+            P::POSITION_SLOTS,
+            P::VELOCITY_SLOTS,
+        );
         #[cfg(feature = "cfl_time_step")]
         {
             system.parameters.current_time = constructor.initial_current_time;
