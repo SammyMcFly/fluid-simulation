@@ -674,6 +674,19 @@ impl<
         }
         // truncate arrays
         self.fluid.drop_inactive();
+        // set new cfl time step conditionally
+        #[cfg(any(feature = "logging", feature = "cfl_time_step"))]
+        let max_speed = self.calc_max_speed();
+        #[cfg(feature = "cfl_time_step")]
+        self.parameters.set_cfl_time_step(max_speed);
+        #[cfg(all(feature = "logging", not(feature = "cfl_time_step")))]
+        {
+            tracing::debug!(
+                "cfl number: {}",
+                self.parameters.time_increment * max_speed
+                    / self.parameters.rest_density_grid_spacing
+            );
+        }
         // update neighbors of fluid particles
         self.neighbor_search.find_samples(
             self.parameters.kernel_support_radius,
@@ -700,19 +713,6 @@ impl<
         self.calc_acceleration();
         // update properties
         self.properties.update(self.calc_average_mass_density());
-        // set new cfl time step conditionally
-        #[cfg(any(feature = "logging", feature = "cfl_time_step"))]
-        let max_speed = self.calc_max_speed();
-        #[cfg(feature = "cfl_time_step")]
-        self.parameters.set_cfl_time_step(max_speed);
-        #[cfg(all(feature = "logging", not(feature = "cfl_time_step")))]
-        {
-            tracing::debug!(
-                "cfl number: {}",
-                self.parameters.time_increment * max_speed
-                    / self.parameters.rest_density_grid_spacing
-            );
-        }
         // // take and store additional measurements
         // if self.time() >= 2.0 && self.time() < 2.1 {
         //     let _ = self.save_pressure_profile();
