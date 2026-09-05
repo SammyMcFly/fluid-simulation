@@ -179,7 +179,7 @@ pub struct SimulationRenderer {
 }
 
 impl shader::Pipeline for SimulationRenderer {
-    fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+    fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         // ─── Bind Group Layouts ───────────────────────────────
 
         let camera_bind_group_layout =

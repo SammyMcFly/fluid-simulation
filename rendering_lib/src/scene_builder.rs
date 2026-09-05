@@ -37,7 +37,32 @@ pub fn build_scene_data(
             colormap,
         )
     };
+
+    let boundary_invisible = matches!(boundary, BoundarySceneData::None) || bounbary_alpha <= 0.0;
+    let fluid_invisible = matches!(fluid, FluidSceneData::None);
+
+    let fluid = if fluid_invisible && boundary_invisible {
+        build_placeholder_particle(particle_radius)
+    } else {
+        fluid
+    };
+
     SceneData { fluid, boundary }
+}
+
+/// Fallback, rendered when neither Fluid nor Boundary have generated any visible geometry
+/// (e.g., due to active cut planes or `boundary_alpha == 0`) --
+/// a single green particle at the origin, using the same
+/// billboard impostor pipeline as regular fluid particles, so that the
+/// viewport never remains completely empty.
+fn build_placeholder_particle(radius: f32) -> FluidSceneData {
+    FluidSceneData::Particles {
+        instances: vec![BillboardInstance {
+            center: [0.0, 0.0, 0.0],
+            radius,
+            color: [0.0, 1.0, 0.0, 1.0], // grün, voll deckend
+        }],
+    }
 }
 
 fn build_fluid(
