@@ -347,6 +347,7 @@ pub fn get_kinetic_energy<K: KernelFn>(
 mod tests {
     use super::*;
     use crate::neighbor_search::{NeighborSearch, SpatialHashing};
+    use crate::sph::GravityMode;
     use crate::sph::boundary_handling::VolumeMapBoundary;
     use crate::sph::kernel::CubicBSpline3D;
 
@@ -363,6 +364,7 @@ mod tests {
                 0.0,
                 0.0,
                 1.0,
+                GravityMode::default(),
             )
         }
         #[cfg(feature = "cfl_time_step")]
@@ -376,6 +378,7 @@ mod tests {
                 0.0,
                 0.0,
                 1.0,
+                GravityMode::default(),
             )
         }
     }

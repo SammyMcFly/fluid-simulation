@@ -156,6 +156,7 @@ impl SESPHwSplitting {
 mod tests {
     use super::*;
     use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
+    use crate::sph::GravityMode;
     use crate::sph::boundary_handling::{
         Boundary, BoundaryCheckpoint, ForceOntoBoundary, VolumeMapBoundary,
     };
@@ -192,6 +193,7 @@ mod tests {
             0.0,
             0.0,
             boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         );
         #[cfg(feature = "cfl_time_step")]
         let mut params = SystemParameters::new(
@@ -203,6 +205,7 @@ mod tests {
             0.0,
             0.0,
             boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         );
         params.time_increment = dt;
         params

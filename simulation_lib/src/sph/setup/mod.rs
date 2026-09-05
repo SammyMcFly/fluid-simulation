@@ -253,6 +253,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             params.fluid_viscosity,
             params.boundary_viscosity,
             params.boundary_pressure_acceleration_weighting,
+            params.gravity_mode,
         );
 
         let constructor = Self {
@@ -337,6 +338,8 @@ pub fn new_boxed_system3d(
 
 #[cfg(test)]
 mod tests {
+    use crate::sph::GravityMode;
+
     use super::*;
     use parry3d_f64::math::Vec3;
     use parry3d_f64::shape::TriMesh;
@@ -392,6 +395,7 @@ mod tests {
             target_density_error: 0.01,
             relaxation_factor: 0.5,
             min_diagonal_element: 1e-9,
+            gravity_mode: GravityMode::default(),
         }
     }
 
@@ -412,6 +416,7 @@ mod tests {
             params.fluid_viscosity,
             params.boundary_viscosity,
             params.boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         )
     }
 

@@ -19,6 +19,7 @@ use simulation_lib::sph::fluid::{Fluid, Len};
 use simulation_lib::sph::kernel::{CubicBSpline3D, KernelFn};
 use simulation_lib::sph::pressure_solver::{PressureSolver, SESPHwSplitting};
 use simulation_lib::sph::setup::input::{DynamicBoundaryDef, Parameters, StaticBoundaryDef};
+use simulation_lib::sph::{CurrentSystemProperties, GravityMode};
 use simulation_lib::utilities::triangle_mesh::MeshContainer;
 
 // ─── Fixtures / helpers ─────────────────────────────────────────────────
@@ -44,6 +45,7 @@ fn make_solver_params(stiffness: f64) -> Parameters {
         target_density_error: 0.0,
         relaxation_factor: 0.0,
         min_diagonal_element: 0.0,
+        gravity_mode: GravityMode::default(),
     }
 }
 
@@ -72,6 +74,7 @@ fn make_system_params(
             0.0,
             0.0,
             boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         )
     }
     #[cfg(feature = "cfl_time_step")]
@@ -86,6 +89,7 @@ fn make_system_params(
             0.0,
             0.0,
             boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         )
     }
 }

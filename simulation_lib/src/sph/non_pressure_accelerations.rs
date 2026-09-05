@@ -10,9 +10,10 @@ use crate::sph::fluid::Fluid;
 use crate::sph::kernel::KernelFn;
 use crate::sph::vector;
 
-use nalgebra::Vector3;
+use nalgebra::{Point3, Vector3};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use serde::Deserialize;
 
 /// reset acceleration, i. e. set it to 0.
 pub fn reset_acceleration(fluid: &mut Fluid) {
@@ -25,48 +26,80 @@ pub fn reset_acceleration(fluid: &mut Fluid) {
     );
 }
 
-/// Add gravity acceleration to all not boundary particles
-pub fn add_gravity_acceleration<B: BoundaryHandling>(fluid: &mut Fluid, boundary: &mut B) {
-    let strength_of_gravity = 9.81;
-    // gravitate downwards
-    for_each!(
-        mut [fluid.acceleration],
-        ref [],
-        |_id, id_acceleration| {
-            *id_acceleration +=  Vector3::new(0.0, 0.0, -strength_of_gravity);
-        }
-    );
-    for b in boundary.iter_mut() {
-        b.add_acceleration(Vector3::new(0.0, 0.0, -strength_of_gravity));
-    }
+/// Small regularization term (relative to the squared distance) to avoid a
+/// singular/unstable acceleration for particles very close to the
+/// gravitation center -- same style of softening already used for the
+/// denominator in `add_viscosity_acceleration`.
+const GRAVITATION_SOFTENING: f64 = 1e-4;
 
-    // // gravitate around point
-    // //
-    // /// Small regularization term (relative to the squared distance) to avoid a
-    // /// singular/unstable acceleration for particles very close to the
-    // /// gravitation center — same style of softening already used for the
-    // /// denominator in `add_viscosity_acceleration`.
-    // const GRAVITATION_SOFTENING: f64 = 1e-4;
-    // for_each!(
-    //     mut [fluid.acceleration],
-    //     ref [position = fluid.position],
-    //     |id, id_acceleration| {
-    //         use nalgebra::Point3;
-    //         let gravitation_center = Point3::new(0.0, 0.0, 0.0);
-    //         let direction = vector(&position[id], &gravitation_center);
-    //         let dist = (direction.norm_squared() + GRAVITATION_SOFTENING).sqrt();
-    //         *id_acceleration += strength_of_gravity * direction / dist;
-    //     }
-    // );
-    // for b in boundary.iter_mut() {
-    //     use nalgebra::Point3;
-    //     let gravitation_center = Point3::new(0.0, 0.0, 0.0);
-    //     if let Some(cm) = b.center_of_mass() {
-    //         let direction = vector(&cm, &gravitation_center);
-    //         let dist = (direction.norm_squared() + GRAVITATION_SOFTENING).sqrt();
-    //         b.add_acceleration(strength_of_gravity * direction / dist);
-    //     }
-    // }
+/// Selects the physical model used by `add_gravity_acceleration`.
+///
+/// ```toml
+/// [parameters]
+/// gravity_mode = { type = "Uniform" }
+/// # or:
+/// gravity_mode = { type = "Radial", center = [0.0, 0.0, 0.0] }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Default, Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+pub enum GravityMode {
+    /// Constant `-z` acceleration, uniform for every particle/boundary
+    /// regardless of position. Default -- preserves the previously-only-
+    /// available behavior for existing scene files.
+    #[default]
+    Uniform,
+    /// Radial attraction toward a fixed center point, softened near the
+    /// center via [`GRAVITATION_SOFTENING`] to avoid a singular
+    /// acceleration. Boundaries without a center of mass (static
+    /// boundaries) are skipped entirely rather than pulled toward the
+    /// center.
+    Radial {
+        /// World-space position of the attraction center, as `[x, y, z]`.
+        center: [f64; 3],
+    },
+}
+
+/// Add gravity acceleration to all fluid particles and dynamic boundaries,
+/// according to `mode`.
+pub fn add_gravity_acceleration<B: BoundaryHandling>(
+    fluid: &mut Fluid,
+    boundary: &mut B,
+    mode: GravityMode,
+) {
+    let strength_of_gravity = 9.81;
+    match mode {
+        GravityMode::Uniform => {
+            for_each!(
+                mut [fluid.acceleration],
+                ref [],
+                |_id, id_acceleration| {
+                    *id_acceleration += Vector3::new(0.0, 0.0, -strength_of_gravity);
+                }
+            );
+            for b in boundary.iter_mut() {
+                b.add_acceleration(Vector3::new(0.0, 0.0, -strength_of_gravity));
+            }
+        }
+        GravityMode::Radial { center } => {
+            let gravitation_center = Point3::new(center[0], center[1], center[2]);
+            for_each!(
+                mut [fluid.acceleration],
+                ref [position = fluid.position],
+                |id, id_acceleration| {
+                    let direction = vector(&position[id], &gravitation_center);
+                    let dist = (direction.norm_squared() + GRAVITATION_SOFTENING).sqrt();
+                    *id_acceleration += strength_of_gravity * direction / dist;
+                }
+            );
+            for b in boundary.iter_mut() {
+                if let Some(cm) = b.center_of_mass() {
+                    let direction = vector(&cm, &gravitation_center);
+                    let dist = (direction.norm_squared() + GRAVITATION_SOFTENING).sqrt();
+                    b.add_acceleration(strength_of_gravity * direction / dist);
+                }
+            }
+        }
+    }
 }
 
 /// Calculate viscosity acceleration at current time and add it to respective particles
@@ -183,6 +216,7 @@ mod tests {
                 fluid_viscosity,
                 boundary_viscosity,
                 0.0,
+                GravityMode::default(),
             )
         }
         #[cfg(feature = "cfl_time_step")]
@@ -196,6 +230,7 @@ mod tests {
                 fluid_viscosity,
                 boundary_viscosity,
                 0.0,
+                GravityMode::default(),
             )
         }
     }
@@ -466,7 +501,13 @@ mod tests {
         fluid.acceleration[0] = Vector3::zeros();
 
         let mut boundary = VolumeMapBoundary::default();
-        add_gravity_acceleration(&mut fluid, &mut boundary);
+        add_gravity_acceleration(
+            &mut fluid,
+            &mut boundary,
+            GravityMode::Radial {
+                center: [0.0, 0.0, 0.0],
+            },
+        );
 
         let direction = vector(&pos, &Point3::origin());
         let dist = (direction.norm_squared() + 1e-4).sqrt();
@@ -481,7 +522,13 @@ mod tests {
         fluid_a.position[0] = Point3::new(1.0, 0.0, 0.0);
         fluid_a.acceleration[0] = Vector3::zeros();
         let mut boundary_a = VolumeMapBoundary::default();
-        add_gravity_acceleration(&mut fluid_a, &mut boundary_a);
+        add_gravity_acceleration(
+            &mut fluid_a,
+            &mut boundary_a,
+            GravityMode::Radial {
+                center: [0.0, 0.0, 0.0],
+            },
+        );
         let gravity_only = fluid_a.acceleration[0];
 
         let mut fluid_b = fluid_with_at_least(1);
@@ -489,7 +536,13 @@ mod tests {
         let pre_existing = Vector3::new(3.0, -2.0, 1.0);
         fluid_b.acceleration[0] = pre_existing;
         let mut boundary_b = VolumeMapBoundary::default();
-        add_gravity_acceleration(&mut fluid_b, &mut boundary_b);
+        add_gravity_acceleration(
+            &mut fluid_b,
+            &mut boundary_b,
+            GravityMode::Radial {
+                center: [0.0, 0.0, 0.0],
+            },
+        );
 
         assert!((fluid_b.acceleration[0] - (pre_existing + gravity_only)).norm() < 1e-9);
     }
@@ -504,7 +557,13 @@ mod tests {
         fluid.acceleration[0] = Vector3::zeros();
 
         let mut boundary = VolumeMapBoundary::default();
-        add_gravity_acceleration(&mut fluid, &mut boundary);
+        add_gravity_acceleration(
+            &mut fluid,
+            &mut boundary,
+            GravityMode::Radial {
+                center: [0.0, 0.0, 0.0],
+            },
+        );
 
         assert!(fluid.acceleration[0].iter().all(|c| c.is_finite()));
         // direction == 0 exactly, so 0/dist == 0 regardless of dist.
@@ -520,7 +579,13 @@ mod tests {
         fluid.acceleration[1] = Vector3::zeros();
 
         let mut boundary = VolumeMapBoundary::default();
-        add_gravity_acceleration(&mut fluid, &mut boundary);
+        add_gravity_acceleration(
+            &mut fluid,
+            &mut boundary,
+            GravityMode::Radial {
+                center: [0.0, 0.0, 0.0],
+            },
+        );
 
         assert!(fluid.acceleration[0].dot(&Vector3::new(1.0, 0.0, 0.0)) < 0.0);
         assert!(fluid.acceleration[1].dot(&Vector3::new(0.0, 1.0, 0.0)) < 0.0);
@@ -537,7 +602,13 @@ mod tests {
             ..Default::default()
         });
 
-        add_gravity_acceleration(&mut fluid, &mut boundary);
+        add_gravity_acceleration(
+            &mut fluid,
+            &mut boundary,
+            GravityMode::Radial {
+                center: [0.0, 0.0, 0.0],
+            },
+        );
 
         let acc = boundary.entries[0].accumulated_acceleration;
         assert!(acc.x < 0.0, "expected pull toward the origin, got {acc:?}");
@@ -557,12 +628,51 @@ mod tests {
             ..Default::default()
         });
 
-        add_gravity_acceleration(&mut fluid, &mut boundary);
+        add_gravity_acceleration(
+            &mut fluid,
+            &mut boundary,
+            GravityMode::Radial {
+                center: [0.0, 0.0, 0.0],
+            },
+        );
 
         assert_eq!(
             boundary.entries[0].accumulated_acceleration,
             Vector3::zeros()
         );
+    }
+
+    // ─── GravityMode ─────────────────────────────────────────────────────
+
+    #[test]
+    fn gravity_mode_default_is_uniform() {
+        assert_eq!(GravityMode::default(), GravityMode::Uniform);
+    }
+
+    #[test]
+    fn gravity_uniform_mode_applies_constant_downward_acceleration_regardless_of_position() {
+        let mut fluid = fluid_with_at_least(2);
+        fluid.position[0] = Point3::new(5.0, 0.0, 0.0);
+        fluid.position[1] = Point3::new(-3.0, 7.0, 2.0);
+        fluid.acceleration[0] = Vector3::zeros();
+        fluid.acceleration[1] = Vector3::zeros();
+
+        let mut boundary = MockBoundary::default();
+        boundary.entries.push(MockBoundaryEntry {
+            center_of_mass: Some(Point3::new(100.0, 0.0, 0.0)), // dynamic, far away
+            ..Default::default()
+        });
+
+        add_gravity_acceleration(&mut fluid, &mut boundary, GravityMode::Uniform);
+
+        let expected = Vector3::new(0.0, 0.0, -9.81);
+        assert_eq!(fluid.acceleration[0], expected);
+        assert_eq!(fluid.acceleration[1], expected);
+        // Under Uniform mode, EVERY boundary receives the constant acceleration
+        // unconditionally, regardless of `center_of_mass` -- unlike Radial mode,
+        // which skips boundaries without one (see
+        // `gravity_does_not_call_add_acceleration_on_boundaries_without_a_center_of_mass`).
+        assert_eq!(boundary.entries[0].accumulated_acceleration, expected);
     }
 
     // ─── add_viscosity_acceleration: fluid-fluid ────────────────────────

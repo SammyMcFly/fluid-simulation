@@ -21,7 +21,7 @@ use simulation_lib::sph::integration_schemes::IntegrationSchemeVariant;
 use simulation_lib::sph::kernel::KernelFnVariant;
 use simulation_lib::sph::pressure_solver::PressureSolverVariant;
 use simulation_lib::sph::setup::input::{Parameters, Procedures};
-use simulation_lib::sph::{SPHSystem, SystemCheckpoint};
+use simulation_lib::sph::{GravityMode, SPHSystem, SystemCheckpoint};
 use simulation_lib::utilities::triangle_mesh::RenderMesh;
 
 // ─── Fixtures / helpers ─────────────────────────────────────────────────
@@ -47,6 +47,7 @@ fn make_parameters(rest_density_grid_spacing: f64, buffer_length_limit: usize) -
         target_density_error: 0.0,
         relaxation_factor: 0.0,
         min_diagonal_element: 0.0,
+        gravity_mode: GravityMode::default(),
     }
 }
 

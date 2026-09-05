@@ -27,6 +27,7 @@ use crate::sph::quantities::{
 };
 use crate::utilities::triangle_mesh::RenderMesh;
 use crate::utilities::vector;
+pub use non_pressure_accelerations::GravityMode;
 
 use bincode::{Decode, Encode};
 use dyn_clone::DynClone;
@@ -637,7 +638,11 @@ impl<
     /// Calculate non-pressure accelerations and add them to each particles acceleration
     fn add_non_pressure_acceleration(&mut self) {
         // add gravity acceleration
-        add_gravity_acceleration(&mut self.fluid, &mut self.boundary);
+        add_gravity_acceleration(
+            &mut self.fluid,
+            &mut self.boundary,
+            self.parameters.gravity_mode,
+        );
         // add viscosity acceleration
         add_viscosity_acceleration::<K>(
             &mut self.fluid,
@@ -798,6 +803,7 @@ pub struct SystemParameters {
     fluid_viscosity: f64,
     boundary_viscosity: f64,
     boundary_pressure_acceleration_weighting: f64,
+    gravity_mode: GravityMode,
 }
 
 impl SystemParameters {
@@ -812,6 +818,7 @@ impl SystemParameters {
         fluid_viscosity: f64,
         boundary_viscosity: f64,
         boundary_pressure_acceleration_weighting: f64,
+        gravity_mode: GravityMode,
     ) -> Self {
         Self {
             #[cfg(not(feature = "cfl_time_step"))]
@@ -835,6 +842,7 @@ impl SystemParameters {
             fluid_viscosity,
             boundary_viscosity,
             boundary_pressure_acceleration_weighting,
+            gravity_mode,
         }
     }
 
@@ -939,7 +947,16 @@ mod tests {
     fn make_test_params(rest_density_grid_spacing: f64) -> SystemParameters {
         #[cfg(not(feature = "cfl_time_step"))]
         {
-            SystemParameters::new(0.001, rest_density_grid_spacing, 0.1, -100.0, 0.0, 0.0, 0.0)
+            SystemParameters::new(
+                0.001,
+                rest_density_grid_spacing,
+                0.1,
+                -100.0,
+                0.0,
+                0.0,
+                0.0,
+                GravityMode::default(),
+            )
         }
         #[cfg(feature = "cfl_time_step")]
         {
@@ -952,6 +969,7 @@ mod tests {
                 0.0,
                 0.0,
                 0.0,
+                GravityMode::default(),
             )
         }
     }
@@ -982,6 +1000,12 @@ mod tests {
         assert_eq!(props.fluid_depth, 2.0);
     }
 
+    #[test]
+    fn new_defaults_gravity_mode_to_uniform() {
+        let params = make_test_params(0.05);
+        assert_eq!(params.gravity_mode, GravityMode::Uniform);
+    }
+
     // ─── SystemParameters::new ──────────────────────────────────────────
 
     #[test]
@@ -993,7 +1017,16 @@ mod tests {
     #[cfg(not(feature = "cfl_time_step"))]
     #[test]
     fn new_without_cfl_time_step_sets_time_increment_directly_and_zeroes_the_offset() {
-        let params = SystemParameters::new(0.002, 0.05, 0.1, -100., 0.01, 0.02, 1.0);
+        let params = SystemParameters::new(
+            0.002,
+            0.05,
+            0.1,
+            -100.,
+            0.01,
+            0.02,
+            1.0,
+            GravityMode::default(),
+        );
         assert_eq!(params.time_increment, 0.002);
         assert_eq!(params.time_offset, 0.0);
         assert_eq!(params.time_offset_steps, 0);
@@ -1002,7 +1035,17 @@ mod tests {
     #[cfg(feature = "cfl_time_step")]
     #[test]
     fn new_with_cfl_time_step_starts_time_increment_and_current_time_at_zero() {
-        let params = SystemParameters::new(0.5, 0.4, 0.05, 0.1, -100., 0.01, 0.02, 1.0);
+        let params = SystemParameters::new(
+            0.5,
+            0.4,
+            0.05,
+            0.1,
+            -100.,
+            0.01,
+            0.02,
+            1.0,
+            GravityMode::default(),
+        );
         assert_eq!(params.time_increment, 0.0);
         assert_eq!(params.current_time, 0.0);
         assert_eq!(params.max_time_increment, 0.5);
@@ -1014,7 +1057,17 @@ mod tests {
     #[cfg(feature = "cfl_time_step")]
     #[test]
     fn set_cfl_time_step_is_limited_by_the_cfl_condition_when_particles_move_fast() {
-        let mut params = SystemParameters::new(1.0, 0.5, 0.05, 0.1, -100., 0., 0., 0.);
+        let mut params = SystemParameters::new(
+            1.0,
+            0.5,
+            0.05,
+            0.1,
+            -100.,
+            0.,
+            0.,
+            0.,
+            GravityMode::default(),
+        );
         params.set_cfl_time_step(10.0);
         let expected = (0.5_f64 * 0.05 / 10.0).min(1.0);
         assert!((params.time_increment - expected).abs() < 1e-12);
@@ -1027,7 +1080,17 @@ mod tests {
     #[cfg(feature = "cfl_time_step")]
     #[test]
     fn set_cfl_time_step_is_capped_by_max_time_increment_when_particles_move_slowly() {
-        let mut params = SystemParameters::new(0.001, 0.5, 0.05, 0.1, -100., 0., 0., 0.);
+        let mut params = SystemParameters::new(
+            0.001,
+            0.5,
+            0.05,
+            0.1,
+            -100.,
+            0.,
+            0.,
+            0.,
+            GravityMode::default(),
+        );
         params.set_cfl_time_step(0.0001); // very slow -> CFL-limited step would be huge
         assert_eq!(
             params.time_increment, 0.001,

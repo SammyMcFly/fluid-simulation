@@ -562,6 +562,7 @@ impl IISPH {
 mod tests {
     use super::*;
     use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
+    use crate::sph::GravityMode;
     use crate::sph::boundary_handling::VolumeMapBoundary;
     use crate::sph::kernel::CubicBSpline3D;
     use crate::utilities::vector;
@@ -587,6 +588,7 @@ mod tests {
                 0.0,
                 0.0,
                 boundary_pressure_acceleration_weighting,
+                GravityMode::default(),
             )
         }
         #[cfg(feature = "cfl_time_step")]
@@ -600,6 +602,7 @@ mod tests {
                 0.0,
                 0.0,
                 boundary_pressure_acceleration_weighting,
+                GravityMode::default(),
             );
             p.time_increment = dt;
             p

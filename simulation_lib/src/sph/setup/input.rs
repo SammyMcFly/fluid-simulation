@@ -27,6 +27,7 @@ use std::collections::HashMap;
 
 use crate::neighbor_search::NeighborSearchVariant;
 
+use crate::sph::GravityMode;
 use crate::sph::boundary_handling::BoundaryHandlingVariant;
 use crate::sph::integration_schemes::IntegrationSchemeVariant;
 use crate::sph::kernel::KernelFnVariant;
@@ -213,6 +214,27 @@ pub struct Parameters {
     /// Controls the amount of friction at walls: `0.0` approximates a free-slip
     /// boundary, larger values approach no-slip.
     pub boundary_viscosity: f64,
+
+    /// Physical model used for gravity.
+    ///
+    /// `Uniform` applies a constant downward acceleration to every particle and
+    /// dynamic boundary, independent of position -- the behavior always used
+    /// before this field existed. `Radial` instead attracts everything toward
+    /// a fixed center point, with the same `9.81` strength, falling off with
+    /// distance and softened near the center to avoid a singular acceleration.
+    /// Static boundaries (no center of mass) are unaffected by `Radial`.
+    ///
+    /// Defaults to `Uniform` when omitted, so existing parameter files that
+    /// predate this field keep working unmodified.
+    ///
+    /// ```toml
+    /// [parameters]
+    /// gravity_mode = { type = "Uniform" }
+    /// # or:
+    /// gravity_mode = { type = "Radial", center = [0.0, 0.0, 0.0] }
+    /// ```
+    #[serde(default)]
+    pub gravity_mode: GravityMode,
 
     /// Weighting of the boundary contribution to the pressure acceleration of fluid
     /// particles.

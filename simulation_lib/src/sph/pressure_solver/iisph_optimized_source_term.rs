@@ -231,6 +231,7 @@ impl PressureSolver for IISPHwOST {
 mod tests {
     use super::*;
     use crate::neighbor_search::{NeighborList, NeighborSearch};
+    use crate::sph::GravityMode;
     use crate::sph::boundary_handling::{
         Boundary, BoundaryCheckpoint, ForceOntoBoundary, VolumeMapBoundary,
     };
@@ -266,6 +267,7 @@ mod tests {
             target_density_error,
             relaxation_factor,
             min_diagonal_element,
+            gravity_mode: GravityMode::default(),
         }
     }
 
@@ -286,6 +288,7 @@ mod tests {
             0.0,
             0.0,
             boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         );
         #[cfg(feature = "cfl_time_step")]
         let mut params = SystemParameters::new(
@@ -297,6 +300,7 @@ mod tests {
             0.0,
             0.0,
             boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         );
         params.time_increment = dt;
         params

@@ -199,6 +199,7 @@ mod tests {
     use super::*;
     use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
     use crate::render_info::BoundaryVisualization;
+    use crate::sph::GravityMode;
     use crate::sph::boundary_handling::{Boundary, BoundaryCheckpoint, VolumeMapBoundary};
     use crate::sph::fluid::Len;
     use crate::sph::kernel::CubicBSpline3D;
@@ -231,6 +232,7 @@ mod tests {
             0.0,
             0.0,
             boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         );
         #[cfg(feature = "cfl_time_step")]
         let mut params = SystemParameters::new(
@@ -242,6 +244,7 @@ mod tests {
             0.0,
             0.0,
             boundary_pressure_acceleration_weighting,
+            GravityMode::default(),
         );
         #[cfg(feature = "cfl_time_step")]
         {
