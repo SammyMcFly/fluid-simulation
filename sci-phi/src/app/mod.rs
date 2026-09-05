@@ -57,6 +57,15 @@ pub struct AppModel {
     sim_settings: SimulationSettings,
     render_template: TimeStepInfo,
     pending_visualization_reload: bool,
+    /// Set when `reload_with_current_visualization` is called again while a
+    /// previous call's reload is still in flight. Instead of stacking a second
+    /// `discard_future()` + `AddTimeStepsToCompute(buffer_length_limit)` on top
+    /// of the first one (which grows the instance buffer past its configured
+    /// limit), the second call is skipped and this flag causes a follow-up
+    /// reload once the in-flight one completes -- picking up whatever settings
+    /// are current *at that point*, not the stale ones from when the second
+    /// call came in.
+    visualization_reload_queued: bool,
     /// The plotting settings context page.
     plot_settings: PlottingSettings,
     /// The about page for this app.
@@ -269,6 +278,7 @@ impl cosmic::Application for AppModel {
             sim_settings,
             render_template: with_info,
             pending_visualization_reload: false,
+            visualization_reload_queued: false,
             plot_settings: PlottingSettings::default(),
             about,
             inspector: inspector::Inspector::new(
@@ -1067,7 +1077,6 @@ impl AppModel {
                     != BoundaryVisOption::from_template(&ts_info.boundary)
                 {
                     if !self.pending_visualization_reload {
-                        self.pending_visualization_reload = true;
                         return Some(
                             self.request_action(PendingAction::ReloadWithCurrentVisualization),
                         );
@@ -1078,6 +1087,16 @@ impl AppModel {
                     return None;
                 }
                 self.pending_visualization_reload = false;
+                if self.visualization_reload_queued {
+                    self.visualization_reload_queued = false;
+                    // A visualization/cut change came in while the previous reload was
+                    // still in flight; fire the follow-up now so the backend picks up
+                    // the latest settings instead of the ones current at the time of
+                    // that earlier (skipped) call. This step's `ts_info` is about to be
+                    // discarded by the follow-up's own `discard_future()` anyway, so
+                    // there's no point inserting it first.
+                    return Some(self.reload_with_current_visualization());
+                }
                 // Accumulate measurement
                 self.plotting_measurement_series
                     .push_back(ts_info.measurement.clone());
@@ -1244,6 +1263,17 @@ impl AppModel {
     }
 
     fn reload_with_current_visualization(&mut self) -> Task<cosmic::Action<Message>> {
+        if self.pending_visualization_reload {
+            // A reload is already in flight -- firing another one now would
+            // stack a second `discard_future()` + `AddTimeStepsToCompute(
+            // buffer_length_limit)` on top of the first, which is what grows
+            // the instance buffer past its configured limit. Defer instead:
+            // the follow-up fires once the in-flight reload's result actually
+            // arrives (see `WorkerMessage::TimeStepReady`), so it picks up
+            // whatever settings are current by then.
+            self.visualization_reload_queued = true;
+            return Task::none();
+        }
         self.pending_visualization_reload = true;
         // Rendering läuft einfach weiter; keine Unterbrechung mehr nötig, da
         // bereits geschriebene Frames durch `TooOld` ohnehin nie erneut angefasst
