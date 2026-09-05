@@ -83,7 +83,16 @@ impl PressureSolver for IISPH {
             );
         }
         // add pressure acceleration (compute from pressure)
-        add_pressure_acceleration::<K>(None, fluid, boundary, neighbor_list, params, false, false);
+        add_pressure_acceleration::<K>(
+            None,
+            fluid,
+            boundary,
+            neighbor_list,
+            params,
+            false,
+            false,
+            true,
+        );
     }
 
     fn measurement_info(&self) -> SolverMeasurementInfo {
@@ -388,6 +397,7 @@ impl IISPH {
     ///
     /// For the implementation the following document was closedly followed:
     /// Notes on  Ihmsen et al. ”Implicit Incompressible SPH” by  Matthias Teschner, University of Freiburg
+    #[allow(clippy::too_many_arguments)]
     pub fn resolve_pressure_globally<K: KernelFn>(
         &mut self,
         fluid: &mut Fluid,
@@ -420,6 +430,7 @@ impl IISPH {
                 params,
                 with_pred_positions,
                 true,
+                false,
             );
 
             // perform self iteration for all fluid particles

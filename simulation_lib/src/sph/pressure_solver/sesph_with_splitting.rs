@@ -62,7 +62,16 @@ impl PressureSolver for SESPHwSplitting {
             );
         }
         // add pressure acceleration (compute from pressure)
-        add_pressure_acceleration::<K>(None, fluid, boundary, neighbor_list, params, false, false);
+        add_pressure_acceleration::<K>(
+            None,
+            fluid,
+            boundary,
+            neighbor_list,
+            params,
+            false,
+            false,
+            true,
+        );
     }
 
     fn measurement_info(&self) -> SolverMeasurementInfo {
@@ -559,8 +568,8 @@ mod tests {
 
         let mut fluid = with_solver_slots(fluid_with_at_least(2));
         let positions = [Point3::new(0.0, 0.0, 0.0), Point3::new(0.3, 0.0, 0.0)];
-        for i in 0..2 {
-            fluid.position[i] = positions[i];
+        for (i, position) in positions.iter().enumerate() {
+            fluid.position[i] = *position;
             fluid.velocity[i] = Vector3::zeros();
             fluid.acceleration[i] = Vector3::zeros();
             fluid.mass[i] = 0.5;
@@ -580,7 +589,7 @@ mod tests {
 
         // Independently recompute density_pred (vel_pred == vel == 0 here,
         // so the divergence term vanishes) and the resulting pressure.
-        let mut expected_density_pred = vec![0.0; 2];
+        let mut expected_density_pred = [0.0; 2];
         for id in 0..2 {
             for &j in neighbor_list.get_neighbors(id) {
                 let r_vec = vector(&positions[j], &positions[id]);

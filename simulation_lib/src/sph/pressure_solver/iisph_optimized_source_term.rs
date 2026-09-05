@@ -88,6 +88,7 @@ impl PressureSolver for IISPHwOST {
                 params,
                 false,
                 true,
+                true,
             );
         }
         // println!("pressure acc eq1: {}", self.particles[200].acc());
@@ -130,6 +131,7 @@ impl PressureSolver for IISPHwOST {
                 neighbor_list,
                 params,
                 false,
+                true,
                 true,
             );
         }
@@ -228,7 +230,7 @@ impl PressureSolver for IISPHwOST {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
+    use crate::neighbor_search::{NeighborList, NeighborSearch};
     use crate::sph::boundary_handling::{
         Boundary, BoundaryCheckpoint, ForceOntoBoundary, VolumeMapBoundary,
     };
@@ -399,9 +401,9 @@ mod tests {
 
     #[derive(Debug, Clone, Copy)]
     struct RecordedForce {
-        id: usize,
-        force: Vector3<f64>,
-        force_location: Point3<f64>,
+        _id: usize,
+        _force: Vector3<f64>,
+        _force_location: Point3<f64>,
     }
 
     #[derive(Clone, Default)]
@@ -453,9 +455,9 @@ mod tests {
         }
         fn add_force_onto_boundary(&mut self, force: ForceOntoBoundary) {
             self.recorded_forces.push(RecordedForce {
-                id: force.id,
-                force: force.force,
-                force_location: force.force_location,
+                _id: force.id,
+                _force: force.force,
+                _force_location: force.force_location,
             });
         }
         fn step_forward_in_time(&mut self, _dt: f64) {}

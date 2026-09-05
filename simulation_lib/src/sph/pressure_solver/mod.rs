@@ -108,11 +108,16 @@ fn set_pred_vel_by_applying_acc(fluid: &mut Fluid, params: &SystemParameters, to
 }
 
 /// Locally calculate pressure acceleration with a state equation at current time
-/// and add it to respective samples
+/// and add it to respective samples.
 ///
-/// If `custom_target` is `None`, `fluid.acceleration` is used as the target
-/// and the result committed to `fluid.acceleration` is mirrored back onto
-/// the boundary.
+/// If `custom_target` is `None`, `fluid.acceleration` is used as the target.
+/// If `mirror_forces_onto_boundary` is `true`, the reaction force onto each
+/// *dynamic* boundary neighbor is registered via
+/// `BoundaryHandling::add_force_onto_boundary`. This is independent of
+/// `custom_target` -- e.g. an iterative solver probing an intermediate
+/// pressure field via `custom_target` still passes `false` here today, but
+/// nothing prevents a future caller from combining the two differently.
+#[allow(clippy::too_many_arguments)]
 fn add_pressure_acceleration<K: KernelFn>(
     custom_target: Option<&mut Vec<Vector3<f64>>>,
     fluid: &mut Fluid,
@@ -121,8 +126,8 @@ fn add_pressure_acceleration<K: KernelFn>(
     params: &SystemParameters,
     with_pred_positions: bool,
     overwrite: bool,
+    mirror_forces_onto_boundary: bool,
 ) {
-    let is_committed_to = custom_target.is_none();
     let target = if let Some(target) = custom_target {
         target
     } else {
@@ -164,7 +169,7 @@ fn add_pressure_acceleration<K: KernelFn>(
                         * pressure[id]
                         * K::kernel_gradient(&r_vec, params.kernel_support_radius);
 
-                    if is_committed_to && b.is_dynamic() {
+                    if mirror_forces_onto_boundary && b.is_dynamic() {
                         local_forces.push(ForceOntoBoundary {
                             id: i,
                             force,
@@ -182,7 +187,7 @@ fn add_pressure_acceleration<K: KernelFn>(
             }
         }
     );
-    if is_committed_to {
+    if mirror_forces_onto_boundary {
         for force in forces_onto_boundary {
             boundary.add_force_onto_boundary(force);
         }
@@ -480,7 +485,9 @@ mod tests {
         assert!((fluid.solver_velocity_slots[0][0] - Vector3::new(dt, 0.0, 0.0)).norm() < 1e-12);
 
         set_pred_vel_by_applying_acc(&mut fluid, &params, true);
-        assert!((fluid.solver_velocity_slots[0][0] - Vector3::new(2.0 * dt, 0.0, 0.0)).norm() < 1e-12);
+        assert!(
+            (fluid.solver_velocity_slots[0][0] - Vector3::new(2.0 * dt, 0.0, 0.0)).norm() < 1e-12
+        );
     }
 
     #[test]
@@ -507,8 +514,12 @@ mod tests {
 
         set_pred_vel_by_applying_acc(&mut fluid, &params, false);
 
-        assert!((fluid.solver_velocity_slots[0][0] - Vector3::new(1.0 + dt, 0.0, 0.0)).norm() < 1e-12);
-        assert!((fluid.solver_velocity_slots[0][1] - Vector3::new(0.0, 2.0 + dt, 0.0)).norm() < 1e-12);
+        assert!(
+            (fluid.solver_velocity_slots[0][0] - Vector3::new(1.0 + dt, 0.0, 0.0)).norm() < 1e-12
+        );
+        assert!(
+            (fluid.solver_velocity_slots[0][1] - Vector3::new(0.0, 2.0 + dt, 0.0)).norm() < 1e-12
+        );
     }
 
     // ─── add_pressure_acceleration: fluid-fluid contribution ─────────────
@@ -547,6 +558,7 @@ mod tests {
             &params,
             false, // with_pred_positions
             false, // overwrite
+            true,
         );
 
         for id in 0..3 {
@@ -587,6 +599,7 @@ mod tests {
             &params,
             false,
             true, // overwrite
+            true,
         );
 
         assert_eq!(fluid.acceleration[0], Vector3::zeros());
@@ -631,6 +644,7 @@ mod tests {
             &neighbor_list,
             &params,
             true, // with_pred_positions
+            true,
             true,
         );
 
@@ -679,6 +693,7 @@ mod tests {
             &neighbor_list,
             &params,
             false,
+            true,
             true,
         );
 
@@ -734,6 +749,7 @@ mod tests {
             &params,
             false,
             true,
+            true,
         );
 
         // The force felt BY the fluid from this boundary pair is
@@ -788,6 +804,7 @@ mod tests {
             &params,
             false,
             true,
+            false,
         );
 
         assert!(
@@ -802,6 +819,54 @@ mod tests {
         assert!(
             boundary.recorded_forces.is_empty(),
             "no reaction force must be registered while probing via a custom_target"
+        );
+    }
+
+    #[test]
+    fn add_pressure_acceleration_can_mirror_forces_even_with_a_custom_target() {
+        // Demonstrates that `mirror_forces_onto_boundary` is now decoupled from
+        // `custom_target` -- unlike before this change, a caller probing into a
+        // custom buffer can still opt into force mirroring if it wants to.
+        let h = 1.0;
+        let weighting = 1.0;
+        let params = make_params(0.1, h, 0.3, weighting);
+
+        let mut fluid = fluid_with_at_least(1);
+        fluid.position[0] = Point3::origin();
+        fluid.pressure[0] = 150.0;
+        fluid.volume[0] = 0.02;
+        fluid.mass[0] = 0.5;
+        fluid.acceleration[0] = Vector3::zeros();
+
+        let neighbor_list = NeighborList::new(fluid.len());
+        let mut boundary = MockBoundary::default();
+        boundary.entries.push(MockBoundaryEntry {
+            samples: vec![MockSample {
+                position: Point3::new(0.2, 0.0, 0.0),
+                velocity: Vector3::zeros(),
+                volume: 0.01,
+            }],
+            neighbors_normal: vec![vec![0]],
+            center_of_mass: Some(Point3::new(5.0, 0.0, 0.0)), // dynamic
+            ..Default::default()
+        });
+
+        let mut custom_target = vec![Vector3::zeros(); fluid.len()];
+        add_pressure_acceleration::<CubicBSpline3D>(
+            Some(&mut custom_target),
+            &mut fluid,
+            &mut boundary,
+            &neighbor_list,
+            &params,
+            false,
+            true,
+            true, // mirror forces despite using a custom_target
+        );
+
+        assert_eq!(
+            boundary.recorded_forces.len(),
+            1,
+            "mirroring must now work regardless of custom_target"
         );
     }
 
@@ -844,6 +909,7 @@ mod tests {
             &neighbor_list,
             &params,
             true, // with_pred_positions — irrelevant here since both are equal
+            true,
             true,
         );
 

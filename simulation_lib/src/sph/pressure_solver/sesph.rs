@@ -54,7 +54,16 @@ impl PressureSolver for SESPH {
             );
         }
         // add pressure acceleration (compute from pressure)
-        add_pressure_acceleration::<K>(None, fluid, boundary, neighbor_list, params, false, false);
+        add_pressure_acceleration::<K>(
+            None,
+            fluid,
+            boundary,
+            neighbor_list,
+            params,
+            false,
+            false,
+            true,
+        );
     }
 
     fn measurement_info(&self) -> SolverMeasurementInfo {

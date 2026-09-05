@@ -61,6 +61,7 @@ pub fn get_volume<K: KernelFn>(
 }
 
 /// Calculate and set speed for all positions at the current point in time
+#[allow(clippy::too_many_arguments)]
 pub fn get_speed<K: KernelFn>(
     speed: &mut Vec<f64>,
     position_eval: &Vec<Point3<f64>>,
@@ -283,6 +284,7 @@ pub fn get_pressure<K: KernelFn>(
 }
 
 /// Calculate and set speed for all positions at the current point in time
+#[allow(clippy::too_many_arguments)]
 pub fn get_kinetic_energy<K: KernelFn>(
     kinetic_energy: &mut Vec<f64>,
     position_eval: &Vec<Point3<f64>>,
