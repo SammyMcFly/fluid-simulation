@@ -9,6 +9,8 @@ impl IntegrationScheme for TakePredicted {
     const POSITION_SLOTS: usize = 1;
     const VELOCITY_SLOTS: usize = 1;
 
+    const COMMITS_SOLVER_PREDICTION: bool = true;
+
     fn integrate(&mut self, fluid: &mut Fluid, _dt: f64) {
         debug_assert_eq!(
             fluid.integrator_position_slots.len(),

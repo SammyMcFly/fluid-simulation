@@ -39,9 +39,10 @@ pub struct IISPHwOST {
 }
 
 impl PressureSolver for IISPHwOST {
-    const SUPPORTS_DYNAMIC_BOUNDARIES: bool = false;
     const POSITION_SLOTS: usize = 1;
     const VELOCITY_SLOTS: usize = 1;
+    const MANAGES_OWN_INTEGRATION: bool = true;
+    const SUPPORTS_DYNAMIC_BOUNDARIES: bool = false;
 
     fn new(params: &Parameters) -> Self {
         Self {
@@ -203,8 +204,6 @@ impl PressureSolver for IISPHwOST {
         // resulting in the velocity and position predictions
         // Those predicted positions and velocities are commited to in the TakePredicted
         // integration scheme, which is the mandatory pairing with this solver type.
-        debug_assert_eq!(fluid.integrator_position_slots.len(), 1);
-        debug_assert_eq!(fluid.integrator_velocity_slots.len(), 1);
         std::mem::swap(
             &mut fluid.integrator_position_slots[0],
             &mut fluid.solver_position_slots[0],

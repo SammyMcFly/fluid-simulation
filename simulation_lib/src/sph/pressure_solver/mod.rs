@@ -35,6 +35,18 @@ pub enum PressureSolverVariant {
 }
 
 pub trait PressureSolver: Send + Sync + Clone {
+    /// Number of `Fluid::solver_position_slots` this solver requires.
+    const POSITION_SLOTS: usize = 0;
+    /// Number of `Fluid::solver_velocity_slots` this solver requires.
+    const VELOCITY_SLOTS: usize = 0;
+
+    /// Whether this solver stages its final result into `Fluid`'s generic
+    /// `solver_position_slots`/`solver_velocity_slots` for a paired
+    /// `IntegrationScheme` to commit (via `COMMITS_SOLVER_PREDICTION`),
+    /// rather than only ever writing `fluid.acceleration`. Checked in
+    /// `SystemConstructor::new`.
+    const MANAGES_OWN_INTEGRATION: bool = false;
+
     /// Whether this solver correctly supports two-way coupling with
     /// *dynamic* (rigid-body) boundaries.
     ///
@@ -43,11 +55,6 @@ pub trait PressureSolver: Send + Sync + Clone {
     /// build a system pairing such a solver with a scene that defines at
     /// least one dynamic boundary.
     const SUPPORTS_DYNAMIC_BOUNDARIES: bool = true;
-
-    /// Number of `Fluid::solver_position_slots` this solver requires.
-    const POSITION_SLOTS: usize = 0;
-    /// Number of `Fluid::solver_velocity_slots` this solver requires.
-    const VELOCITY_SLOTS: usize = 0;
 
     fn new(params: &Parameters) -> Self;
 

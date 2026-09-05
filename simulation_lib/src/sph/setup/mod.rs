@@ -50,6 +50,15 @@ pub enum SetupError {
     )]
     UndefinedFluidId(u32),
 
+    #[error(
+        "pairing mismatch between pressure solver and integration scheme: exactly one \
+     of them expects to hand off/receive a predicted position and velocity via \
+     `Fluid`'s solver/integrator slots. Pair a solver with \
+     `MANAGES_OWN_INTEGRATION == true` (e.g. IISPHwOST) with a scheme that has \
+     `COMMITS_SOLVER_PREDICTION == true` (e.g. TakePredicted), and vice versa"
+    )]
+    IncompatibleIntegrationPairing,
+
     /// The selected [`Procedures::pressure_solver`](super::input::Procedures::pressure_solver)
     /// does not correctly support two-way coupling with dynamic boundaries
     /// (see [`PressureSolver::SUPPORTS_DYNAMIC_BOUNDARIES`](crate::sph::pressure_solver::PressureSolver::SUPPORTS_DYNAMIC_BOUNDARIES)),
@@ -201,6 +210,10 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             params.kernel_support_radius,
             params.boundary_rest_volume_weighting,
         );
+
+        if P::MANAGES_OWN_INTEGRATION != I::COMMITS_SOLVER_PREDICTION {
+            return Err(SetupError::IncompatibleIntegrationPairing);
+        }
 
         // Reject pressure-solver/boundary combinations known to produce incorrect
         // fluid-boundary coupling — see `PressureSolver::SUPPORTS_DYNAMIC_BOUNDARIES`.
