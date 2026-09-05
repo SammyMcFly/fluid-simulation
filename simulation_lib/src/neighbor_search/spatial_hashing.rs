@@ -105,21 +105,22 @@ impl SpatialHashing {
 
 impl NeighborSearch for SpatialHashing {
     /// Initialize spatial hashing with given cell size.
-    fn new(within_range: f64) -> Self {
-        // # Performance guidance
-        //
-        // `cell_size` should be close to the search range (`within_range`) passed to
-        // `find_neighbors`. Specifically:
-        //
-        // - **`cell_size ≈ within_range`** → searches a 3×3×3 = 27 cell neighborhood (optimal)
-        // - **`cell_size ≈ within_range / 2`** → searches a 5×5×5 = 125 cell neighborhood (fewer false positives, more overhead)
-        // - **`cell_size >> within_range`** → few cells searched, but each cell contains many
-        //   particles that fail the distance check
-        //
-        // A good default is `cell_size = within_range`
+    ///
+    /// # Performance guidance
+    ///
+    /// `cell_size` should be close to the search range (`search_range`) passed to
+    /// `find_neighbors`. Specifically:
+    ///
+    /// - **`cell_size ≈ search_range`** → searches a 3×3×3 = 27 cell neighborhood (optimal)
+    /// - **`cell_size ≈ search_range / 2`** → searches a 5×5×5 = 125 cell neighborhood (fewer false positives, more overhead)
+    /// - **`cell_size >> search_range`** → few cells searched, but each cell contains many
+    ///   particles that fail the distance check
+    ///
+    /// A good default is `cell_size = search_range`
+    fn new(search_range: f64) -> Self {
         Self {
             cells: FxHashMap::default(),
-            cell_size: within_range,
+            cell_size: search_range,
         }
     }
 
@@ -128,7 +129,7 @@ impl NeighborSearch for SpatialHashing {
     /// Adds fluid neighbors and boundary neighbors as neighbors
     fn find_samples(
         &mut self,
-        within_range: f64,
+        search_range: f64,
         positions: &[Point3<f64>],
         sample_positions: &[Point3<f64>],
         neighbor_list: &mut super::NeighborList,
@@ -148,7 +149,7 @@ impl NeighborSearch for SpatialHashing {
                         &pos[id],
                         neighbor_pos,
                         self.cell_size,
-                        within_range,
+                        search_range,
                     );
                     *id_neighbors = neighbors;
                 }
