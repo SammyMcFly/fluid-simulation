@@ -341,6 +341,8 @@ fn system_constructor_resumes_time_bookkeeping_and_fluid_state_from_a_saved_stat
             position: vec![[0.1, 0.2, 0.3]],
             velocity: vec![[0.0, 0.0, 0.0]],
             mass: vec![1.0],
+            integrator_position_slots: vec![],
+            integrator_velocity_slots: vec![],
         },
         boundary: SerBoundaryCheckpoint {
             dynamic_states: vec![], // no boundaries in this scene

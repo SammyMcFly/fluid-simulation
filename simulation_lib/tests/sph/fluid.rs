@@ -25,6 +25,7 @@ fn make_fluid(
         position: positions,
         velocity: velocities,
         mass: masses,
+        ..Default::default()
     }
     .into()
 }
@@ -92,15 +93,18 @@ fn fluid_from_checkpoint_resets_derived_fields() {
 }
 
 #[test]
-fn fluid_from_checkpoint_leaves_slot_pools_empty() {
+fn fluid_from_checkpoint_leaves_solver_slots_empty_regardless_of_input() {
+    // Unlike `integrator_*_slots` (which `FluidCheckpoint` now carries and
+    // restores -- see the tests below), `solver_*_slots` have no
+    // corresponding field on `FluidCheckpoint` at all, so they come back
+    // empty unconditionally, by construction, not just because this
+    // particular checkpoint happened not to set them.
     let fluid = make_fluid(
         vec![pos(1.0, 2.0, 3.0)],
         vec![vel(1.0, 1.0, 1.0)],
         vec![5.0],
     );
 
-    assert!(fluid.integrator_position_slots.is_empty());
-    assert!(fluid.integrator_velocity_slots.is_empty());
     assert!(fluid.solver_position_slots.is_empty());
     assert!(fluid.solver_velocity_slots.is_empty());
 }
@@ -166,6 +170,7 @@ fn fluid_disable_swaps_fluid_id() {
         position: vec![pos(1.0, 0.0, 0.0), pos(2.0, 0.0, 0.0), pos(3.0, 0.0, 0.0)],
         velocity: vec![Vector3::zeros(); 3],
         mass: vec![1.0, 2.0, 3.0],
+        ..Default::default()
     }
     .into();
     let mut fluid = fluid;
@@ -326,6 +331,7 @@ fn fluid_checkpoint_from_ser_fluid_checkpoint() {
         position: vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
         velocity: vec![[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
         mass: vec![7.0, 8.0],
+        ..Default::default()
     };
 
     let checkpoint: FluidCheckpoint = ser.into();
@@ -349,6 +355,7 @@ fn ser_fluid_checkpoint_from_fluid_checkpoint() {
         position: vec![pos(1.0, 2.0, 3.0), pos(4.0, 5.0, 6.0)],
         velocity: vec![vel(0.1, 0.2, 0.3), vel(0.4, 0.5, 0.6)],
         mass: vec![5.0, 6.0],
+        ..Default::default()
     };
 
     let ser: SerFluidCheckpoint = checkpoint.into();
@@ -366,6 +373,7 @@ fn fluid_checkpoint_roundtrip() {
         position: vec![pos(1.0, 2.0, 3.0), pos(4.0, 5.0, 6.0)],
         velocity: vec![vel(0.5, 0.5, 0.5), vel(1.0, 1.0, 1.0)],
         mass: vec![2.0, 3.0],
+        ..Default::default()
     };
 
     let fluid: Fluid = checkpoint.clone().into();
@@ -384,6 +392,7 @@ fn fluid_full_roundtrip_via_ser_fluid_checkpoint() {
         position: vec![pos(1.0, 2.0, 3.0)],
         velocity: vec![vel(0.5, 0.5, 0.5)],
         mass: vec![2.0],
+        ..Default::default()
     }
     .into();
 
@@ -395,6 +404,210 @@ fn fluid_full_roundtrip_via_ser_fluid_checkpoint() {
     assert_eq!(restored.position, fluid.position);
     assert_eq!(restored.velocity, fluid.velocity);
     assert_eq!(restored.mass, fluid.mass);
+}
+
+// ─── FluidCheckpoint: integrator slot persistence ──────────────────
+
+#[test]
+fn fluid_to_checkpoint_captures_populated_integrator_slots() {
+    let mut fluid = make_fluid(
+        vec![pos(1.0, 0.0, 0.0), pos(2.0, 0.0, 0.0)],
+        vec![Vector3::zeros(); 2],
+        vec![1.0, 1.0],
+    );
+    fluid.resize_slots(1, 1, 0, 0);
+    fluid.integrator_position_slots[0] = vec![pos(9.0, 0.0, 0.0), pos(9.0, 1.0, 0.0)];
+    fluid.integrator_velocity_slots[0] = vec![vel(1.0, 2.0, 3.0), vel(4.0, 5.0, 6.0)];
+
+    let checkpoint: FluidCheckpoint = fluid.into();
+
+    assert_eq!(
+        checkpoint.integrator_position_slots,
+        vec![vec![pos(9.0, 0.0, 0.0), pos(9.0, 1.0, 0.0)]]
+    );
+    assert_eq!(
+        checkpoint.integrator_velocity_slots,
+        vec![vec![vel(1.0, 2.0, 3.0), vel(4.0, 5.0, 6.0)]]
+    );
+}
+
+#[test]
+fn fluid_from_checkpoint_restores_integrator_slots_directly() {
+    let checkpoint = FluidCheckpoint {
+        fluid_id: vec![0],
+        position: vec![pos(1.0, 0.0, 0.0)],
+        velocity: vec![vel(0.0, 0.0, 0.0)],
+        mass: vec![1.0],
+        integrator_position_slots: vec![vec![pos(5.0, 0.0, 0.0)]],
+        integrator_velocity_slots: vec![vec![vel(6.0, 0.0, 0.0)]],
+    };
+
+    let fluid: Fluid = checkpoint.into();
+
+    assert_eq!(
+        fluid.integrator_position_slots,
+        vec![vec![pos(5.0, 0.0, 0.0)]]
+    );
+    assert_eq!(
+        fluid.integrator_velocity_slots,
+        vec![vec![vel(6.0, 0.0, 0.0)]]
+    );
+    assert!(fluid.solver_position_slots.is_empty());
+    assert!(fluid.solver_velocity_slots.is_empty());
+}
+
+#[test]
+fn fluid_checkpoint_round_trip_drops_solver_slots_regardless_of_content() {
+    // The actual "shouldn't be persisted" behavior, demonstrated
+    // end-to-end: populate ALL four pools with distinct, recognizable
+    // values, round-trip through `FluidCheckpoint`, and confirm
+    // integrator slots survive while solver slots are unconditionally
+    // reset -- not because they happened to be unset, but because
+    // `FluidCheckpoint` has no field to carry them through at all.
+    let mut fluid = make_fluid(vec![pos(1.0, 0.0, 0.0)], vec![Vector3::zeros()], vec![1.0]);
+    fluid.resize_slots(1, 1, 1, 1);
+    fluid.integrator_position_slots[0][0] = pos(9.0, 0.0, 0.0);
+    fluid.integrator_velocity_slots[0][0] = vel(9.0, 0.0, 0.0);
+    fluid.solver_position_slots[0][0] = pos(-1.0, -1.0, -1.0);
+    fluid.solver_velocity_slots[0][0] = vel(-1.0, -1.0, -1.0);
+
+    let checkpoint: FluidCheckpoint = fluid.into();
+    let restored: Fluid = checkpoint.into();
+
+    assert_eq!(restored.integrator_position_slots[0][0], pos(9.0, 0.0, 0.0));
+    assert_eq!(restored.integrator_velocity_slots[0][0], vel(9.0, 0.0, 0.0));
+    assert!(restored.solver_position_slots.is_empty());
+    assert!(restored.solver_velocity_slots.is_empty());
+}
+
+#[test]
+fn fluid_checkpoint_round_trip_preserves_multiple_integrator_slots_independently() {
+    // No `IntegrationScheme` today declares more than 1 position/velocity
+    // slot, but the conversions iterate the outer `Vec` generically --
+    // this catches an off-by-one, slot-order swap, or accidental
+    // zip-to-shortest-length bug that a single-slot test could hide.
+    let mut fluid = make_fluid(
+        vec![pos(1.0, 0.0, 0.0), pos(2.0, 0.0, 0.0)],
+        vec![Vector3::zeros(); 2],
+        vec![1.0, 1.0],
+    );
+    fluid.resize_slots(2, 2, 0, 0);
+    fluid.integrator_position_slots[0] = vec![pos(1.1, 0.0, 0.0), pos(1.2, 0.0, 0.0)];
+    fluid.integrator_position_slots[1] = vec![pos(2.1, 0.0, 0.0), pos(2.2, 0.0, 0.0)];
+    fluid.integrator_velocity_slots[0] = vec![vel(1.0, 0.0, 0.0), vel(2.0, 0.0, 0.0)];
+    fluid.integrator_velocity_slots[1] = vec![vel(3.0, 0.0, 0.0), vel(4.0, 0.0, 0.0)];
+
+    let checkpoint: FluidCheckpoint = fluid.clone().into();
+    let restored: Fluid = checkpoint.into();
+
+    assert_eq!(
+        restored.integrator_position_slots,
+        fluid.integrator_position_slots
+    );
+    assert_eq!(
+        restored.integrator_velocity_slots,
+        fluid.integrator_velocity_slots
+    );
+}
+
+#[test]
+fn fluid_checkpoint_round_trip_with_zero_integrator_slots_does_not_panic() {
+    // E.g. `EulerCromer`/`ExplicitEuler`, which declare
+    // `POSITION_SLOTS == VELOCITY_SLOTS == 0` -- confirms the
+    // `.iter().map(...).collect()` chains in the `Ser` conversions handle
+    // an empty outer `Vec` without panicking or misbehaving.
+    let mut fluid = make_fluid(vec![pos(1.0, 0.0, 0.0)], vec![Vector3::zeros()], vec![1.0]);
+    fluid.resize_slots(0, 0, 0, 0);
+
+    let checkpoint: FluidCheckpoint = fluid.into();
+    let ser: SerFluidCheckpoint = checkpoint.into();
+    let restored_checkpoint: FluidCheckpoint = ser.into();
+    let restored: Fluid = restored_checkpoint.into();
+
+    assert!(restored.integrator_position_slots.is_empty());
+    assert!(restored.integrator_velocity_slots.is_empty());
+}
+
+#[test]
+fn fluid_checkpoint_to_ser_fluid_checkpoint_converts_integrator_slots_to_arrays() {
+    let checkpoint = FluidCheckpoint {
+        fluid_id: vec![0],
+        position: vec![pos(1.0, 0.0, 0.0)],
+        velocity: vec![vel(0.0, 0.0, 0.0)],
+        mass: vec![1.0],
+        integrator_position_slots: vec![vec![pos(1.0, 2.0, 3.0)]],
+        integrator_velocity_slots: vec![vec![vel(4.0, 5.0, 6.0)]],
+    };
+
+    let ser: SerFluidCheckpoint = checkpoint.into();
+
+    assert_eq!(ser.integrator_position_slots, vec![vec![[1.0, 2.0, 3.0]]]);
+    assert_eq!(ser.integrator_velocity_slots, vec![vec![[4.0, 5.0, 6.0]]]);
+}
+
+#[test]
+fn ser_fluid_checkpoint_to_fluid_checkpoint_converts_integrator_slots_from_arrays() {
+    let ser = SerFluidCheckpoint {
+        fluid_id: vec![0],
+        position: vec![[1.0, 0.0, 0.0]],
+        velocity: vec![[0.0, 0.0, 0.0]],
+        mass: vec![1.0],
+        integrator_position_slots: vec![vec![[1.0, 2.0, 3.0]]],
+        integrator_velocity_slots: vec![vec![[4.0, 5.0, 6.0]]],
+    };
+
+    let checkpoint: FluidCheckpoint = ser.into();
+
+    assert_eq!(
+        checkpoint.integrator_position_slots,
+        vec![vec![pos(1.0, 2.0, 3.0)]]
+    );
+    assert_eq!(
+        checkpoint.integrator_velocity_slots,
+        vec![vec![vel(4.0, 5.0, 6.0)]]
+    );
+}
+
+#[test]
+fn fluid_checkpoint_default_has_empty_integrator_slots() {
+    let checkpoint = FluidCheckpoint::default();
+    assert!(checkpoint.integrator_position_slots.is_empty());
+    assert!(checkpoint.integrator_velocity_slots.is_empty());
+}
+
+#[test]
+fn ser_fluid_checkpoint_default_has_empty_integrator_slots() {
+    let ser = SerFluidCheckpoint::default();
+    assert!(ser.integrator_position_slots.is_empty());
+    assert!(ser.integrator_velocity_slots.is_empty());
+}
+
+#[test]
+fn fluid_full_roundtrip_via_ser_fluid_checkpoint_preserves_integrator_slots() {
+    // Regression test for the actual bug motivating this feature: before
+    // `integrator_position_slots`/`integrator_velocity_slots` existed on
+    // `FluidCheckpoint`, an integrator like `Verlet` (which stores x(t-1)
+    // in `integrator_position_slots[0]`, read on every subsequent
+    // `integrate()` call) would silently lose that history across a saved
+    // `--state` file, restarting as if x(t-1) == the particle's current
+    // position -- i.e. as if it had zero velocity at the moment of resume.
+    let mut fluid = make_fluid(
+        vec![pos(1.0, 0.0, 0.0), pos(2.0, 0.0, 0.0)],
+        vec![vel(0.5, 0.0, 0.0), vel(-0.5, 0.0, 0.0)],
+        vec![1.0, 1.0],
+    );
+    fluid.resize_slots(1, 0, 0, 0); // mirrors Verlet: 1 position slot, 0 velocity slots
+    fluid.integrator_position_slots[0] = vec![pos(0.9, 0.0, 0.0), pos(2.1, 0.0, 0.0)];
+
+    let ser: SerFluidCheckpoint = FluidCheckpoint::from(fluid.clone()).into();
+    let restored: Fluid = FluidCheckpoint::from(ser).into();
+
+    assert_eq!(
+        restored.integrator_position_slots, fluid.integrator_position_slots,
+        "x(t-1) must survive a save/restore cycle, or Verlet silently \
+         behaves as if the particle had zero velocity at resume"
+    );
+    assert!(restored.integrator_velocity_slots.is_empty());
 }
 
 // ─── reconstruct_surfaces ──────────────────────────────────────────

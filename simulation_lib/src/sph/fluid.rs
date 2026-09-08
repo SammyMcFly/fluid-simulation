@@ -118,10 +118,14 @@ impl Fluid {
         pressure_solver_velocity_slots: usize,
     ) {
         let len = self.total_len();
-        self.integrator_position_slots = vec![vec![Point3::origin(); len]; integrator_position_slots];
-        self.integrator_velocity_slots = vec![vec![Vector3::zeros(); len]; integrator_velocity_slots];
-        self.solver_position_slots = vec![vec![Point3::origin(); len]; pressure_solver_position_slots];
-        self.solver_velocity_slots = vec![vec![Vector3::zeros(); len]; pressure_solver_velocity_slots];
+        self.integrator_position_slots =
+            vec![vec![Point3::origin(); len]; integrator_position_slots];
+        self.integrator_velocity_slots =
+            vec![vec![Vector3::zeros(); len]; integrator_velocity_slots];
+        self.solver_position_slots =
+            vec![vec![Point3::origin(); len]; pressure_solver_position_slots];
+        self.solver_velocity_slots =
+            vec![vec![Vector3::zeros(); len]; pressure_solver_velocity_slots];
     }
 
     fn extend(&mut self, other: Self) {
@@ -350,6 +354,8 @@ pub struct FluidCheckpoint {
     pub position: Vec<Point3<f64>>,
     pub velocity: Vec<Vector3<f64>>,
     pub mass: Vec<f64>,
+    pub integrator_position_slots: Vec<Vec<Point3<f64>>>,
+    pub integrator_velocity_slots: Vec<Vec<Vector3<f64>>>,
 }
 
 impl From<Fluid> for FluidCheckpoint {
@@ -359,6 +365,8 @@ impl From<Fluid> for FluidCheckpoint {
             position: fluid.position,
             velocity: fluid.velocity,
             mass: fluid.mass,
+            integrator_position_slots: fluid.integrator_position_slots,
+            integrator_velocity_slots: fluid.integrator_velocity_slots,
         }
     }
 }
@@ -377,8 +385,8 @@ impl From<FluidCheckpoint> for Fluid {
             pressure: vec![0.; len],
             // Left empty on purpose -- sized via `resize_slots` once `I`/`P`
             // are known; see `SPHSystem::continue_from_checkpoint`.
-            integrator_position_slots: Vec::new(),
-            integrator_velocity_slots: Vec::new(),
+            integrator_position_slots: fluid_checkpoint.integrator_position_slots,
+            integrator_velocity_slots: fluid_checkpoint.integrator_velocity_slots,
             solver_position_slots: Vec::new(),
             solver_velocity_slots: Vec::new(),
         }
@@ -393,6 +401,8 @@ pub struct SerFluidCheckpoint {
     pub position: Vec<[f64; 3]>,
     pub velocity: Vec<[f64; 3]>,
     pub mass: Vec<f64>,
+    pub integrator_position_slots: Vec<Vec<[f64; 3]>>,
+    pub integrator_velocity_slots: Vec<Vec<[f64; 3]>>,
 }
 
 impl From<FluidCheckpoint> for SerFluidCheckpoint {
@@ -402,6 +412,16 @@ impl From<FluidCheckpoint> for SerFluidCheckpoint {
             position: fluid.position.iter().map(|pos| (*pos).into()).collect(),
             velocity: fluid.velocity.iter().map(|vel| (*vel).into()).collect(),
             mass: fluid.mass,
+            integrator_position_slots: fluid
+                .integrator_position_slots
+                .iter()
+                .map(|slot| slot.iter().map(|pos| (*pos).into()).collect())
+                .collect(),
+            integrator_velocity_slots: fluid
+                .integrator_velocity_slots
+                .iter()
+                .map(|slot| slot.iter().map(|vel| (*vel).into()).collect())
+                .collect(),
         }
     }
 }
@@ -413,6 +433,16 @@ impl From<SerFluidCheckpoint> for FluidCheckpoint {
             position: ser_fluid.position.iter().map(|pos| (*pos).into()).collect(),
             velocity: ser_fluid.velocity.iter().map(|vel| (*vel).into()).collect(),
             mass: ser_fluid.mass,
+            integrator_position_slots: ser_fluid
+                .integrator_position_slots
+                .iter()
+                .map(|slot| slot.iter().map(|pos| (*pos).into()).collect())
+                .collect(),
+            integrator_velocity_slots: ser_fluid
+                .integrator_velocity_slots
+                .iter()
+                .map(|slot| slot.iter().map(|vel| (*vel).into()).collect())
+                .collect(),
         }
     }
 }
@@ -530,10 +560,22 @@ mod tests {
         assert_eq!(fluid.mass, vec![2., 1.]);
         assert_eq!(fluid.volume, vec![0.2, 0.1]);
         assert_eq!(fluid.pressure, vec![200., 100.]);
-        assert_eq!(fluid.integrator_position_slots[0], vec![pos(2.1, 0., 0.), pos(1.1, 0., 0.)]);
-        assert_eq!(fluid.integrator_velocity_slots[0], vec![vel(2.2, 0., 0.), vel(1.2, 0., 0.)]);
-        assert_eq!(fluid.solver_position_slots[0], vec![pos(2.3, 0., 0.), pos(1.3, 0., 0.)]);
-        assert_eq!(fluid.solver_velocity_slots[0], vec![vel(2.4, 0., 0.), vel(1.4, 0., 0.)]);
+        assert_eq!(
+            fluid.integrator_position_slots[0],
+            vec![pos(2.1, 0., 0.), pos(1.1, 0., 0.)]
+        );
+        assert_eq!(
+            fluid.integrator_velocity_slots[0],
+            vec![vel(2.2, 0., 0.), vel(1.2, 0., 0.)]
+        );
+        assert_eq!(
+            fluid.solver_position_slots[0],
+            vec![pos(2.3, 0., 0.), pos(1.3, 0., 0.)]
+        );
+        assert_eq!(
+            fluid.solver_velocity_slots[0],
+            vec![vel(2.4, 0., 0.), vel(1.4, 0., 0.)]
+        );
     }
 
     #[test]

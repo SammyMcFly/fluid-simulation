@@ -1109,6 +1109,8 @@ mod tests {
                 position: vec![Point3::new(1.0, 2.0, 3.0), Point3::new(4.0, 5.0, 6.0)],
                 velocity: vec![Vector3::new(0.1, 0.0, 0.0), Vector3::zeros()],
                 mass: vec![1.0, 1.5],
+                integrator_position_slots: vec![],
+                integrator_velocity_slots: vec![],
             },
             boundary: BoundaryCheckpoint {
                 dynamic_states: vec![None],
