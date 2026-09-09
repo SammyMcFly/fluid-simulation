@@ -38,6 +38,7 @@ pub trait BoundaryHandling: Send + Sync + Clone {
         boundary: &StaticBoundaryDef,
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
+        progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     );
 
     fn add_dynamic_boundary(
@@ -46,6 +47,7 @@ pub trait BoundaryHandling: Send + Sync + Clone {
         boundary: &DynamicBoundaryDef,
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
+        progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     );
 
     fn initialize<K: KernelFn>(

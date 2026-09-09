@@ -336,6 +336,7 @@ mod tests {
             _boundary: &crate::sph::setup::input::StaticBoundaryDef,
             _r: f64,
             _k: f64,
+            _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
         ) {
             unimplemented!("not exercised by SESPHwSplitting tests")
         }
@@ -345,6 +346,7 @@ mod tests {
             _boundary: &crate::sph::setup::input::DynamicBoundaryDef,
             _r: f64,
             _k: f64,
+            _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
         ) {
             unimplemented!("not exercised by SESPHwSplitting tests")
         }

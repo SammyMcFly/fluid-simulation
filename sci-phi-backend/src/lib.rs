@@ -3,6 +3,7 @@ pub mod commands;
 pub mod messages;
 pub mod recording;
 
+use crate::messages::ProgressType;
 use crate::recording::{FileIoError, save_screenshot_into_directory, save_screenshot_to_file};
 use commands::WorkerCommand;
 use messages::WorkerMessage;
@@ -14,7 +15,8 @@ use simulation_lib::sph::setup::SetupError;
 use simulation_lib::sph::setup::input::{ConfigError, ParameterFile, Scene};
 use simulation_lib::sph::setup::new_boxed_system3d;
 use simulation_lib::sph::{SPHSystem, SystemCheckpoint};
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// Errors that can occur while loading, controlling, or recording a
@@ -48,7 +50,7 @@ pub enum SimulationError {
 struct Simulation {
     // initial_system: sph::System,
     system: Box<dyn SPHSystem>,
-    checkpoints: Vec<Rc<SystemCheckpoint>>,
+    checkpoints: Vec<Arc<SystemCheckpoint>>,
     parameters: SimulationParameters,
     render_preset: TimeStepInfo,
     measurement_series: Option<MeasurementSeries>,
@@ -76,6 +78,7 @@ impl Simulation {
     /// Try to load simulation and return initial state
     fn load(
         simulation_load_info: &SimulationLoadInfo,
+        progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) -> Result<(TimeStepInfo, Simulation), SimulationError> {
         let ParameterFile {
             procedures,
@@ -88,11 +91,14 @@ impl Simulation {
             &parameters,
             &scene,
             simulation_load_info.state_file_path.as_deref(),
+            progress_cb,
         )?;
 
         let state_saver_system = dyn_clone::clone_box(&*initial_system);
 
-        let checkpoints = vec![Rc::new(SystemCheckpoint::from_sph_system(&*initial_system))];
+        let checkpoints = vec![Arc::new(SystemCheckpoint::from_sph_system(
+            &*initial_system,
+        ))];
 
         let sim_info = SimulationParameters::new(
             &procedures,
@@ -189,7 +195,7 @@ impl Simulation {
                 .expect("Value too large for usize");
             if idx == self.checkpoints.len() {
                 self.checkpoints
-                    .push(Rc::new(SystemCheckpoint::from_sph_system(&*self.system)));
+                    .push(Arc::new(SystemCheckpoint::from_sph_system(&*self.system)));
             }
         }
         time_step_info
@@ -343,14 +349,18 @@ struct SimulationController {
 }
 
 impl SimulationController {
-    /// Try to load simulation and return initial state
-    fn load_simulation(
+    /// Applies the result of an out-of-thread `Simulation::load(...)` call
+    /// (see `worker_loop`) to this controller. Replaces the former
+    /// synchronous `load_simulation`, which is no longer needed now that
+    /// the actual loading happens on a background thread.
+    fn apply_load_result(
         &mut self,
-        simulation_load_info: SimulationLoadInfo,
+        load_info: SimulationLoadInfo,
+        result: Result<(TimeStepInfo, Simulation), SimulationError>,
     ) -> Result<TimeStepInfo, SimulationError> {
         self.timesteps_to_compute = 0;
-        self.simulation_load_info = Some(simulation_load_info);
-        match Simulation::load(self.simulation_load_info.as_ref().unwrap()) {
+        self.simulation_load_info = Some(load_info);
+        match result {
             Ok((initial_state, sim)) => {
                 self.simulation = Some(sim);
                 Ok(initial_state)
@@ -450,12 +460,40 @@ impl SimulationController {
     }
 }
 
+/// Outcome of a `Simulation::load(...)` call performed on a background
+/// thread (see `WorkerCommand::Simulate`/`Reload` below). Sent over an
+/// internal channel -- NOT `to_ui` -- since it carries the full
+/// `Simulation`, which the frontend should never see directly.
+enum LoadOutcome {
+    Simulate {
+        generation: u64,
+        load_info: SimulationLoadInfo,
+        result: Result<(TimeStepInfo, Simulation), SimulationError>,
+    },
+    Reload {
+        generation: u64,
+        load_info: SimulationLoadInfo,
+        result: Result<(TimeStepInfo, Simulation), SimulationError>,
+    },
+}
+
 /// Function that does:
 /// - receives [[WorkerCommand]] from front-end
 /// - passes [[WorkerCommand]] to [[SimulationController]]
 /// - sends [[WorkerMessage]] back to front-end
 pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage>) {
     let mut simulation_controller = SimulationController::default();
+
+    // Incremented whenever a new Simulate/Reload starts, or on Stop. A background
+    // load's progress callback compares its own captured generation against
+    // this value on every call -- if it no longer matches, either a newer
+    // load has superseded it, or the backend was asked to shut down. Either
+    // way, the callback returns `false`, telling the slow discretization
+    // code (see `CubicSerendipityDiscretization::new`) to stop early. Any
+    // `LoadOutcome` that still arrives after that is simply discarded below,
+    // since its content no longer matters.
+    let current_generation = Arc::new(AtomicU64::new(0));
+    let (load_tx, load_rx) = crossbeam::channel::unbounded::<LoadOutcome>();
     'worker: loop {
         for cmd in from_ui.try_iter() {
             match cmd {
@@ -470,7 +508,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     rendering_dir,
                     with_info,
                 } => {
-                    match simulation_controller.load_simulation(SimulationLoadInfo {
+                    let load_info = SimulationLoadInfo {
                         params_file_path,
                         scene_file_path,
                         state_file_path,
@@ -480,24 +518,31 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                         recording_file_path: recording_file,
                         rendering_dir,
                         with_info: *with_info,
-                    }) {
-                        Ok(initial_state) => {
-                            let _ = to_ui.send(WorkerMessage::SimulationLoaded(
-                                simulation_controller
-                                    .simulation
-                                    .as_ref()
-                                    .unwrap()
-                                    .parameters
-                                    .clone(),
+                    };
+                    let generation = current_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                    let to_ui = to_ui.clone();
+                    let load_tx = load_tx.clone();
+                    let current_generation = current_generation.clone();
+                    let load_info_for_thread = load_info.clone();
+
+                    std::thread::spawn(move || {
+                        let mut progress_cb = move |progress: f32| -> bool {
+                            let curr_gen = current_generation.load(Ordering::SeqCst);
+                            let _ = to_ui.send(WorkerMessage::ReportProgress(
+                                curr_gen as usize,
+                                ProgressType::VolumeMapInitialization,
+                                progress,
                             ));
-                            let _ =
-                                to_ui.send(WorkerMessage::TimeStepReady(Box::new(initial_state)));
-                        }
-                        Err(e) => {
-                            let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
-                        }
-                    }
-                    simulation_controller.compute();
+                            curr_gen == generation
+                        };
+                        let result =
+                            Simulation::load(&load_info_for_thread, Some(&mut progress_cb));
+                        let _ = load_tx.send(LoadOutcome::Simulate {
+                            generation,
+                            load_info: load_info_for_thread,
+                            result,
+                        });
+                    });
                 }
                 WorkerCommand::AddTimeStepsToCompute(num) => {
                     simulation_controller.compute_more_timesteps(num);
@@ -561,26 +606,29 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                 }
                 WorkerCommand::Reload => {
                     tracing::info!("Reloading simulation!");
-                    if simulation_controller.simulation_load_info.is_some() {
-                        let load_info = simulation_controller.simulation_load_info.clone().unwrap();
-                        match simulation_controller.load_simulation(load_info) {
-                            Ok(initial_state) => {
-                                let _ = to_ui.send(WorkerMessage::FinishedReloading(
-                                    simulation_controller
-                                        .simulation
-                                        .as_ref()
-                                        .unwrap()
-                                        .parameters
-                                        .clone(),
+                    if let Some(load_info) = simulation_controller.simulation_load_info.clone() {
+                        let generation = current_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                        let to_ui = to_ui.clone();
+                        let load_tx = load_tx.clone();
+                        let current_generation = current_generation.clone();
+
+                        std::thread::spawn(move || {
+                            let mut progress_cb = move |progress: f32| -> bool {
+                                let curr_gen = current_generation.load(Ordering::SeqCst);
+                                let _ = to_ui.send(WorkerMessage::ReportProgress(
+                                    curr_gen as usize,
+                                    ProgressType::VolumeMapInitialization,
+                                    progress,
                                 ));
-                                let _ = to_ui
-                                    .send(WorkerMessage::TimeStepReady(Box::new(initial_state)));
-                            }
-                            Err(e) => {
-                                let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
-                            }
-                        }
-                        simulation_controller.compute();
+                                curr_gen == generation
+                            };
+                            let result = Simulation::load(&load_info, Some(&mut progress_cb));
+                            let _ = load_tx.send(LoadOutcome::Reload {
+                                generation,
+                                load_info,
+                                result,
+                            });
+                        });
                     }
                 }
                 WorkerCommand::ContinueFromTimeStep { with_info } => {
@@ -600,6 +648,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     }
                 }
                 WorkerCommand::Stop => {
+                    current_generation.fetch_add(1, Ordering::SeqCst);
                     match simulation_controller.stop() {
                         Ok(_) => {}
                         Err(e) => {
@@ -610,6 +659,46 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     break 'worker;
                 }
             }
+        }
+
+        // Apply any completed background load(s), discarding stale ones.
+        for outcome in load_rx.try_iter() {
+            let (generation, load_info, result, is_reload) = match outcome {
+                LoadOutcome::Simulate {
+                    generation,
+                    load_info,
+                    result,
+                } => (generation, load_info, result, false),
+                LoadOutcome::Reload {
+                    generation,
+                    load_info,
+                    result,
+                } => (generation, load_info, result, true),
+            };
+            if generation != current_generation.load(Ordering::SeqCst) {
+                continue; // superseded by a newer load, or Stop was requested
+            }
+
+            match simulation_controller.apply_load_result(load_info, result) {
+                Ok(initial_state) => {
+                    let params = simulation_controller
+                        .simulation
+                        .as_ref()
+                        .unwrap()
+                        .parameters
+                        .clone();
+                    let _ = to_ui.send(if is_reload {
+                        WorkerMessage::FinishedReloading(params)
+                    } else {
+                        WorkerMessage::SimulationLoaded(params)
+                    });
+                    let _ = to_ui.send(WorkerMessage::TimeStepReady(Box::new(initial_state)));
+                }
+                Err(e) => {
+                    let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
+                }
+            }
+            simulation_controller.compute();
         }
 
         if simulation_controller.just_started_recording() {

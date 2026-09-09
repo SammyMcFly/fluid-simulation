@@ -68,6 +68,7 @@ fn function_reproduces_constant_field_everywhere_in_domain() {
         None,
         1.0, // 2 cells per axis
         &|_p: &Point3<f64>| Ok(3.5),
+        None,
     );
 
     for &p in &[
@@ -94,6 +95,7 @@ fn function_approximately_reproduces_a_linear_field() {
         None,
         1.0,
         &|p: &Point3<f64>| Ok(2.0 * p.x - p.y + 0.5 * p.z + 1.0),
+        None,
     );
 
     for &p in &[
@@ -119,6 +121,7 @@ fn function_out_of_bounds_below_and_above_domain() {
         None,
         1.0,
         &|_p: &Point3<f64>| Ok(0.0),
+        None,
     );
 
     assert!(matches!(
@@ -140,6 +143,7 @@ fn function_at_exact_upper_boundary_is_valid_via_clamping() {
         None,
         1.0,
         &|_p: &Point3<f64>| Ok(4.2),
+        None,
     );
 
     let v = disc
@@ -157,6 +161,7 @@ fn function_returns_pruned_cell_when_entire_domain_is_pruned() {
         None,
         1.0,
         &|_p: &Point3<f64>| Ok(0.0), // every node value is 0.0 < 10.0
+        None,
     );
 
     assert!(matches!(
@@ -174,6 +179,7 @@ fn function_never_prunes_when_no_bounds_given() {
         None,
         1.0,
         &|_p: &Point3<f64>| Ok(-1000.0),
+        None,
     );
 
     let v = disc.function(&Point3::new(0.5, 0.5, 0.5)).unwrap();
@@ -191,6 +197,7 @@ fn gradient_matches_known_linear_field_gradient_at_interior_point() {
         None,
         1.0,
         &|p: &Point3<f64>| Ok(2.0 * p.x - p.y + 0.5 * p.z),
+        None,
     );
 
     let grad = disc.gradient(&Point3::new(0., 0., 0.)).unwrap();
@@ -213,6 +220,7 @@ fn gradient_errors_near_domain_boundary_instead_of_falling_back() {
         None,
         2.0, // single cell, h = dx/6 = 1/3
         &|_p: &Point3<f64>| Ok(0.0),
+        None,
     );
 
     // p.x + h = 0.9 + 1/3 ≈ 1.233, outside x_max = 1.0.

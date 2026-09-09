@@ -5,7 +5,7 @@
 //! end-to-end test exercises the public `TimeStepInfo::from_system` entry
 //! point.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 
@@ -272,7 +272,7 @@ impl SPHSystem for MockSystem {
     fn get_boundary_checkpoint(&self) -> BoundaryCheckpoint {
         unimplemented!("not exercised by this test")
     }
-    fn continue_from_checkpoint(&mut self, _checkpoint: Rc<SystemCheckpoint>) {
+    fn continue_from_checkpoint(&mut self, _checkpoint: Arc<SystemCheckpoint>) {
         unimplemented!("not exercised by this test")
     }
 }

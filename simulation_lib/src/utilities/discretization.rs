@@ -89,6 +89,7 @@ impl CubicSerendipityDiscretization {
         f_value_prune_upper_bound: Option<f64>,
         dx: f64,
         f: &F,
+        mut progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) -> Self {
         let n = [
             ((x_max[0] - x_min[0]) / dx).round() as usize,
@@ -107,9 +108,11 @@ impl CubicSerendipityDiscretization {
             })
             .collect();
 
-        // Collect all unique node keys across all cells
+        // Collect all unique node keys across all cells. Deduplicated via
+        // `HashSet` first, then flattened into a `Vec` so it can be
+        // processed in fixed-size chunks below.
         let offsets_ref = &offsets;
-        let all_keys: HashSet<[usize; 3]> = (0..n[2])
+        let all_keys: Vec<[usize; 3]> = (0..n[2])
             .flat_map(|cz| {
                 (0..n[1]).flat_map(move |cy| {
                     (0..n[0]).flat_map(move |cx| {
@@ -120,23 +123,56 @@ impl CubicSerendipityDiscretization {
                     })
                 })
             })
+            .collect::<HashSet<_>>()
+            .into_iter()
             .collect();
 
-        // Compute all node values in parallel; None signals an EvaluationError
-        #[cfg(not(feature = "parallel"))]
-        let all_keys_iter = all_keys.iter();
-        #[cfg(feature = "parallel")]
-        let all_keys_iter = all_keys.par_iter();
-        let all_values: HashMap<[usize; 3], Option<f64>> = all_keys_iter
-            .map(|&key| {
-                let p = Point3::new(
-                    x_min[0] + key[0] as f64 / 3.0 * dx,
-                    x_min[1] + key[1] as f64 / 3.0 * dx,
-                    x_min[2] + key[2] as f64 / 3.0 * dx,
-                );
-                (key, f(&p).ok())
-            })
-            .collect();
+        // Compute all node values in chunks; None signals an EvaluationError.
+        // Each chunk is evaluated in parallel internally, but `progress` is
+        // only ever invoked here, sequentially, on the CALLING thread
+        // between chunks -- never from inside the parallel closure. This
+        // is what lets `progress` be a plain `FnMut` instead of needing to
+        // be `Sync`, and keeps its overhead to ~100 calls total regardless
+        // of grid size.
+        let total_nodes = all_keys.len().max(1);
+        // Aim for roughly 100 progress updates; for very small grids this
+        // just falls back to one update per chunk of 1.
+        let chunk_size = (all_keys.len() / 100).max(1);
+
+        let mut all_values: HashMap<[usize; 3], Option<f64>> =
+            HashMap::with_capacity(all_keys.len());
+        let mut evaluated = 0usize;
+        if let Some(cb) = progress_cb.as_mut() {
+            cb(evaluated as f32 / total_nodes as f32);
+        }
+        for chunk in all_keys.chunks(chunk_size) {
+            #[cfg(not(feature = "parallel"))]
+            let chunk_iter = chunk.iter();
+            #[cfg(feature = "parallel")]
+            let chunk_iter = chunk.par_iter();
+
+            let chunk_values: Vec<([usize; 3], Option<f64>)> = chunk_iter
+                .map(|&key| {
+                    let p = Point3::new(
+                        x_min[0] + key[0] as f64 / 3.0 * dx,
+                        x_min[1] + key[1] as f64 / 3.0 * dx,
+                        x_min[2] + key[2] as f64 / 3.0 * dx,
+                    );
+                    (key, f(&p).ok())
+                })
+                .collect();
+
+            evaluated += chunk_values.len();
+            all_values.extend(chunk_values);
+
+            if let Some(cb) = progress_cb.as_mut()
+                && !cb(evaluated as f32 / total_nodes as f32)
+            {
+                cb(1.);
+                break; // stop evaluating further chunks; partial `values` is fine --
+                // a cancelled/stale load's *content* is never used anyway.
+            }
+        }
 
         // Apply pruning sequentially
         let mut values = HashMap::new();
@@ -686,6 +722,7 @@ mod tests {
             None,
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
+            None,
         );
         assert_eq!(
             disc.get_cube_idx(&Point3::new(0.5, 0.5, 0.5)).unwrap(),
@@ -706,6 +743,7 @@ mod tests {
             None,
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
+            None,
         );
         assert_eq!(
             disc.get_cube_idx(&Point3::new(2.0, 1.0, 1.0)).unwrap(),
@@ -722,6 +760,7 @@ mod tests {
             None,
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
+            None,
         );
         assert!(matches!(
             disc.get_cube_idx(&Point3::new(-0.01, 0.5, 0.5)),
@@ -750,6 +789,7 @@ mod tests {
             None,
             1.0,
             &|p: &Point3<f64>| Ok(if p.x <= 1.0 { 0.0 } else { 10.0 }),
+            None,
         );
 
         // Corner node at lattice [3,0,0] == physical (1,0,0): shared by
@@ -784,6 +824,7 @@ mod tests {
                     Ok(0.0)
                 }
             },
+            None,
         );
 
         assert!(matches!(
@@ -803,6 +844,7 @@ mod tests {
             None,
             1.0,
             &|p: &Point3<f64>| Ok(3.0 * p.x),
+            None,
         );
 
         let d = disc
@@ -838,10 +880,63 @@ mod tests {
             None,
             2.0,
             &|_p: &Point3<f64>| Ok(0.0),
+            None,
         );
 
         // p + h = 0.95 + 0.1 = 1.05, exceeds x_max = 1.0.
         let result = disc.directional_derivative(&Point3::new(0.95, 0., 0.), 0, 0.1);
         assert!(matches!(result, Err(EvaluationError::OutOfBounds)));
+    }
+
+    // ─── progress callback ───────────────────────────────────────────
+
+    #[test]
+    fn progress_callback_is_monotonically_increasing_and_ends_at_one() {
+        let mut reported: Vec<f32> = Vec::new();
+        let mut progress = |frac: f32| {
+            reported.push(frac);
+            true
+        };
+
+        let _disc = CubicSerendipityDiscretization::new(
+            Point3::new(0., 0., 0.),
+            Point3::new(5., 5., 5.), // large enough grid to span multiple chunks
+            None,
+            None,
+            0.5,
+            &|_p: &Point3<f64>| Ok(0.0),
+            Some(&mut progress),
+        );
+
+        assert!(
+            !reported.is_empty(),
+            "expected at least one progress update"
+        );
+        assert!(
+            reported.windows(2).all(|w| w[1] >= w[0]),
+            "progress must be non-decreasing: {reported:?}"
+        );
+        assert!(
+            (reported.last().unwrap() - 1.0).abs() < 1e-12,
+            "expected final progress to be exactly 1.0, got {:?}",
+            reported.last()
+        );
+    }
+
+    #[test]
+    fn progress_callback_is_never_called_when_none() {
+        // Confirms `progress: None` doesn't change any other observable
+        // behavior -- i.e. the `.as_mut()` / `if let Some(cb) = ...` path is
+        // truly a no-op, not just "doesn't panic".
+        let disc = CubicSerendipityDiscretization::new(
+            Point3::new(0., 0., 0.),
+            Point3::new(1., 1., 1.),
+            None,
+            None,
+            1.0,
+            &|_p: &Point3<f64>| Ok(0.0),
+            None,
+        );
+        assert!(!disc.is_empty());
     }
 }

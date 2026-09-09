@@ -934,6 +934,7 @@ mod tests {
                 _b: &crate::sph::setup::input::StaticBoundaryDef,
                 _r: f64,
                 _k: f64,
+                _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
             ) {
             }
             fn add_dynamic_boundary(
@@ -942,6 +943,7 @@ mod tests {
                 _b: &crate::sph::setup::input::DynamicBoundaryDef,
                 _r: f64,
                 _k: f64,
+                _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
             ) {
             }
             fn initialize<K: KernelFn>(&mut self, _n: &mut impl NeighborSearch, _k: f64, _w: f64) {}

@@ -122,7 +122,13 @@ fn new_sample_boundary_is_empty() {
 fn add_static_boundary_makes_it_non_empty() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     assert!(!boundary.is_empty());
     assert_eq!(boundary.iter().count(), 1);
@@ -132,7 +138,13 @@ fn add_static_boundary_makes_it_non_empty() {
 fn add_static_boundary_populates_and_is_not_dynamic() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(0), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(0),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     assert!(!boundary.is_empty());
     let b = boundary.iter().next().unwrap();
@@ -149,6 +161,7 @@ fn add_dynamic_boundary_makes_it_non_empty() {
         &dynamic_def(1, [0., 0., 0.]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
 
     assert!(!boundary.is_empty());
@@ -166,6 +179,7 @@ fn add_dynamic_boundary_is_dynamic_with_center_of_mass_near_translation() {
         &dynamic_def(0, translation),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
 
     let b = boundary.iter().next().unwrap();
@@ -190,6 +204,7 @@ fn dynamic_boundary_sample_positions_start_as_origin_placeholders_before_initial
         &dynamic_def(0, [5.0, 0.0, 0.0]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
 
     let b = boundary.iter().next().unwrap();
@@ -202,7 +217,13 @@ fn dynamic_boundary_sample_positions_start_as_origin_placeholders_before_initial
 fn static_boundary_samples_lie_on_cube_surface() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     let b = boundary.iter().next().unwrap();
     for id in 0..expected_cube_sample_count() {
@@ -229,6 +250,7 @@ fn dynamic_boundary_samples_are_offset_by_translation() {
         &dynamic_def(1, translation),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     boundary.initialize::<CubicBSpline3D>(
         &mut SpatialHashing::new(KERNEL_SUPPORT_RADIUS),
@@ -257,6 +279,7 @@ fn initialize_moves_dynamic_boundary_samples_into_world_space() {
         &dynamic_def(0, [5.0, 0.0, 0.0]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
 
     boundary.initialize::<CubicBSpline3D>(
@@ -275,7 +298,13 @@ fn initialize_moves_dynamic_boundary_samples_into_world_space() {
 fn initialize_assigns_positive_finite_volume_to_every_sample() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     boundary.initialize::<CubicBSpline3D>(
         &mut SpatialHashing::new(KERNEL_SUPPORT_RADIUS),
@@ -299,7 +328,13 @@ fn initialize_assigns_positive_finite_volume_to_every_sample() {
 fn find_boundary_samples_finds_nearby_fluid_particle() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
     boundary.initialize::<CubicBSpline3D>(
         &mut SpatialHashing::new(KERNEL_SUPPORT_RADIUS),
         KERNEL_SUPPORT_RADIUS,
@@ -325,7 +360,13 @@ fn find_boundary_samples_finds_nearby_fluid_particle() {
 fn find_boundary_samples_finds_none_for_distant_fluid_particle() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
     boundary.initialize::<CubicBSpline3D>(
         &mut SpatialHashing::new(KERNEL_SUPPORT_RADIUS),
         KERNEL_SUPPORT_RADIUS,
@@ -355,6 +396,7 @@ fn force_onto_boundary_moves_dynamic_boundary_center_of_mass() {
         &dynamic_def(1, [0., 0., 0.]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     boundary.initialize::<CubicBSpline3D>(
         &mut SpatialHashing::new(KERNEL_SUPPORT_RADIUS),
@@ -392,6 +434,7 @@ fn add_force_onto_boundary_accelerates_a_dynamic_boundary() {
         &dynamic_def(1, [0., 0., 0.]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     boundary.step_forward_in_time(0.0); // sync cached position/velocity
 
@@ -415,7 +458,13 @@ fn add_force_onto_boundary_accelerates_a_dynamic_boundary() {
 fn add_force_onto_boundary_ignores_out_of_range_id() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     boundary.add_force_onto_boundary(ForceOntoBoundary {
         id: 5,
@@ -428,7 +477,13 @@ fn add_force_onto_boundary_ignores_out_of_range_id() {
 fn step_forward_in_time_is_noop_for_static_boundary() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
     boundary.initialize::<CubicBSpline3D>(
         &mut SpatialHashing::new(KERNEL_SUPPORT_RADIUS),
         KERNEL_SUPPORT_RADIUS,
@@ -457,6 +512,7 @@ fn step_forward_in_time_translates_a_moving_dynamic_boundary() {
         &dynamic_def_moving(1, [0., 0., 0.], [1., 0., 0.], [0., 0., 0.]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     boundary.step_forward_in_time(0.0); // sync cached position with initial state
 
@@ -477,7 +533,13 @@ fn step_forward_in_time_translates_a_moving_dynamic_boundary() {
 fn get_visualization_samples_uniform() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     let selector = BoundaryVisualization::Samples {
         positions: vec![],
@@ -501,9 +563,21 @@ fn get_visualization_samples_uniform() {
 fn get_visualization_samples_boundary_id_assigns_max_id() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh_a = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh_a, &static_def(3), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh_a,
+        &static_def(3),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
     let mut mesh_b = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh_b, &static_def(7), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh_b,
+        &static_def(7),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     let selector = BoundaryVisualization::Samples {
         positions: vec![],
@@ -530,13 +604,20 @@ fn get_visualization_samples_boundary_id_assigns_max_id() {
 fn get_visualization_triangle_mesh_returns_one_mesh_per_boundary() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh_a = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh_a, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh_a,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
     let mut mesh_b = cube_mesh_container();
     boundary.add_dynamic_boundary(
         &mut mesh_b,
         &dynamic_def(2, [5., 0., 0.]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
 
     let selector = BoundaryVisualization::TriangleMesh {
@@ -561,7 +642,13 @@ fn get_visualization_triangle_mesh_boundary_id_coloring_reports_the_configured_i
     // by covering the same coloring variant for `TriangleMesh`.
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(7), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(7),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     let selector = BoundaryVisualization::TriangleMesh {
         meshes: vec![],
@@ -598,7 +685,13 @@ fn get_visualization_triangle_mesh_boundary_id_coloring_reports_the_configured_i
 fn checkpoint_dynamic_states_are_none_for_static_and_some_for_dynamic() {
     let mut static_boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    static_boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    static_boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
     let checkpoint = static_boundary.get_checkpoint();
     assert_eq!(checkpoint.dynamic_states.len(), 1);
     assert!(checkpoint.dynamic_states[0].is_none());
@@ -610,6 +703,7 @@ fn checkpoint_dynamic_states_are_none_for_static_and_some_for_dynamic() {
         &dynamic_def(1, [0., 0., 0.]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     let checkpoint = dynamic_boundary.get_checkpoint();
     assert_eq!(checkpoint.dynamic_states.len(), 1);
@@ -625,6 +719,7 @@ fn checkpoint_roundtrip_preserves_dynamic_boundary_state() {
         &static_def(1),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     let mut dynamic_mesh = cube_mesh_container();
     boundary.add_dynamic_boundary(
@@ -632,6 +727,7 @@ fn checkpoint_roundtrip_preserves_dynamic_boundary_state() {
         &dynamic_def(2, [0., 0., 0.]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     boundary.initialize::<CubicBSpline3D>(
         &mut SpatialHashing::new(KERNEL_SUPPORT_RADIUS),
@@ -659,6 +755,7 @@ fn checkpoint_roundtrip_preserves_dynamic_boundary_state() {
         &static_def(1),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     let mut dynamic_mesh_2 = cube_mesh_container();
     fresh.add_dynamic_boundary(
@@ -666,6 +763,7 @@ fn checkpoint_roundtrip_preserves_dynamic_boundary_state() {
         &dynamic_def(2, [0., 0., 0.]),
         SPACING,
         KERNEL_SUPPORT_RADIUS,
+        None,
     );
     fresh.initialize::<CubicBSpline3D>(
         &mut SpatialHashing::new(KERNEL_SUPPORT_RADIUS),
@@ -692,7 +790,7 @@ fn restore_from_checkpoint_round_trip_reproduces_stepped_state() {
 
     let mut boundary_a = StaticSampleBoundary::new();
     let mut mesh_a = cube_mesh_container();
-    boundary_a.add_dynamic_boundary(&mut mesh_a, &def, SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary_a.add_dynamic_boundary(&mut mesh_a, &def, SPACING, KERNEL_SUPPORT_RADIUS, None);
     boundary_a.step_forward_in_time(0.0); // sync cache
     boundary_a.step_forward_in_time(0.3);
     boundary_a.step_forward_in_time(0.3);
@@ -701,7 +799,7 @@ fn restore_from_checkpoint_round_trip_reproduces_stepped_state() {
 
     let mut boundary_b = StaticSampleBoundary::new();
     let mut mesh_b = cube_mesh_container();
-    boundary_b.add_dynamic_boundary(&mut mesh_b, &def, SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary_b.add_dynamic_boundary(&mut mesh_b, &def, SPACING, KERNEL_SUPPORT_RADIUS, None);
     boundary_b.restore_from_checkpoint(&checkpoint);
 
     let a = boundary_a.iter().next().unwrap();
@@ -715,7 +813,13 @@ fn restore_from_checkpoint_round_trip_reproduces_stepped_state() {
 fn restore_from_checkpoint_with_mismatched_boundary_count_is_noop() {
     let mut boundary = StaticSampleBoundary::new();
     let mut mesh = cube_mesh_container();
-    boundary.add_static_boundary(&mut mesh, &static_def(1), SPACING, KERNEL_SUPPORT_RADIUS);
+    boundary.add_static_boundary(
+        &mut mesh,
+        &static_def(1),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
 
     let mismatched = BoundaryCheckpoint {
         dynamic_states: vec![None, None],

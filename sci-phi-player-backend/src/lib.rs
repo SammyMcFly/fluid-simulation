@@ -1,9 +1,10 @@
 //! Backend module
 use image::{ImageBuffer, Rgba};
 use simulation_lib::render_info::{SimulationParameters, TimeStepInfo};
-use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use std::{io::Read, sync::Arc};
 
 use crossbeam::channel::{Receiver, Sender};
 
@@ -12,6 +13,8 @@ pub mod messages;
 
 use commands::WorkerCommand;
 use messages::WorkerMessage;
+
+use crate::messages::ProgressType;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileIoError {
@@ -72,6 +75,7 @@ fn read_length_prefixed<'a>(buf: &'a [u8], pos: &mut usize) -> Result<&'a [u8], 
 
 fn read_recording(
     file_path: &str,
+    mut progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
 ) -> Result<(SimulationParameters, Vec<TimeStepInfo>), FileIoError> {
     let file_path = Path::new(file_path);
     // convert to global path
@@ -97,12 +101,22 @@ fn read_recording(
 
     let mut pos: usize = 0;
 
+    if let Some(cb) = progress_cb.as_mut() {
+        cb(0.);
+    }
+
     let general_info = SimulationParameters::try_from(read_length_prefixed(&buf, &mut pos)?)?;
 
     let mut time_steps = Vec::new();
     while pos < buf.len() {
         let data = read_length_prefixed(&buf, &mut pos)?;
         time_steps.push(TimeStepInfo::try_from(data)?);
+        if let Some(cb) = progress_cb.as_mut()
+            && !cb((pos as f32 / buf.len() as f32).min(1.))
+        {
+            cb(1.);
+            break;
+        }
     }
 
     Ok((general_info, time_steps))
@@ -146,27 +160,42 @@ pub fn save_screenshot_to_file(
     Ok(())
 }
 
+struct LoadOutcome {
+    result: Result<(SimulationParameters, Vec<TimeStepInfo>), FileIoError>,
+}
+
 /// Function that does:
 /// - receives [[WorkerCommand]] from front-end
 /// - passes [[WorkerCommand]] to [[SimulationController]]
 /// - sends [[WorkerMessage]] back to front-end
 pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage>) {
+    let current_generation = Arc::new(AtomicU64::new(0));
+    let (load_tx, load_rx) = crossbeam::channel::unbounded::<LoadOutcome>();
     'worker: loop {
         match from_ui.try_recv() {
             Ok(msg) => match msg {
                 WorkerCommand::ReadRecording(file_path) => {
                     tracing::info!("Start reading recording...");
-                    match read_recording(&file_path) {
-                        Ok((sim_info, time_steps)) => {
-                            tracing::info!("Successfully finished reading recording!");
-                            let _ =
-                                to_ui.send(WorkerMessage::FinishedReading(sim_info, time_steps));
-                        }
-                        Err(e) => {
-                            tracing::info!("Failed reading recording!");
-                            let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
-                        }
-                    }
+
+                    let generation =
+                        current_generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    let to_ui = to_ui.clone();
+                    let load_tx = load_tx.clone();
+                    let current_generation = current_generation.clone();
+
+                    std::thread::spawn(move || {
+                        let mut progress_cb = move |progress: f32| -> bool {
+                            let curr_gen = current_generation.load(Ordering::SeqCst);
+                            let _ = to_ui.send(WorkerMessage::ReportProgress(
+                                0,
+                                ProgressType::ReadRecording,
+                                progress,
+                            ));
+                            curr_gen == generation
+                        };
+                        let result = read_recording(&file_path, Some(&mut progress_cb));
+                        let _ = load_tx.send(LoadOutcome { result });
+                    });
                 }
                 WorkerCommand::WriteRendering {
                     data,
@@ -205,6 +234,7 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
                     }
                 }
                 WorkerCommand::Stop => {
+                    current_generation.fetch_add(1, Ordering::SeqCst);
                     tracing::info!("Stopped backend!");
                     break 'worker;
                 }
@@ -215,6 +245,18 @@ pub fn worker_loop(from_ui: Receiver<WorkerCommand>, to_ui: Sender<WorkerMessage
             Err(crossbeam::channel::TryRecvError::Disconnected) => {
                 tracing::error!("Sender was dropped!");
                 break 'worker;
+            }
+        }
+        for outcome in load_rx.try_iter() {
+            match outcome.result {
+                Ok((sim_info, time_steps)) => {
+                    tracing::info!("Successfully finished reading recording!");
+                    let _ = to_ui.send(WorkerMessage::FinishedReading(sim_info, time_steps));
+                }
+                Err(e) => {
+                    tracing::info!("Failed reading recording!");
+                    let _ = to_ui.send(WorkerMessage::Error(e.to_string()));
+                }
             }
         }
     }

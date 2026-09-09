@@ -7,9 +7,16 @@ pub enum WorkerMessage {
     SimulationLoaded(SimulationParameters),
     FinishedReloading(SimulationParameters),
     ContinuedFromCheckpoint,
+    ReportProgress(usize, ProgressType, f32),
     ReachedStartTime,
     ReachedFinishTime,
     SavedState,
     SavedMeasurement,
     Error(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum ProgressType {
+    VolumeMapInitialization,
+    RestoreTimeStepFromCheckpoint,
 }

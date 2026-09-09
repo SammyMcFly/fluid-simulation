@@ -36,9 +36,9 @@ use num_traits::Zero;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::rc::Rc;
+use std::sync::Arc;
 
-pub trait SPHSystem: DynClone {
+pub trait SPHSystem: DynClone + Send {
     fn time(&self) -> f64;
     fn time_steps_propagated(&self) -> u64;
 
@@ -66,7 +66,7 @@ pub trait SPHSystem: DynClone {
     -> BoundaryVisualization;
     fn get_boundary_checkpoint(&self) -> BoundaryCheckpoint;
 
-    fn continue_from_checkpoint(&mut self, checkpoint: Rc<SystemCheckpoint>);
+    fn continue_from_checkpoint(&mut self, checkpoint: Arc<SystemCheckpoint>);
 }
 
 dyn_clone::clone_trait_object!(SPHSystem);
@@ -360,7 +360,7 @@ impl<
         self.boundary.get_checkpoint()
     }
 
-    fn continue_from_checkpoint(&mut self, checkpoint: Rc<SystemCheckpoint>) {
+    fn continue_from_checkpoint(&mut self, checkpoint: Arc<SystemCheckpoint>) {
         self.time_steps_propagated = checkpoint.get_time_steps_propagated();
         #[cfg(feature = "cfl_time_step")]
         {

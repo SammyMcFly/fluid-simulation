@@ -55,6 +55,7 @@ impl BoundaryHandling for VolumeMapBoundary {
         boundary: &StaticBoundaryDef,
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
+        progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) {
         // apply transformation
         mesh.transform(
@@ -64,7 +65,8 @@ impl BoundaryHandling for VolumeMapBoundary {
         );
         let trimesh = mesh.trimesh();
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius);
+        let fields =
+            DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius, progress_cb);
 
         let boundary = BoundaryType::StaticBoundary {
             signed_distance_field: fields.signed_distance_field,
@@ -83,6 +85,7 @@ impl BoundaryHandling for VolumeMapBoundary {
         boundary: &DynamicBoundaryDef,
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
+        progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) {
         // apply scale
         mesh.transform(&[0., 0., 0.], &[0., 0., 0.], &boundary.scale);
@@ -111,7 +114,8 @@ impl BoundaryHandling for VolumeMapBoundary {
             + orientation.transform_vector(&local_com_vec);
         // discretize the mesh
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius);
+        let fields =
+            DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius, progress_cb);
 
         let boundary = BoundaryType::DynamicBoundary {
             signed_distance_field: fields.signed_distance_field,
@@ -415,7 +419,12 @@ impl DiscretizedBoundaryFields {
     /// passes right through that cell — causing the entire cell (and
     /// potentially the entire field) to be pruned as "outside", with no
     /// boundary samples ever being produced from it.
-    fn new(trimesh: &TriMesh, dx: f64, kernel_support_radius: f64) -> DiscretizedBoundaryFields {
+    fn new(
+        trimesh: &TriMesh,
+        dx: f64,
+        kernel_support_radius: f64,
+        mut progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
+    ) -> DiscretizedBoundaryFields {
         #[cfg(feature = "logging")]
         tracing::info!("Start cubic serendipity discretization.");
         let identity = Pose::identity();
@@ -437,6 +446,7 @@ impl DiscretizedBoundaryFields {
             Some(padding_sd),
             dx,
             &|p| sd_field.signed_distance(p),
+            None,
         );
         if sdfn.is_empty() {
             let [nx, ny, nz] = sdfn.cell_count();
@@ -465,15 +475,23 @@ impl DiscretizedBoundaryFields {
         let x_min = aabb_min - padding_vm_vec;
         let x_max = aabb_max + padding_vm_vec;
 
-        let vm = CubicSerendipityDiscretization::new(x_min, x_max, Some(0.), None, dx, &|p| {
-            sd_field_wrapped
-                .volume(
-                    p,
-                    kernel_support_radius,
-                    VolumeMapBoundary::INTEGRATION_ORDER,
-                )
-                .map(|v| v.clamp(0.0, ball_volume(kernel_support_radius)))
-        });
+        let vm = CubicSerendipityDiscretization::new(
+            x_min,
+            x_max,
+            Some(0.),
+            None,
+            dx,
+            &|p| {
+                sd_field_wrapped
+                    .volume(
+                        p,
+                        kernel_support_radius,
+                        VolumeMapBoundary::INTEGRATION_ORDER,
+                    )
+                    .map(|v| v.clamp(0.0, ball_volume(kernel_support_radius)))
+            },
+            progress_cb,
+        );
         if vm.is_empty() {
             let [nx, ny, nz] = vm.cell_count();
             let node_spacing = vm.node_spacing();
@@ -1571,6 +1589,7 @@ mod tests {
             None,
             2.0, // dx == domain size -> single cell
             &move |_p: &Point3<f64>| Ok(value),
+            None,
         )
     }
 
@@ -1655,6 +1674,7 @@ mod tests {
             None,
             2.0,                        // einzelne Zelle
             &|p: &Point3<f64>| Ok(p.x), // Ebene bei x = 0
+            None,
         );
         let volume_map = CubicSerendipityDiscretization::new(
             Point3::new(-1., -1., -1.),
@@ -1663,6 +1683,7 @@ mod tests {
             None,
             2.0,
             &|_p: &Point3<f64>| Ok(1.0),
+            None,
         );
 
         let mut vm = VolumeMapBoundary {

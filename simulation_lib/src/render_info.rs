@@ -276,7 +276,7 @@ mod tests {
     use crate::sph::boundary_handling::BoundaryCheckpoint;
     use crate::sph::fluid::FluidCheckpoint;
     use crate::sph::{SPHSystem, SystemCheckpoint};
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     // ─── Mock SPHSystem ─────────────────────────────────────────────────
 
@@ -352,7 +352,7 @@ mod tests {
         fn get_boundary_checkpoint(&self) -> BoundaryCheckpoint {
             unimplemented!("not exercised by render_info tests")
         }
-        fn continue_from_checkpoint(&mut self, _checkpoint: Rc<SystemCheckpoint>) {
+        fn continue_from_checkpoint(&mut self, _checkpoint: Arc<SystemCheckpoint>) {
             unimplemented!("not exercised by render_info tests")
         }
     }

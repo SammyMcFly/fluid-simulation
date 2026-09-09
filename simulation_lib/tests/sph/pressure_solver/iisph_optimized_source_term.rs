@@ -221,6 +221,7 @@ impl BoundaryHandling for MockBoundary {
         _boundary: &StaticBoundaryDef,
         _r: f64,
         _k: f64,
+        _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) {
         unimplemented!("not exercised by IISPHwOST tests")
     }
@@ -230,6 +231,7 @@ impl BoundaryHandling for MockBoundary {
         _boundary: &DynamicBoundaryDef,
         _r: f64,
         _k: f64,
+        _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) {
         unimplemented!("not exercised by IISPHwOST tests")
     }

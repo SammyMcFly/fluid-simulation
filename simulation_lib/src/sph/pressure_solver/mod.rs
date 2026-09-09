@@ -387,6 +387,7 @@ mod tests {
             _boundary: &StaticBoundaryDef,
             _rest_density_grid_spacing: f64,
             _kernel_support_radius: f64,
+            _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
         ) {
             unimplemented!("not exercised by pressure_solver tests")
         }
@@ -397,6 +398,7 @@ mod tests {
             _boundary: &DynamicBoundaryDef,
             _rest_density_grid_spacing: f64,
             _kernel_support_radius: f64,
+            _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
         ) {
             unimplemented!("not exercised by pressure_solver tests")
         }

@@ -3,6 +3,7 @@ mod inspector;
 mod pages;
 mod playback;
 
+use crate::app::inspector::ProgressProcess;
 use crate::app::pages::{ContextPage, Page};
 use crate::config::Config;
 use crate::fl;
@@ -858,6 +859,10 @@ impl AppModel {
         msg: WorkerMessage,
     ) -> Option<Task<cosmic::Action<Message>>> {
         match msg {
+            WorkerMessage::ReportProgress(id, kind, progress) => {
+                self.inspector
+                    .handle_progress_message(ProgressProcess { id, kind, progress });
+            }
             WorkerMessage::FinishedReading(sim_info, ts_info) => {
                 self.received_content(sim_info, ts_info);
             }

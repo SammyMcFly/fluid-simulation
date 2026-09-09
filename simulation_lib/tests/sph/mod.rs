@@ -12,6 +12,7 @@ mod setup;
 
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use nalgebra::Vector3;
@@ -138,7 +139,7 @@ fn default_procedures() -> Procedures {
 }
 
 fn build_system(scene: &Scene, params: &Parameters) -> Box<dyn SPHSystem> {
-    new_boxed_system3d(&default_procedures(), params, scene, None)
+    new_boxed_system3d(&default_procedures(), params, scene, None, None)
         .expect("expected system construction to succeed")
 }
 
@@ -278,17 +279,17 @@ fn continue_from_checkpoint_restores_step_count_and_exact_fluid_state() {
     system_a.step_forward_in_time();
 
     let checkpoint = SystemCheckpoint::from_sph_system(system_a.as_ref());
-    let checkpoint_rc = Rc::new(checkpoint);
+    let checkpoint_arc = Arc::new(checkpoint);
 
     let mut system_b = build_system(&scene, &params);
-    system_b.continue_from_checkpoint(checkpoint_rc.clone());
+    system_b.continue_from_checkpoint(checkpoint_arc.clone());
 
     assert_eq!(
         system_b.time_steps_propagated(),
-        checkpoint_rc.get_time_steps_propagated()
+        checkpoint_arc.get_time_steps_propagated()
     );
 
-    let expected_fluid = checkpoint_rc.get_fluid();
+    let expected_fluid = checkpoint_arc.get_fluid();
     let actual_fluid = system_b.get_fluid_checkpoint();
     assert_eq!(actual_fluid.fluid_id, expected_fluid.fluid_id);
     assert_eq!(actual_fluid.position, expected_fluid.position);
@@ -303,7 +304,7 @@ fn continue_from_checkpoint_restores_step_count_and_exact_fluid_state() {
     // — so restored time must match the checkpoint exactly under BOTH
     // build configurations, not just without `cfl_time_step`.
     assert!(
-        (system_b.time() - checkpoint_rc.get_current_time()).abs() < 1e-9,
+        (system_b.time() - checkpoint_arc.get_current_time()).abs() < 1e-9,
         "expected restored time to exactly match the checkpoint's current_time"
     );
 

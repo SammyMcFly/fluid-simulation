@@ -139,7 +139,7 @@ fn system_constructor_builds_from_a_simple_fluid_only_scene() {
         SESPH,
         SpatialHashing,
         VolumeMapBoundary,
-    >::new(&params, &scene, None)
+    >::new(&params, &scene, None, None)
     .expect("expected system construction to succeed");
 
     assert!(!constructor.fluid.is_empty());
@@ -162,7 +162,7 @@ fn system_constructor_with_an_empty_scene_still_succeeds() {
         SESPH,
         SpatialHashing,
         VolumeMapBoundary,
-    >::new(&params, &scene, None)
+    >::new(&params, &scene, None, None)
     .expect("expected an empty scene to still succeed (just with warnings)");
 
     assert!(constructor.fluid.is_empty());
@@ -188,7 +188,7 @@ fn system_constructor_fails_for_an_unknown_mesh_reference() {
         SESPH,
         SpatialHashing,
         VolumeMapBoundary,
-    >::new(&params, &scene, None);
+    >::new(&params, &scene, None, None);
 
     let err = match result {
         Err(e) => e,
@@ -218,7 +218,7 @@ fn system_constructor_fails_for_an_undefined_fluid_id() {
         SESPH,
         SpatialHashing,
         VolumeMapBoundary,
-    >::new(&params, &scene, None);
+    >::new(&params, &scene, None, None);
 
     let err = match result {
         Err(e) => e,
@@ -248,6 +248,7 @@ fn system_constructor_propagates_an_error_for_a_missing_state_file() {
         &params,
         &scene,
         Some("/definitely/does/not/exist/state.ron"),
+        None,
     );
 
     assert!(result.is_err());
@@ -269,7 +270,12 @@ fn system_constructor_propagates_an_error_for_a_malformed_state_file() {
         SESPH,
         SpatialHashing,
         VolumeMapBoundary,
-    >::new(&params, &scene, Some(bad_state_path.to_str().unwrap()));
+    >::new(
+        &params,
+        &scene,
+        Some(bad_state_path.to_str().unwrap()),
+        None,
+    );
 
     assert!(result.is_err());
 
@@ -311,7 +317,7 @@ fn system_constructor_rejects_iisphwost_with_a_dynamic_boundary() {
         IISPHwOST,
         SpatialHashing,
         VolumeMapBoundary,
-    >::new(&params, &scene, None);
+    >::new(&params, &scene, None, None);
 
     assert!(matches!(
         result,
@@ -358,7 +364,7 @@ fn system_constructor_resumes_time_bookkeeping_and_fluid_state_from_a_saved_stat
         SESPH,
         SpatialHashing,
         VolumeMapBoundary,
-    >::new(&params, &scene, Some(state_path.to_str().unwrap()))
+    >::new(&params, &scene, Some(state_path.to_str().unwrap()), None)
     .expect("expected resuming from a saved state to succeed");
 
     assert_eq!(constructor.initial_time_steps_propagated, 42);
@@ -409,7 +415,7 @@ fn new_boxed_system3d_builds_and_steps_forward_for_every_pressure_solver() {
             boundary_handling: BoundaryHandlingVariant::VolumeMapBoundary,
         };
 
-        let mut system = new_boxed_system3d(&procs, &params, &scene, None)
+        let mut system = new_boxed_system3d(&procs, &params, &scene, None, None)
             .expect("expected system construction to succeed for this solver/integrator pair");
 
         let time_before = system.time();
@@ -443,7 +449,7 @@ fn new_boxed_system3d_builds_for_both_boundary_handling_variants_with_no_boundar
             boundary_handling,
         };
 
-        let mut system = new_boxed_system3d(&procs, &params, &scene, None)
+        let mut system = new_boxed_system3d(&procs, &params, &scene, None, None)
             .expect("expected system construction to succeed for this boundary handling variant");
         system.step_forward_in_time();
     }
@@ -496,7 +502,7 @@ fn new_boxed_system3d_builds_with_an_actual_static_boundary_mesh() {
         boundary_handling: BoundaryHandlingVariant::VolumeMapBoundary,
     };
 
-    let system = new_boxed_system3d(&procs, &params, &scene, None)
+    let system = new_boxed_system3d(&procs, &params, &scene, None, None)
         .expect("expected construction with an actual boundary mesh to succeed");
     assert_eq!(system.time_steps_propagated(), 0);
 

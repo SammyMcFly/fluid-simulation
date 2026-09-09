@@ -189,6 +189,7 @@ fn add_static_boundary_builds_usable_signed_distance_and_volume_fields() {
         &def,
         rest_density_grid_spacing,
         kernel_support_radius,
+        None,
     );
     assert!(!boundary.is_empty());
 

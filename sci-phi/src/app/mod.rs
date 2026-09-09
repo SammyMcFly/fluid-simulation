@@ -3,6 +3,7 @@ mod inspector;
 mod pages;
 mod playback;
 
+use crate::app::inspector::ProgressProcess;
 use crate::app::pages::simulation::{
     BoundaryVisOption, FluidVisOption, QuantityOption, SensorField,
 };
@@ -1177,6 +1178,11 @@ impl AppModel {
                 let _ = self.to_worker.send(WorkerCommand::AddTimeStepsToCompute(
                     self.instances.buffer_length_limit(),
                 ));
+                None
+            }
+            WorkerMessage::ReportProgress(id, kind, progress) => {
+                self.inspector
+                    .handle_progress_message(ProgressProcess { id, kind, progress });
                 None
             }
             WorkerMessage::ReachedStartTime => {

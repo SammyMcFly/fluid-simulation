@@ -71,6 +71,21 @@ pub enum SetupError {
     IncompatibleDynamicBoundary,
 }
 
+/// Reborrows an `Option<&mut dyn FnMut(f64)>` for a single call, without
+/// consuming the original. Written as an explicit function rather than
+/// `opt.as_mut().map(|cb| &mut **cb)` -- the latter is known to trip up
+/// lifetime inference when reborrowing through a `dyn Trait` behind a
+/// double reference from inside a closure; an explicit function with a
+/// named lifetime avoids the issue entirely.
+fn reborrow_progress<'a>(
+    cb: &'a mut Option<&mut dyn FnMut(f32) -> bool>,
+) -> Option<&'a mut dyn FnMut(f32) -> bool> {
+    match cb {
+        Some(cb) => Some(&mut **cb),
+        None => None,
+    }
+}
+
 pub struct SystemConstructor<
     K: KernelFn,
     I: IntegrationScheme,
@@ -101,6 +116,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
         params: &Parameters,
         scene: &Scene,
         sample_state_file_path: Option<&str>,
+        progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) -> Result<Self, SetupError> {
         let integrator = I::default();
         let pressure_solver: P = P::new(params);
@@ -164,6 +180,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
         // load boundary
         let mut boundary = {
             let mut boundary = B::new();
+            let mut progress_cb = progress_cb;
             for b in &scene.boundary.statics {
                 // select mesh
                 let mut mesh = meshes
@@ -180,6 +197,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                     b,
                     params.rest_density_grid_spacing,
                     params.kernel_support_radius,
+                    reborrow_progress(&mut progress_cb),
                 );
             }
             for b in &scene.boundary.dynamic {
@@ -198,6 +216,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                     b,
                     params.rest_density_grid_spacing,
                     params.kernel_support_radius,
+                    reborrow_progress(&mut progress_cb),
                 );
             }
             if boundary.is_empty() {
@@ -273,8 +292,9 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
 }
 
 macro_rules! create {
-    ($params:expr, $scene:expr, $state:expr, $K:ty, $I:ty, $P:ty, $N:ty, $B:ty) => {{
-        let constructor = SystemConstructor::<$K, $I, $P, $N, $B>::new($params, $scene, $state)?;
+    ($params:expr, $scene:expr, $state:expr, $cb:expr, $K:ty, $I:ty, $P:ty, $N:ty, $B:ty) => {{
+        let constructor =
+            SystemConstructor::<$K, $I, $P, $N, $B>::new($params, $scene, $state, $cb)?;
         let system = System::<$K, $I, $P, $N, $B>::new_boxed(constructor);
         Ok(system)
     }};
@@ -285,16 +305,37 @@ pub fn new_boxed_system3d(
     params: &Parameters,
     scene: &Scene,
     state: Option<&str>,
+    progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
 ) -> Result<Box<dyn SPHSystem>, SetupError> {
     // Nest macros to build the cartesian product without writing each combination
     macro_rules! with_boundary {
         ($K:ty, $I:ty, $P:ty, $N:ty) => {
             match procs.boundary_handling {
                 BoundaryHandlingVariant::StaticSampleBoundary => {
-                    create!(params, scene, state, $K, $I, $P, $N, StaticSampleBoundary)
+                    create!(
+                        params,
+                        scene,
+                        state,
+                        progress_cb,
+                        $K,
+                        $I,
+                        $P,
+                        $N,
+                        StaticSampleBoundary
+                    )
                 }
                 BoundaryHandlingVariant::VolumeMapBoundary => {
-                    create!(params, scene, state, $K, $I, $P, $N, VolumeMapBoundary)
+                    create!(
+                        params,
+                        scene,
+                        state,
+                        progress_cb,
+                        $K,
+                        $I,
+                        $P,
+                        $N,
+                        VolumeMapBoundary
+                    )
                 }
             }
         };
@@ -343,7 +384,7 @@ mod tests {
     use super::*;
     use parry3d_f64::math::Vec3;
     use parry3d_f64::shape::TriMesh;
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     fn cube_trimesh(side: f64) -> TriMesh {
         let h = side / 2.0;
@@ -475,7 +516,7 @@ mod tests {
         // A checkpoint of the just-constructed system: identical physical
         // state, but exercises the exact `FluidCheckpoint -> Fluid`
         // round-trip that empties the slot pools.
-        let checkpoint = Rc::new(SystemCheckpoint::from_sph_system(&*system));
+        let checkpoint = Arc::new(SystemCheckpoint::from_sph_system(&*system));
 
         // Must not panic -- this is the actual regression check.
         system.continue_from_checkpoint(checkpoint);

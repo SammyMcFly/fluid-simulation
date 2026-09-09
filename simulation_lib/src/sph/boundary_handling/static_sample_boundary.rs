@@ -50,6 +50,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         boundary: &StaticBoundaryDef,
         rest_density_grid_spacing: f64,
         _kernel_support_radius: f64,
+        _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) {
         // apply transformation
         mesh.transform(
@@ -79,6 +80,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         boundary: &DynamicBoundaryDef,
         rest_density_grid_spacing: f64,
         _kernel_support_radius: f64,
+        _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) {
         // apply scale
         mesh.transform(&[0., 0., 0.], &[0., 0., 0.], &boundary.scale);
