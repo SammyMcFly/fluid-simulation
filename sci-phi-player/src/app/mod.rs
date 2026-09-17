@@ -658,20 +658,16 @@ impl cosmic::Application for AppModel {
                             // }
                         }
                     }
+
+                    if let Some(ts_info) = self.instances.get_current_time_step_info() {
+                        self.sim_settings.update(ts_info);
+                    }
                 }
 
                 self.inspector.update_info(
                     self.instances.get_current_time_step_info(),
                     self.instances.remaining_buffer_len(),
                 );
-
-                // // 6. Request more timesteps when discarding past
-                // let discarded = self.frame.get_and_reset_time_steps_discarded();
-                // if discarded > 0 {
-                //     let _ = self
-                //         .to_worker
-                //         .send(WorkerCommand::AddTimeStepsToCompute(discarded));
-                // }
 
                 // Return task if one was produced (e.g. window::close)
                 if let Some(t) = task {
@@ -896,7 +892,6 @@ impl AppModel {
             .light
             .set_position(sim_info.light_position);
         self.simulation_page.reset_camera();
-        self.sim_settings.update(&ts_info[0]);
         self.instances.store(ts_info);
         self.frame.reset();
     }
