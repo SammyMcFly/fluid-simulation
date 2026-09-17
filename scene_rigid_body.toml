@@ -12,17 +12,17 @@ sphere_in = "/mnt/Code/fluid-simulation/sphere_face_normals_inwards.obj"
 [[fluid]]
 mesh = "cube_out"
 fluid_id = 0
-translation = [11.0, 0.0, 0.0]
+translation = [0.0, 0.0, -10.0]
 rotation_euler_deg = [0.0, 0.0, 0.0]
-scale = 7.0
+scale = [15.0, 15.0, 10.0]
 
 [[boundary.dynamic]]
 mesh = "cube_out"
 boundary_id = 1
-density = 450
+density = 1500
 translation = [0.0, 0.0, 10.0]
 rotation_euler_deg = [0.0, 0.0, 0.0]
-scale = [2.0, 4.0, 10.0]
+scale = [1.0, 2.0, 5.0]
 
 [[boundary.static]]
 mesh = "sphere_in"
