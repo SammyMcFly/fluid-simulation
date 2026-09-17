@@ -69,6 +69,20 @@ struct Simulation {
     /// - anything beyond it is appended normally as a genuinely new step.
     last_recorded_step: Option<u64>,
 
+    /// Set by `continue_from_checkpoint` to the requested `time_step_number`
+    /// (the earliest still-buffered frontend time step at the moment a
+    /// visualization change triggered the rewind). Every time step at or
+    /// after this bound gets (re-)written to `state_appender` -- even
+    /// though a rewind necessarily revisits already-recorded ground, so
+    /// most of them aren't "new" relative to `last_recorded_step`.
+    ///
+    /// Never needs clearing/resetting: once `ts` has advanced past this
+    /// bound it stays past it forever (time step numbers only increase), so
+    /// leaving it set is harmless indefinitely. A later rewind simply
+    /// overwrites it with its own (possibly earlier or later) target,
+    /// which is always the correct threshold going forward.
+    rewrite_from: Option<u64>,
+
     state_saver_system: Box<dyn SPHSystem>,
 }
 
@@ -151,6 +165,7 @@ impl Simulation {
             start_time: simulation_load_info.start_time,
             finish_time: simulation_load_info.finish_time,
             last_recorded_step: None,
+            rewrite_from: None,
             state_saver_system,
         };
         tracing::info!("Loaded new simulation!");
@@ -178,6 +193,9 @@ impl Simulation {
                 .expect("Value too large for usize")]
             .clone();
         self.system.continue_from_checkpoint(last_checkpoint);
+        // Recomputed steps from here onward use the now-current
+        // `render_preset` -- see `Self::rewrite_from`.
+        self.rewrite_from = Some(with_info.time_step_number);
         Ok(self.get_time_step_info())
     }
 
@@ -234,24 +252,29 @@ impl Simulation {
 
         let ts = time_step_info.time_step_number;
         let is_new_step = self.last_recorded_step.is_none_or(|last| ts > last);
-        // Exactly the one step re-produced right at the point a checkpoint
-        // rewind caught back up to where recording had already progressed to
-        // — the "tip" of the recording at the moment the visualization was
-        // changed. Everything strictly older is left untouched.
-        let is_same_step = self.last_recorded_step == Some(ts);
 
-        // Measurement values don't depend on visualization, so the seam step
-        // already holds correct data; only genuinely new steps get pushed.
+        // Measurement values don't depend on visualization, so steps
+        // revisited by a rewind already hold correct data; only genuinely
+        // new steps get pushed, to avoid duplicate entries in the series.
         if is_new_step && let Some(meas) = &mut self.measurement_series {
             meas.push_back(time_step_info.measurement.clone());
         }
 
-        // Binary recording's payload DOES depend on visualization: write for
-        // new steps (plain append) and for the seam step (overwrite its
-        // stale record in place); skip everything strictly older, which
-        // stays frozen with whichever visualization was active when it was
-        // originally recorded.
-        if (is_new_step || is_same_step)
+        // Binary recording's payload DOES depend on visualization. Besides
+        // genuinely new steps (plain append), every step at or after the
+        // most recent rewind's target (`rewrite_from`) is (re-)written too
+        // — a rewind necessarily revisits already-recorded ground, and
+        // everything from that target onward must reflect the now-current
+        // visualization, not the stale one it was originally recorded with.
+        // `TSInfoAppender::append_time_step` truncates the file at the
+        // first such write and drops the (now-invalid) offsets of every
+        // step after it, so the rest of this range naturally cascades into
+        // plain re-appends without any further special-casing here. Steps
+        // strictly before `rewrite_from` are left untouched, keeping
+        // whichever visualization was active when they were originally
+        // recorded.
+        let must_rewrite = self.rewrite_from.is_some_and(|bound| ts >= bound);
+        if (is_new_step || must_rewrite)
             && let Some(rec) = &mut self.state_appender
         {
             let _ = rec.append_time_step(time_step_info.clone());
