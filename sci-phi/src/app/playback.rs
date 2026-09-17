@@ -299,6 +299,9 @@ impl InstanceStore {
     }
 
     pub fn discard_future(&mut self) -> usize {
+        if self.info_buffer.is_empty() {
+            return 0;
+        }
         let discarded = self.info_buffer.len() - self.current_index - 1;
         self.info_buffer.drain((self.current_index + 1)..);
         self.number_max = self.info_buffer[self.current_index].time_step_number;
