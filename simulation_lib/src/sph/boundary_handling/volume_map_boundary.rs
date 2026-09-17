@@ -131,7 +131,7 @@ impl BoundaryHandling for VolumeMapBoundary {
                         .to_cols_array_2d(),
                 ),
                 global_center_of_mass,
-                euler_deg_to_quaternion(boundary.rotation_euler_deg),
+                orientation,
                 Vector3::from(boundary.velocity),
                 Vector3::from(boundary.angular_velocity),
             ),
@@ -224,10 +224,9 @@ impl BoundaryHandling for VolumeMapBoundary {
                         .max(rest_density_grid_spacing);
                     let point_on_boundary =
                         pos - signed_distance_gradient / signed_distance_gradient.norm() * d;
-                    let velocity_at_boundary = b.velocity_at_point_on_boundary(&point_on_boundary);
 
                     r.pos.push(point_on_boundary);
-                    r.vel.push(velocity_at_boundary);
+                    r.vel.push(b.velocity_at_point_on_boundary(&point_on_boundary));
                     r.vol.push(volume);
 
                     #[cfg(feature = "logging")]
@@ -257,12 +256,17 @@ impl BoundaryHandling for VolumeMapBoundary {
                     let p_visc_4 = point_on_boundary - d * t2;
 
                     r.v_pos.extend_from_slice(&[
-                        point_on_boundary + d * t1,
-                        point_on_boundary - d * t1,
-                        point_on_boundary + d * t2,
-                        point_on_boundary - d * t2,
+                        p_visc_1,
+                        p_visc_2,
+                        p_visc_3,
+                        p_visc_4,
                     ]);
-                    r.v_vel.extend(std::iter::repeat_n(Vector3::zero(), 4));
+                    r.v_vel.extend(&[
+                        b.velocity_at_point_on_boundary(&p_visc_1),
+                        b.velocity_at_point_on_boundary(&p_visc_2),
+                        b.velocity_at_point_on_boundary(&p_visc_3),
+                        b.velocity_at_point_on_boundary(&p_visc_4),
+                    ]);
                     r.v_vol.extend_from_slice(&[0.25 * volume; 4]);
 
                 r
@@ -1448,6 +1452,7 @@ mod neighbor_list {
 mod tests {
     use super::*;
     use parry3d_f64::{math::Vec3, shape::TriMeshFlags};
+    use nalgebra::UnitQuaternion;
 
     // ─── ball_volume ────────────────────────────────────────────────
 
@@ -1734,5 +1739,143 @@ mod tests {
                 let _ = boundary.position(nb);
             }
         }
+    }
+
+    #[test]
+    fn viscosity_neighbor_velocities_are_computed_per_point_not_hardcoded_to_zero() {
+        // Regression test for a bug where the four viscosity-neighbor sample
+        // points (`p_visc_1..4`) were correctly positioned via named `let`
+        // bindings, but `r.v_vel` was populated with
+        // `std::iter::repeat_n(Vector3::zero(), 4)` instead of actually
+        // evaluating `b.velocity_at_point_on_boundary(&p_visc_i)` at each point
+        // -- silently zeroing every boundary-viscosity velocity, regardless of
+        // the boundary's actual motion.
+        //
+        // Requires a `DynamicBoundary`: for `StaticBoundary`,
+        // `velocity_at_point_on_boundary` always returns `Vector3::zero()`
+        // unconditionally, so the CORRECT result there is indistinguishable
+        // from the bug -- a static fixture would pass under both the buggy and
+        // fixed code.
+        //
+        // Uses BOTH nonzero linear and angular velocity so that (a) an
+        // all-zero regression is caught immediately by the per-point equality
+        // check below, and (b) a more subtle variant -- e.g. accidentally
+        // evaluating `velocity_at_point_on_boundary(&point_on_boundary)` once
+        // and reusing it for all four samples instead of each point's own --
+        // is also caught, since the four sample points sit at geometrically
+        // distinct offsets and nonzero angular velocity makes at least some of
+        // their expected velocities differ.
+        let sd_field = CubicSerendipityDiscretization::new(
+            Point3::new(-1., -1., -1.),
+            Point3::new(1., 1., 1.),
+            None,
+            None,
+            2.0,
+            &|p: &Point3<f64>| Ok(p.x), // plane at x = 0
+            None,
+        );
+        let volume_map = CubicSerendipityDiscretization::new(
+            Point3::new(-1., -1., -1.),
+            Point3::new(1., 1., 1.),
+            Some(0.),
+            None,
+            2.0,
+            &|_p: &Point3<f64>| Ok(1.0),
+            None,
+        );
+
+        let linear_velocity = Vector3::new(1.0, 0.0, 0.0);
+        let angular_velocity = Vector3::new(0.0, 0.0, 2.0);
+        let center_of_mass = Point3::origin();
+
+        // Identity inertia tensors + identity orientation make the DERIVED
+        // `angular_velocity()` (used internally by `velocity_at_point`) equal
+        // the raw input `angular_velocity` exactly -- see
+        // `RigidBodyMotion::update_derived_variables`: with R = I and
+        // I_body = I_body_inv = identity, `inertia_tensor_inv_world` collapses
+        // to identity too, so no distortion needs to be accounted for below.
+        let state = RigidBodyMotion::new(
+            1.0,
+            nalgebra::Matrix3::identity(),
+            nalgebra::Matrix3::identity(),
+            center_of_mass,
+            UnitQuaternion::identity(),
+            linear_velocity,
+            angular_velocity,
+        );
+
+        let mut vm = VolumeMapBoundary {
+            boundaries: vec![BoundaryType::DynamicBoundary {
+                signed_distance_field: sd_field,
+                volume_map,
+                render_mesh: RenderMesh::default(),
+                render_mesh_id: 0,
+                state,
+                boundary_neighbor_list: NeighborList::default(),
+                boundary_neighbor_list_viscosity: NeighborList::default(),
+            }],
+        };
+
+        let within_range = 0.5;
+        let rest_density_grid_spacing = 0.1;
+        let mut ns = crate::neighbor_search::SpatialHashing::new(within_range);
+        let positions = vec![Point3::new(0.1, 0.0, 0.0)];
+
+        vm.find_boundary_samples(&mut ns, within_range, &positions, rest_density_grid_spacing);
+
+        let boundary = &vm.boundaries[0];
+        let n_normal = boundary.boundary_neighbor_list().len();
+        let n_visc = boundary.boundary_neighbor_list_viscosity().len();
+        assert_eq!(
+            n_visc, 4,
+            "expected exactly 4 viscosity sample points (p_visc_1..4) for the \
+             single fluid particle in range"
+        );
+
+        // Independently recompute the expected velocity at each viscosity
+        // sample's ACTUAL reported position, via the standard rigid-body
+        // kinematics formula `v_p = v_cm + omega x (p - r_cm)` -- exactly what
+        // `velocity_at_point_on_boundary(&p_visc_i)` should evaluate to for
+        // each point. Comparing against the ACTUAL returned `pos` (rather than
+        // hand-derived expected positions) makes this assertion independent of
+        // any signed-distance-field interpolation imprecision -- both sides of
+        // the comparison use the same `pos`, so only the VELOCITY computation
+        // is actually being tested.
+        let expected_velocity_at = |p: &Point3<f64>| linear_velocity + angular_velocity.cross(&(p - center_of_mass));
+
+        let mut velocities = Vec::with_capacity(n_visc);
+        for local_id in 0..n_visc {
+            let global_id = n_normal + local_id;
+            let pos = *boundary.position(global_id);
+            let vel = *boundary.velocity(global_id);
+            let expected = expected_velocity_at(&pos);
+
+            assert!(
+                (vel - expected).norm() < 1e-9,
+                "viscosity sample {local_id} at {pos:?}: expected velocity {expected:?}, got {vel:?} \
+                 -- this is exactly the symptom of hardcoding v_vel to Vector3::zero()"
+            );
+            velocities.push(vel);
+        }
+
+        // Direct symptom of the original bug: every sample's velocity was
+        // hardcoded to exactly zero, regardless of the boundary's actual motion.
+        assert!(
+            velocities.iter().any(|v| v.norm() > 1e-6),
+            "all viscosity sample velocities are ~zero -- looks like the \
+             std::iter::repeat_n(Vector3::zero(), 4) regression"
+        );
+
+        // With nonzero angular velocity and geometrically distinct sample
+        // points, the velocities must not all coincide -- guards against a
+        // subtler variant that assigns one point's velocity to all four
+        // samples instead of each one evaluating its own position.
+        let first = velocities[0];
+        assert!(
+            velocities.iter().any(|v| (v - first).norm() > 1e-9),
+            "all four viscosity sample velocities are identical despite nonzero \
+             angular velocity and distinct sample positions -- expected each \
+             p_visc_i to get its OWN velocity_at_point_on_boundary(&p_visc_i)"
+        );
     }
 }
