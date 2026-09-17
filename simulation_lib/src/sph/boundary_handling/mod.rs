@@ -21,6 +21,15 @@ use bincode::{Decode, Encode};
 use nalgebra::{Point3, Vector3};
 use serde::{Deserialize, Serialize};
 
+/// Errors that can occur while constructing a boundary
+/// (`BoundaryHandling::add_static_boundary`/`add_dynamic_boundary`).
+#[derive(Debug, thiserror::Error)]
+pub enum BoundaryConstructionError {
+    /// Construction was interrupted via the progress callback.
+    #[error("Boundary construction was interrupted via the progress callback.")]
+    Interrupted,
+}
+
 #[derive(Debug, Deserialize)]
 pub enum BoundaryHandlingVariant {
     StaticSampleBoundary,
@@ -39,7 +48,8 @@ pub trait BoundaryHandling: Send + Sync + Clone {
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
         progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    );
+    ) -> Result<(), BoundaryConstructionError>;
+
 
     fn add_dynamic_boundary(
         &mut self,
@@ -48,7 +58,7 @@ pub trait BoundaryHandling: Send + Sync + Clone {
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
         progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    );
+    ) -> Result<(), BoundaryConstructionError>;
 
     fn initialize<K: KernelFn>(
         &mut self,

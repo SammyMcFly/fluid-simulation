@@ -11,7 +11,7 @@ use parry3d_f64::shape::TriMesh;
 use simulation_lib::neighbor_search::{NeighborList, NeighborSearch};
 use simulation_lib::render_info::BoundaryVisualization;
 use simulation_lib::sph::SystemParameters;
-use simulation_lib::sph::boundary_handling::VolumeMapBoundary;
+use simulation_lib::sph::boundary_handling::{BoundaryConstructionError, VolumeMapBoundary};
 use simulation_lib::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
 };
@@ -222,7 +222,7 @@ impl BoundaryHandling for MockBoundary {
         _r: f64,
         _k: f64,
         _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    ) {
+    ) -> Result<(), BoundaryConstructionError> {
         unimplemented!("not exercised by IISPHwOST tests")
     }
     fn add_dynamic_boundary(
@@ -232,7 +232,7 @@ impl BoundaryHandling for MockBoundary {
         _r: f64,
         _k: f64,
         _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    ) {
+    ) -> Result<(), BoundaryConstructionError> {
         unimplemented!("not exercised by IISPHwOST tests")
     }
     fn initialize<K: KernelFn>(&mut self, _n: &mut impl NeighborSearch, _k: f64, _w: f64) {}

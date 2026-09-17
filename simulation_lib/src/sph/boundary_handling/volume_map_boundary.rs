@@ -5,13 +5,12 @@ use crate::render_info::{
     BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization, RenderPose,
 };
 use crate::sph::boundary_handling::{
-    Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
-    RigidBodyMotion, RigidBodyMotionCheckpoint,
+    Boundary, BoundaryCheckpoint, BoundaryConstructionError, BoundaryHandling, ForceOntoBoundary, RequestMode, RigidBodyMotion, RigidBodyMotionCheckpoint
 };
 use crate::sph::kernel::{CubicBSpline3D, KernelFn};
 use crate::sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
 use crate::utilities::discretization::{
-    CubicSerendipityDiscretization, EvaluationError, gauss_legendre_integrate,
+    CubicSerendipityDiscretization, DiscretizationError, EvaluationError, gauss_legendre_integrate
 };
 use crate::utilities::euler_deg_to_quaternion;
 use crate::utilities::triangle_mesh::{MeshContainer, RenderMesh};
@@ -56,8 +55,7 @@ impl BoundaryHandling for VolumeMapBoundary {
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
         progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    ) {
-        // apply transformation
+    ) -> Result<(), BoundaryConstructionError> {
         mesh.transform(
             &boundary.translation,
             &boundary.rotation_euler_deg,
@@ -65,8 +63,8 @@ impl BoundaryHandling for VolumeMapBoundary {
         );
         let trimesh = mesh.trimesh();
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let fields =
-            DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius, progress_cb);
+        let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius, progress_cb)
+            .map_err(|_| BoundaryConstructionError::Interrupted)?;
 
         let boundary = BoundaryType::StaticBoundary {
             signed_distance_field: fields.signed_distance_field,
@@ -77,6 +75,7 @@ impl BoundaryHandling for VolumeMapBoundary {
             boundary_neighbor_list_viscosity: NeighborList::default(),
         };
         self.boundaries.push(boundary);
+        Ok(())
     }
 
     fn add_dynamic_boundary(
@@ -86,8 +85,7 @@ impl BoundaryHandling for VolumeMapBoundary {
         rest_density_grid_spacing: f64,
         kernel_support_radius: f64,
         progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    ) {
-        // apply scale
+    ) -> Result<(), BoundaryConstructionError> {
         mesh.transform(&[0., 0., 0.], &[0., 0., 0.], &boundary.scale);
         let trimesh = mesh.trimesh();
         // calc local center of mass, total mass and inertia tensor
@@ -114,8 +112,8 @@ impl BoundaryHandling for VolumeMapBoundary {
             + orientation.transform_vector(&local_com_vec);
         // discretize the mesh
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let fields =
-            DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius, progress_cb);
+        let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius, progress_cb)
+            .map_err(|_| BoundaryConstructionError::Interrupted)?;
 
         let boundary = BoundaryType::DynamicBoundary {
             signed_distance_field: fields.signed_distance_field,
@@ -139,6 +137,7 @@ impl BoundaryHandling for VolumeMapBoundary {
             boundary_neighbor_list_viscosity: NeighborList::default(),
         };
         self.boundaries.push(boundary);
+        Ok(())
     }
 
     fn initialize<K: KernelFn>(
@@ -433,7 +432,7 @@ impl DiscretizedBoundaryFields {
         dx: f64,
         kernel_support_radius: f64,
         mut progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    ) -> DiscretizedBoundaryFields {
+    ) -> Result<Self, DiscretizationError> {
         #[cfg(feature = "logging")]
         tracing::info!("Start cubic serendipity discretization.");
         let identity = Pose::identity();
@@ -456,7 +455,7 @@ impl DiscretizedBoundaryFields {
             dx,
             &|p| sd_field.signed_distance(p),
             None,
-        );
+        )?;
         if sdfn.is_empty() {
             let [nx, ny, nz] = sdfn.cell_count();
             let node_spacing = sdfn.node_spacing();
@@ -500,7 +499,7 @@ impl DiscretizedBoundaryFields {
                     .map(|v| v.clamp(0.0, ball_volume(kernel_support_radius)))
             },
             progress_cb,
-        );
+        )?;
         if vm.is_empty() {
             let [nx, ny, nz] = vm.cell_count();
             let node_spacing = vm.node_spacing();
@@ -516,10 +515,10 @@ impl DiscretizedBoundaryFields {
         #[cfg(feature = "logging")]
         tracing::info!("Finished volume integration.");
 
-        DiscretizedBoundaryFields {
+        Ok(DiscretizedBoundaryFields {
             signed_distance_field: sdfn,
             volume_map: vm,
-        }
+        })
     }
 }
 
@@ -1600,7 +1599,7 @@ mod tests {
             2.0, // dx == domain size -> single cell
             &move |_p: &Point3<f64>| Ok(value),
             None,
-        )
+        ).unwrap()
     }
 
     #[test]
@@ -1685,7 +1684,7 @@ mod tests {
             2.0,                        // einzelne Zelle
             &|p: &Point3<f64>| Ok(p.x), // Ebene bei x = 0
             None,
-        );
+        ).unwrap();
         let volume_map = CubicSerendipityDiscretization::new(
             Point3::new(-1., -1., -1.),
             Point3::new(1., 1., 1.),
@@ -1694,7 +1693,7 @@ mod tests {
             2.0,
             &|_p: &Point3<f64>| Ok(1.0),
             None,
-        );
+        ).unwrap();
 
         let mut vm = VolumeMapBoundary {
             boundaries: vec![BoundaryType::StaticBoundary {
@@ -1773,7 +1772,7 @@ mod tests {
             2.0,
             &|p: &Point3<f64>| Ok(p.x), // plane at x = 0
             None,
-        );
+        ).unwrap();
         let volume_map = CubicSerendipityDiscretization::new(
             Point3::new(-1., -1., -1.),
             Point3::new(1., 1., 1.),
@@ -1782,7 +1781,7 @@ mod tests {
             2.0,
             &|_p: &Point3<f64>| Ok(1.0),
             None,
-        );
+        ).unwrap();
 
         let linear_velocity = Vector3::new(1.0, 0.0, 0.0);
         let angular_velocity = Vector3::new(0.0, 0.0, 2.0);

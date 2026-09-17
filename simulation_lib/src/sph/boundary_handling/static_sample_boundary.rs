@@ -4,6 +4,7 @@ use crate::neighbor_search::NeighborList;
 use crate::neighbor_search::NeighborSearch;
 use crate::render_info::RenderPose;
 use crate::render_info::{BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization};
+use crate::sph::boundary_handling::BoundaryConstructionError;
 use crate::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
     RigidBodyMotion, RigidBodyMotionCheckpoint,
@@ -51,7 +52,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         rest_density_grid_spacing: f64,
         _kernel_support_radius: f64,
         _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    ) {
+    ) -> Result<(), BoundaryConstructionError> {
         // apply transformation
         mesh.transform(
             &boundary.translation,
@@ -72,6 +73,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         };
 
         self.boundaries.push(boundary);
+        Ok(())
     }
 
     fn add_dynamic_boundary(
@@ -81,7 +83,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         rest_density_grid_spacing: f64,
         _kernel_support_radius: f64,
         _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    ) {
+    ) -> Result<(), BoundaryConstructionError> {
         // apply scale
         mesh.transform(&[0., 0., 0.], &[0., 0., 0.], &boundary.scale);
         let trimesh = mesh.trimesh();
@@ -134,6 +136,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         };
 
         self.boundaries.push(boundary);
+        Ok(())
     }
 
     fn initialize<K: KernelFn>(

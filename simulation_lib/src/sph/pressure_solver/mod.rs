@@ -200,7 +200,7 @@ mod tests {
     use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
     use crate::render_info::BoundaryVisualization;
     use crate::sph::GravityMode;
-    use crate::sph::boundary_handling::{Boundary, BoundaryCheckpoint, VolumeMapBoundary};
+    use crate::sph::boundary_handling::{Boundary, BoundaryCheckpoint, BoundaryConstructionError, VolumeMapBoundary};
     use crate::sph::fluid::Len;
     use crate::sph::kernel::CubicBSpline3D;
     use crate::sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
@@ -388,7 +388,7 @@ mod tests {
             _rest_density_grid_spacing: f64,
             _kernel_support_radius: f64,
             _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-        ) {
+        ) -> Result<(), BoundaryConstructionError> {
             unimplemented!("not exercised by pressure_solver tests")
         }
 
@@ -399,7 +399,7 @@ mod tests {
             _rest_density_grid_spacing: f64,
             _kernel_support_radius: f64,
             _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-        ) {
+        ) -> Result<(), BoundaryConstructionError> {
             unimplemented!("not exercised by pressure_solver tests")
         }
 

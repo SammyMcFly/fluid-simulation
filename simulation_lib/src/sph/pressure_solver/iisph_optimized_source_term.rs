@@ -233,7 +233,7 @@ mod tests {
     use crate::neighbor_search::{NeighborList, NeighborSearch};
     use crate::sph::GravityMode;
     use crate::sph::boundary_handling::{
-        Boundary, BoundaryCheckpoint, ForceOntoBoundary, VolumeMapBoundary,
+        Boundary, BoundaryCheckpoint, BoundaryConstructionError, ForceOntoBoundary, VolumeMapBoundary
     };
     use crate::sph::kernel::CubicBSpline3D;
     use nalgebra::{Point3, Vector3};
@@ -430,7 +430,7 @@ mod tests {
             _r: f64,
             _k: f64,
             _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-        ) {
+        ) -> Result<(), BoundaryConstructionError> {
             unimplemented!("not exercised by IISPHwOST tests")
         }
         fn add_dynamic_boundary(
@@ -440,7 +440,7 @@ mod tests {
             _r: f64,
             _k: f64,
             _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-        ) {
+        ) -> Result<(), BoundaryConstructionError> {
             unimplemented!("not exercised by IISPHwOST tests")
         }
         fn initialize<K: KernelFn>(&mut self, _n: &mut impl NeighborSearch, _k: f64, _w: f64) {}

@@ -69,7 +69,7 @@ fn function_reproduces_constant_field_everywhere_in_domain() {
         1.0, // 2 cells per axis
         &|_p: &Point3<f64>| Ok(3.5),
         None,
-    );
+    ).unwrap();
 
     for &p in &[
         Point3::new(-1., -1., -1.),
@@ -96,7 +96,7 @@ fn function_approximately_reproduces_a_linear_field() {
         1.0,
         &|p: &Point3<f64>| Ok(2.0 * p.x - p.y + 0.5 * p.z + 1.0),
         None,
-    );
+    ).unwrap();
 
     for &p in &[
         Point3::new(0., 0., 0.),
@@ -122,7 +122,7 @@ fn function_out_of_bounds_below_and_above_domain() {
         1.0,
         &|_p: &Point3<f64>| Ok(0.0),
         None,
-    );
+    ).unwrap();
 
     assert!(matches!(
         disc.function(&Point3::new(-0.01, 0.5, 0.5)),
@@ -144,7 +144,7 @@ fn function_at_exact_upper_boundary_is_valid_via_clamping() {
         1.0,
         &|_p: &Point3<f64>| Ok(4.2),
         None,
-    );
+    ).unwrap();
 
     let v = disc
         .function(&Point3::new(1.0, 1.0, 1.0))
@@ -162,7 +162,7 @@ fn function_returns_pruned_cell_when_entire_domain_is_pruned() {
         1.0,
         &|_p: &Point3<f64>| Ok(0.0), // every node value is 0.0 < 10.0
         None,
-    );
+    ).unwrap();
 
     assert!(matches!(
         disc.function(&Point3::new(0.5, 0.5, 0.5)),
@@ -180,7 +180,7 @@ fn function_never_prunes_when_no_bounds_given() {
         1.0,
         &|_p: &Point3<f64>| Ok(-1000.0),
         None,
-    );
+    ).unwrap();
 
     let v = disc.function(&Point3::new(0.5, 0.5, 0.5)).unwrap();
     assert!((v - (-1000.0)).abs() < 1e-6);
@@ -198,7 +198,7 @@ fn gradient_matches_known_linear_field_gradient_at_interior_point() {
         1.0,
         &|p: &Point3<f64>| Ok(2.0 * p.x - p.y + 0.5 * p.z),
         None,
-    );
+    ).unwrap();
 
     let grad = disc.gradient(&Point3::new(0., 0., 0.)).unwrap();
     let expected = Vector3::new(2.0, -1.0, 0.5);
@@ -221,7 +221,7 @@ fn gradient_errors_near_domain_boundary_instead_of_falling_back() {
         2.0, // single cell, h = dx/6 = 1/3
         &|_p: &Point3<f64>| Ok(0.0),
         None,
-    );
+    ).unwrap();
 
     // p.x + h = 0.9 + 1/3 ≈ 1.233, outside x_max = 1.0.
     let result = disc.gradient(&Point3::new(0.9, 0., 0.));

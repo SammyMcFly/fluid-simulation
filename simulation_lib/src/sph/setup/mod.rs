@@ -5,7 +5,7 @@ pub mod input;
 
 use crate::neighbor_search::NeighborSearch;
 use crate::neighbor_search::*;
-use crate::sph::boundary_handling::BoundaryHandling;
+use crate::sph::boundary_handling::{BoundaryHandling, BoundaryConstructionError};
 use crate::sph::boundary_handling::*;
 use crate::sph::fluid::{Fluid, Len};
 use crate::sph::integration_schemes::IntegrationScheme;
@@ -69,6 +69,11 @@ pub enum SetupError {
          dynamic boundary/boundaries"
     )]
     IncompatibleDynamicBoundary,
+
+    #[error(
+        "Construction was interrupted via the progress callback."
+    )]
+    Interrupted(#[from] BoundaryConstructionError),
 }
 
 /// Reborrows an `Option<&mut dyn FnMut(f64)>` for a single call, without
@@ -198,7 +203,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                     params.rest_density_grid_spacing,
                     params.kernel_support_radius,
                     reborrow_progress(&mut progress_cb),
-                );
+                )?;
             }
             for b in &scene.boundary.dynamic {
                 // select mesh
@@ -217,7 +222,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
                     params.rest_density_grid_spacing,
                     params.kernel_support_radius,
                     reborrow_progress(&mut progress_cb),
-                );
+                )?;
             }
             if boundary.is_empty() {
                 tracing::warn!("No boundary is present in simulation.");

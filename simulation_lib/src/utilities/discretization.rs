@@ -15,6 +15,19 @@ pub enum EvaluationError {
     PrunedCell,
 }
 
+/// Errors that can occur while *building* a [`CubicSerendipityDiscretization`]
+/// -- as opposed to [`EvaluationError`], which is returned when *querying*
+/// an already-built one.
+#[derive(Debug, ThisError)]
+pub enum DiscretizationError {
+    /// `progress_cb` returned `false`, requesting cancellation before every
+    /// node was evaluated. The partially-built grid is discarded rather
+    /// than returned, since a cancelled/stale load's content is never used
+    /// anyway.
+    #[error("Discretization was interrupted via the progress callback.")]
+    Interrupted,
+}
+
 /// Integrates f(x, y, z) over a ball with radius 'radius' using the Gauß-Legendre quadrature.
 pub fn gauss_legendre_integrate<F>(
     f: &F,
@@ -67,7 +80,7 @@ where
 /// A cubic serendipity discretization of a 3D scalar function within a predefined grid domain.
 ///
 /// Provides discretized function and function gradient.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CubicSerendipityDiscretization {
     x_min: Point3<f64>,
     x_max: Point3<f64>,
@@ -90,7 +103,7 @@ impl CubicSerendipityDiscretization {
         dx: f64,
         f: &F,
         mut progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-    ) -> Self {
+    ) -> Result<Self, DiscretizationError> {
         let n = [
             ((x_max[0] - x_min[0]) / dx).round() as usize,
             ((x_max[1] - x_min[1]) / dx).round() as usize,
@@ -169,12 +182,22 @@ impl CubicSerendipityDiscretization {
                 && !cb(evaluated as f32 / total_nodes as f32)
             {
                 cb(1.);
-                break; // stop evaluating further chunks; partial `values` is fine --
-                // a cancelled/stale load's *content* is never used anyway.
+                // `all_values` is incomplete relative to `all_keys` at this
+                // point -- bail out immediately rather than falling through to
+                // the pruning loop below, which assumes every key in `all_keys`
+                // already has a corresponding entry.
+                return Err(DiscretizationError::Interrupted);
             }
         }
 
-        // Apply pruning sequentially
+        // Apply pruning sequentially.
+        //
+        // Safe to `.unwrap()` every lookup below: this point is only reached
+        // when the loop above ran to completion without an early return, i.e.
+        // every chunk of `all_keys` was evaluated and extended into
+        // `all_values` -- so every key looked up here (constructed via the
+        // identical `(cx, cy, cz)` x `offsets` iteration pattern used to build
+        // `all_keys` itself) is guaranteed present.
         let mut values = HashMap::new();
         for cz in 0..n[2] {
             for cy in 0..n[1] {
@@ -190,7 +213,6 @@ impl CubicSerendipityDiscretization {
                         })
                         .collect();
 
-                    // Prune if any node had an EvaluationError
                     if node_values.len() != offsets.len() {
                         continue;
                     }
@@ -210,7 +232,7 @@ impl CubicSerendipityDiscretization {
             }
         }
 
-        Self {
+        Ok(Self {
             x_min,
             x_max,
             dx,
@@ -218,7 +240,7 @@ impl CubicSerendipityDiscretization {
             ref_nodes,
             offsets,
             values,
-        }
+        })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -723,7 +745,7 @@ mod tests {
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        );
+        ).unwrap();
         assert_eq!(
             disc.get_cube_idx(&Point3::new(0.5, 0.5, 0.5)).unwrap(),
             [0, 0, 0]
@@ -744,7 +766,7 @@ mod tests {
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        );
+        ).unwrap();
         assert_eq!(
             disc.get_cube_idx(&Point3::new(2.0, 1.0, 1.0)).unwrap(),
             [1, 0, 0]
@@ -761,7 +783,7 @@ mod tests {
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        );
+        ).unwrap();
         assert!(matches!(
             disc.get_cube_idx(&Point3::new(-0.01, 0.5, 0.5)),
             Err(EvaluationError::OutOfBounds)
@@ -790,7 +812,7 @@ mod tests {
             1.0,
             &|p: &Point3<f64>| Ok(if p.x <= 1.0 { 0.0 } else { 10.0 }),
             None,
-        );
+        ).unwrap();
 
         // Corner node at lattice [3,0,0] == physical (1,0,0): shared by
         // both cells, contributed by unpruned cell 1.
@@ -825,7 +847,7 @@ mod tests {
                 }
             },
             None,
-        );
+        ).unwrap();
 
         assert!(matches!(
             disc.function(&Point3::new(0.5, 0.5, 0.5)),
@@ -845,7 +867,7 @@ mod tests {
             1.0,
             &|p: &Point3<f64>| Ok(3.0 * p.x),
             None,
-        );
+        ).unwrap();
 
         let d = disc
             .directional_derivative(&Point3::new(0., 0., 0.), 0, 0.1)
@@ -881,7 +903,7 @@ mod tests {
             2.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        );
+        ).unwrap();
 
         // p + h = 0.95 + 0.1 = 1.05, exceeds x_max = 1.0.
         let result = disc.directional_derivative(&Point3::new(0.95, 0., 0.), 0, 0.1);
@@ -936,7 +958,30 @@ mod tests {
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        );
+        ).unwrap();
         assert!(!disc.is_empty());
+    }
+
+    #[test]
+    fn cancelling_via_progress_callback_returns_interrupted_error() {
+        let mut calls = 0;
+        let mut cancel_after_first_update = |_frac: f32| {
+            calls += 1;
+            calls < 2 // cancel starting from the second progress update
+        };
+
+        // Large enough grid to guarantee multiple chunks (same domain as
+        // `progress_callback_is_monotonically_increasing_and_ends_at_one`).
+        let result = CubicSerendipityDiscretization::new(
+            Point3::new(0., 0., 0.),
+            Point3::new(5., 5., 5.),
+            None,
+            None,
+            0.5,
+            &|_p: &Point3<f64>| Ok(0.0),
+            Some(&mut cancel_after_first_update),
+        );
+
+        assert!(matches!(result, Err(DiscretizationError::Interrupted)));
     }
 }

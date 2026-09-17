@@ -563,7 +563,7 @@ mod tests {
     use super::*;
     use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
     use crate::sph::GravityMode;
-    use crate::sph::boundary_handling::VolumeMapBoundary;
+    use crate::sph::boundary_handling::{BoundaryConstructionError, VolumeMapBoundary};
     use crate::sph::kernel::CubicBSpline3D;
     use crate::utilities::vector;
     use nalgebra::Point3;
@@ -935,7 +935,8 @@ mod tests {
                 _r: f64,
                 _k: f64,
                 _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-            ) {
+            ) -> Result<(), BoundaryConstructionError> {
+                unimplemented!("not exercised by iisph tests")
             }
             fn add_dynamic_boundary(
                 &mut self,
@@ -944,7 +945,8 @@ mod tests {
                 _r: f64,
                 _k: f64,
                 _progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
-            ) {
+            ) -> Result<(), BoundaryConstructionError> {
+                unimplemented!("not exercised by iisph tests")
             }
             fn initialize<K: KernelFn>(&mut self, _n: &mut impl NeighborSearch, _k: f64, _w: f64) {}
             fn find_boundary_samples(
