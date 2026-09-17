@@ -154,14 +154,14 @@ impl BoundaryHandling for StaticSampleBoundary {
     fn find_boundary_samples(
         &mut self,
         neighbor_search: &mut impl NeighborSearch,
-        kernel_support_radius: f64,
+        search_range: f64,
         positions: &[Point3<f64>],
         _rest_density_grid_spacing: f64,
     ) {
         for b in &mut self.boundaries {
             let (boundary_position, neighbor_list) = b.position_and_boundary_neighbor_list_mut();
             neighbor_search.find_samples(
-                kernel_support_radius,
+                search_range,
                 positions,
                 boundary_position,
                 neighbor_list,

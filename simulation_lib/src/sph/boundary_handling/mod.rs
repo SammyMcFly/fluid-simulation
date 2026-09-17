@@ -60,7 +60,7 @@ pub trait BoundaryHandling: Send + Sync + Clone {
     fn find_boundary_samples(
         &mut self,
         neighbor_search: &mut impl NeighborSearch,
-        within_range: f64,
+        search_range: f64,
         positions: &[Point3<f64>],
         rest_density_grid_spacing: f64,
     );

@@ -152,7 +152,7 @@ impl BoundaryHandling for VolumeMapBoundary {
     fn find_boundary_samples(
         &mut self,
         _neighbor_search: &mut impl NeighborSearch,
-        within_range: f64,
+        search_range: f64,
         positions: &[Point3<f64>],
         rest_density_grid_spacing: f64,
     ) {
@@ -184,7 +184,7 @@ impl BoundaryHandling for VolumeMapBoundary {
                     };
 
                     let signed_distance = if let Ok(sd) = b.signed_distance(pos)
-                        && sd < within_range
+                        && sd < search_range
                     {
                         sd
                     } else {
@@ -217,7 +217,7 @@ impl BoundaryHandling for VolumeMapBoundary {
                     };
 
                     // Clamp volume to v_max range to avoid excessive volumes due to cubic serendipity interpolation
-                    let volume = volume.min(ball_volume(within_range));
+                    let volume = volume.min(ball_volume(search_range));
 
                     // let d = signed_distance.abs();
                     let d = (signed_distance + 0.25 * rest_density_grid_spacing)
@@ -249,7 +249,12 @@ impl BoundaryHandling for VolumeMapBoundary {
                     let t2 = vec_p_to_boundary.cross(&t1);
                     let t1 = t1 / t1.norm();
                     let t2 = t2 / t2.norm();
-                    let d = 0.5 * within_range;
+                    let d = 0.5 * search_range;
+
+                    let p_visc_1 = point_on_boundary + d * t1;
+                    let p_visc_2 = point_on_boundary - d * t1;
+                    let p_visc_3 = point_on_boundary + d * t2;
+                    let p_visc_4 = point_on_boundary - d * t2;
 
                     r.v_pos.extend_from_slice(&[
                         point_on_boundary + d * t1,
