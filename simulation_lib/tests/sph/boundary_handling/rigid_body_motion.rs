@@ -4,6 +4,10 @@ use simulation_lib::sph::boundary_handling::{
 };
 use std::f64::consts::FRAC_PI_2;
 
+fn assert_scalar_close(a: f64, b: f64, eps: f64) {
+    assert!((a - b).abs() < eps, "expected {b:?}, got {a:?}");
+}
+
 fn assert_vec_close(a: Vector3<f64>, b: Vector3<f64>, eps: f64) {
     assert!((a - b).norm() < eps, "expected {b:?}, got {a:?}");
 }
@@ -154,6 +158,161 @@ fn velocity_at_point_matches_rigid_body_formula() {
         Vector3::new(1., 2., 0.),
         1e-12,
     );
+}
+
+#[test]
+fn velocity_at_point_uses_com_as_pivot_not_world_origin() {
+    // The regression guard for this whole group: with the COM off the world
+    // origin, omega x (p - com) = (0,1,0), whereas the lever arm measured
+    // against the world origin would give (0,6,0). Every other
+    // `velocity_at_point` test here places the COM at the origin, where those
+    // two are indistinguishable.
+    let motion = isotropic(
+        1.0,
+        Point3::new(5., 0., 0.),
+        UnitQuaternion::identity(),
+        Vector3::zeros(),
+        Vector3::new(0., 0., 1.),
+    );
+
+    assert_vec_close(
+        motion.velocity_at_point(&Point3::new(6., 0., 0.)),
+        Vector3::new(0., 1., 0.),
+        1e-12,
+    );
+}
+
+#[test]
+fn velocity_at_point_reduces_to_linear_velocity_at_the_com() {
+    // Zero lever arm must kill the rotational term exactly, even with the COM
+    // displaced and a fully general omega.
+    let v_lin = Vector3::new(-1.5, 0.25, 3.);
+    let com = Point3::new(5., -2., 1.);
+    let motion = isotropic(
+        1.0,
+        com,
+        UnitQuaternion::identity(),
+        v_lin,
+        Vector3::new(0.3, -0.7, 1.1),
+    );
+
+    assert_vec_close(motion.velocity_at_point(&com), v_lin, 1e-12);
+    assert_vec_close(motion.velocity_at_point(&motion.center_of_mass()), v_lin, 1e-12);
+}
+
+#[test]
+fn velocity_at_point_superposes_translation_and_rotation_off_origin() {
+    let motion = isotropic(
+        1.0,
+        Point3::new(5., 0., 0.),
+        UnitQuaternion::identity(),
+        Vector3::new(0., 0., 2.),
+        Vector3::new(0., 0., 1.),
+    );
+
+    // (0,0,2) + (0,0,1) x (1,0,0) = (0,0,2) + (0,1,0)
+    assert_vec_close(
+        motion.velocity_at_point(&Point3::new(6., 0., 0.)),
+        Vector3::new(0., 1., 2.),
+        1e-12,
+    );
+}
+
+#[test]
+fn velocity_at_point_is_antisymmetric_in_the_lever_arm() {
+    // Diametrically opposite material points must straddle the COM velocity;
+    // catches any nonlinearity or stray constant in the lever-arm term.
+    let com = Point3::new(1., -4., 2.5);
+    let motion = isotropic(
+        1.0,
+        com,
+        UnitQuaternion::identity(),
+        Vector3::new(0.7, 0., -0.2),
+        Vector3::new(0.4, -1.3, 0.9),
+    );
+
+    let r = Vector3::new(2., 0.5, -1.5);
+    let v_plus = motion.velocity_at_point(&(com + r));
+    let v_minus = motion.velocity_at_point(&(com - r));
+
+    assert_vec_close(0.5 * (v_plus + v_minus), motion.velocity_at_cm(), 1e-12);
+}
+
+#[test]
+fn velocity_at_point_is_unaffected_along_the_rotation_axis() {
+    // Displacement parallel to omega has zero cross product — this fails
+    // loudly if the operands of `cross` are ever swapped, because a sign flip
+    // elsewhere would not be caught by the magnitude-only checks above.
+    let com = Point3::new(-3., 2., 7.);
+    let omega = Vector3::new(0., 0., 2.5);
+    let motion = isotropic(1.0, com, UnitQuaternion::identity(), Vector3::zeros(), omega);
+
+    assert_vec_close(
+        motion.velocity_at_point(&(com + omega * 3.)),
+        Vector3::zeros(),
+        1e-12,
+    );
+}
+
+#[test]
+fn velocity_field_satisfies_the_rigidity_constraint() {
+    // (v_a - v_b) . (a - b) == 0 for any rigid motion: the distance between two
+    // material points cannot change. This is the defining property the entire
+    // velocity field is derived from, checked against arbitrary points.
+    let com = Point3::new(2., -1., 0.5);
+    let motion = isotropic(
+        1.0,
+        com,
+        UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 0.83),
+        Vector3::new(1., -2., 0.4),
+        Vector3::new(0.6, 1.4, -0.9),
+    );
+
+    let a = Point3::new(4., 0., -2.);
+    let b = Point3::new(-1., 3.5, 1.);
+    let relative_velocity = motion.velocity_at_point(&a) - motion.velocity_at_point(&b);
+
+    assert_scalar_close(relative_velocity.dot(&(a - b)), 0., 1e-11);
+}
+
+#[test]
+fn velocity_at_point_crosses_world_frame_angular_velocity() {
+    // Anisotropic inertia makes omega orientation-dependent, so this pins down
+    // that `angular_velocity()` is a *world*-frame quantity, matching the
+    // world-frame lever arm it is crossed with. With L = (0,1,0) and the body
+    // rotated 90° about z, the world inverse inertia maps L to omega = (0,1,0)
+    // scaled by the body-x eigenvalue 1.0 (body y-axis now points along -x).
+    let mut motion = RigidBodyMotion::new(
+        1.0,
+        Matrix3::from_diagonal(&Vector3::new(1., 2., 3.)),
+        Matrix3::from_diagonal(&Vector3::new(1., 0.5, 1. / 3.)),
+        Point3::new(1., 1., 1.),
+        UnitQuaternion::identity(),
+        Vector3::zeros(),
+        Vector3::zeros(),
+    );
+
+    motion.restore_from_checkpoint(&RigidBodyMotionCheckpoint {
+        center_of_mass: Point3::new(1., 1., 1.),
+        orientation: UnitQuaternion::from_axis_angle(&Vector3::z_axis(), FRAC_PI_2),
+        linear_velocity: Vector3::zeros(),
+        angular_momentum: Vector3::new(0., 1., 0.),
+        force: Vector3::zeros(),
+        torque: Vector3::zeros(),
+    });
+
+    // Cross-check the field against the omega the body reports, one unit out
+    // along world x from the COM.
+    let omega = motion.angular_velocity();
+    let probe = motion.center_of_mass() + Vector3::new(1., 0., 0.);
+    assert_vec_close(
+        motion.velocity_at_point(&probe),
+        omega.cross(&Vector3::new(1., 0., 0.)),
+        1e-12,
+    );
+    // And that omega itself is the world-frame value, not the body-frame one
+    // (which would be (0, 0.5, 0)).
+    assert_vec_close(omega, Vector3::new(0., 1., 0.), 1e-9);
 }
 
 // ─── add_force / reset_forces / checkpoint force staging ────────────
@@ -316,6 +475,75 @@ fn step_forward_in_time_rotates_orientation_approximately_as_expected() {
     assert!((orientation.angle() - 2. * dt).abs() < 1e-4);
     let axis = orientation.axis().expect("nonzero rotation");
     assert_vec_close(axis.into_inner(), Vector3::new(0., 0., 1.), 1e-9);
+}
+
+#[test]
+fn velocity_field_pivot_tracks_the_com_across_steps() {
+    // Free translation plus constant spin: since the pivot moves with the
+    // body, the velocity one unit ahead of the COM must stay constant. This
+    // couples `velocity_at_point` to the integrator — a pivot left behind at
+    // the starting position would drift linearly.
+    let mut motion = isotropic(
+        1.0,
+        Point3::origin(),
+        UnitQuaternion::identity(),
+        Vector3::new(1., 0., 0.),
+        Vector3::new(0., 0., 1.),
+    );
+
+    for _ in 0..50 {
+        motion.step_forward_in_time(0.01);
+
+        let probe = motion.center_of_mass() + Vector3::new(1., 0., 0.);
+        assert_vec_close(
+            motion.velocity_at_point(&probe),
+            Vector3::new(1., 1., 0.),
+            1e-10,
+        );
+    }
+
+    // Sanity: the body actually travelled, so the loop above was not
+    // trivially satisfied by a COM parked at the origin.
+    assert_scalar_close(motion.center_of_mass().x, 0.5, 1e-10);
+}
+
+#[test]
+fn orientation_integration_preserves_the_full_rotation_angle() {
+    // One coarse step about z: the exponential map turns by exactly
+    // omega*dt = 0.5 rad, whereas Euler-plus-normalize turns by only
+    // 2*atan(0.25) = 0.48996 rad. The gap is ~1e-2, far above tolerance.
+    let mut motion = isotropic(
+        1.0,
+        Point3::origin(),
+        UnitQuaternion::identity(),
+        Vector3::zeros(),
+        Vector3::new(0., 0., 1.),
+    );
+
+    motion.step_forward_in_time(0.5);
+
+    let rotation = motion.pose().rotation;
+    assert_scalar_close(rotation.angle(), 0.5, 1e-12);
+    assert_vec_close(rotation.scaled_axis(), Vector3::new(0., 0., 0.5), 1e-12);
+}
+
+#[test]
+fn orientation_integration_has_no_cumulative_angle_deficit() {
+    // 1000 steps of a full 2*pi rotation must return exactly to identity.
+    // Euler-plus-normalize falls short by ~n*theta^3/12 = 2.1e-5 rad.
+    let mut motion = isotropic(
+        1.0,
+        Point3::origin(),
+        UnitQuaternion::identity(),
+        Vector3::zeros(),
+        Vector3::new(0., 0., std::f64::consts::TAU),
+    );
+
+    for _ in 0..1000 {
+        motion.step_forward_in_time(1e-3);
+    }
+
+    assert_scalar_close(motion.pose().rotation.angle(), 0., 1e-11);
 }
 
 // ─── checkpoint / restore ────────────────────────────────────────────
