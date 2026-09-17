@@ -406,14 +406,7 @@ impl BoundaryType {
                     ref [position_body = position_body],
                     |id, id_pos, id_vel| {
                         *id_pos = state.local_to_world(&position_body[id]);
-                        *id_vel = state.velocity_at_cm()
-                            + state.angular_velocity().cross(&state.local_to_world_vector(
-                                &Vector3::new(
-                                    position_body[id].x,
-                                    position_body[id].y,
-                                    position_body[id].z,
-                                ))
-                            );
+                        *id_vel = state.velocity_at_point(id_pos);
                     }
                 );
             }

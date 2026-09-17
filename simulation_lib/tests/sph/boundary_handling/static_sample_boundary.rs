@@ -527,6 +527,74 @@ fn step_forward_in_time_translates_a_moving_dynamic_boundary() {
     );
 }
 
+#[test]
+fn dynamic_boundary_sample_velocities_match_rigid_body_formula_with_offset_com() {
+    // The closest existing coverage (`restore_from_checkpoint_round_trip_...`)
+    // only compares two boundaries against each other, so a wrong lever arm
+    // would cancel out. Here the expected velocity is stated absolutely:
+    // v = v_cm + omega x (p_world - com), with com off the origin so that a
+    // forgotten COM subtraction (using p_world directly) is detectable.
+    let com = Point3::new(5., 0., 0.);
+    let linear = Vector3::new(0.5, 0., 0.);
+    let omega = Vector3::new(0., 0., 2.);
+
+    let mut boundary = StaticSampleBoundary::new();
+    let mut mesh = cube_mesh_container();
+    boundary.add_dynamic_boundary(
+        &mut mesh,
+        &dynamic_def_moving(1, [5., 0., 0.], [0.5, 0., 0.], [0., 0., 2.]),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
+    boundary.step_forward_in_time(0.0); // sync cached position/velocity
+
+    let b = boundary.iter().next().unwrap();
+    assert!((b.center_of_mass().unwrap() - com).norm() < 1e-9);
+
+    for id in 0..expected_cube_sample_count() {
+        let p = b.position(id);
+        let expected = linear + omega.cross(&(p - com));
+        assert!(
+            (b.velocity(id) - expected).norm() < 1e-9,
+            "sample {id} at {p:?}: expected velocity {expected:?}, got {:?}",
+            b.velocity(id)
+        );
+        // Lever arm must be nonzero for the cross product to have any bite.
+        assert!((p - com).norm() > 0.5, "sample {id} sits at the COM");
+    }
+}
+
+#[test]
+fn step_forward_in_time_rotates_samples_about_the_center_of_mass() {
+    let com = Point3::new(5., 0., 0.);
+    let mut boundary = StaticSampleBoundary::new();
+    let mut mesh = cube_mesh_container();
+    boundary.add_dynamic_boundary(
+        &mut mesh,
+        &dynamic_def_moving(1, [5., 0., 0.], [0., 0., 0.], [0., 0., 2.]),
+        SPACING,
+        KERNEL_SUPPORT_RADIUS,
+        None,
+    );
+    boundary.step_forward_in_time(0.0);
+
+    let before: Vec<Point3<f64>> = (0..expected_cube_sample_count())
+        .map(|id| *boundary.iter().next().unwrap().position(id))
+        .collect();
+
+    boundary.step_forward_in_time(0.25);
+
+    let b = boundary.iter().next().unwrap();
+    for (id, p0) in before.iter().enumerate() {
+        let p1 = b.position(id);
+        // Pure rotation about the z-axis through the COM: the distance to
+        // the COM and the z-coordinate are both invariant.
+        assert!(((p1 - com).norm() - (p0 - com).norm()).abs() < 1e-9, "sample {id}");
+        assert!((p1.z - p0.z).abs() < 1e-9, "sample {id}");
+    }
+}
+
 // ─── visualization ────────────────────────────────────────────────────
 
 #[test]
