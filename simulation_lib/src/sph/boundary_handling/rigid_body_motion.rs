@@ -105,8 +105,8 @@ impl RigidBodyMotion {
 
     /// Body/local-space point -> world-space point.
     #[inline]
-    pub fn local_to_world(&self, p_world: &Point3<f64>) -> Point3<f64> {
-        self.pose().transform_point(p_world)
+    pub fn local_to_world(&self, p_local: &Point3<f64>) -> Point3<f64> {
+        self.pose().transform_point(p_local)
     }
 
     /// Local-space direction/gradient -> world-space direction/gradient.
