@@ -185,7 +185,7 @@ fn build_boundary(
             }
         }
         BoundaryVisualization::TriangleMesh { meshes, coloring } => {
-            let colors = resolve_boundary_mesh_coloring(coloring, colormap, bounbary_alpha);
+            let colors = resolve_boundary_mesh_coloring(coloring, meshes.len(), colormap, bounbary_alpha);
             let draws: Vec<BoundaryMeshDraw> = meshes
                 .iter()
                 .zip(colors.iter())
@@ -342,12 +342,13 @@ fn resolve_boundary_sample_coloring(
 
 fn resolve_boundary_mesh_coloring(
     coloring: &BoundaryMeshColoring,
+    mesh_count: usize,
     colormap: Colormap,
     bounbary_alpha: f32,
 ) -> Vec<[f32; 4]> {
     match coloring {
-        BoundaryMeshColoring::Original => vec![[0.7, 0.7, 0.7, bounbary_alpha]],
-        BoundaryMeshColoring::Uniform => vec![[0.6, 0.6, 0.6, bounbary_alpha]],
+        BoundaryMeshColoring::Original => vec![[0.7, 0.7, 0.7, bounbary_alpha]; mesh_count],
+        BoundaryMeshColoring::Uniform => vec![[0.6, 0.6, 0.6, bounbary_alpha]; mesh_count],
         BoundaryMeshColoring::BoundaryId { ids, max_id } => {
             colormap::ids_to_colors(ids, *max_id, colormap, bounbary_alpha)
         }
