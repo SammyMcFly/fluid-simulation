@@ -151,11 +151,10 @@ impl RigidBodyMotion {
         self.angular_momentum += self.torque * dt;
         self.angular_velocity = self.inertia_tensor_inv_world * self.angular_momentum;
 
-        // Integrate orientation quaternion: dq/dt = 0.5 * (0, omega) * q
-        let omega_quat = Quaternion::from_parts(0.0, self.angular_velocity);
-        let q_dot = omega_quat * self.orientation.into_inner() * 0.5;
-        let new_q = self.orientation.into_inner() + q_dot * dt;
-        self.orientation = UnitQuaternion::from_quaternion(new_q);
+        // Integrate orientation exactly for constant omega: q_new = exp(0.5*omega*dt) * q.
+        // `from_scaled_axis` takes the rotation vector and halves internally, so no
+        // extra factor 0.5 here. Left-multiplication because omega is world-frame.
+        self.orientation = UnitQuaternion::from_scaled_axis(self.angular_velocity * dt) * self.orientation;
 
         self.reset_forces();
         self.update_derived_variables();
