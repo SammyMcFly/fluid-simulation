@@ -16,14 +16,15 @@ pub fn build_scene_data(
     bounbary_alpha: f32,
     particle_radius: f32,
     max_mapping: f32,
-    colormap: Colormap,
+    fluid_colormap: Colormap,
+    boundary_colormap: Colormap,
 ) -> SceneData {
     let fluid = build_fluid(
         &time_step.fluid,
         cut,
         particle_radius,
         max_mapping,
-        colormap,
+        fluid_colormap,
     );
     let boundary = if boundary_hidden {
         BoundarySceneData::None
@@ -34,7 +35,7 @@ pub fn build_scene_data(
             cut_boundary,
             bounbary_alpha,
             particle_radius,
-            colormap,
+            boundary_colormap,
         )
     };
 

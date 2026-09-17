@@ -100,7 +100,9 @@ pub enum Message {
     Viewport(ViewportEvent),
     // Camera tick (from subscription)
     CameraTick,
-    SetColormap(usize),
+    SetQuantityColormap(usize),
+    SetFluidIdColormap(usize),
+    SetBoundaryIdColormap(usize),
     ColorMappingMaxInput(String),
     ColorMappingMaxStep(f32, bool), // true = +, false = −
     ApplyColorMappingMax,
@@ -676,9 +678,21 @@ impl cosmic::Application for AppModel {
                     return t;
                 }
             }
-            Message::SetColormap(idx) => {
+            Message::SetQuantityColormap(idx) => {
                 if let Some(&cmap) = Colormap::ALL.get(idx) {
-                    self.sim_settings.colormap = cmap;
+                    self.sim_settings.quantity_colormap = cmap;
+                    self.rebuild_scene();
+                }
+            }
+            Message::SetFluidIdColormap(idx) => {
+                if let Some(&cmap) = Colormap::ALL.get(idx) {
+                    self.sim_settings.fluid_id_colormap = cmap;
+                    self.rebuild_scene();
+                }
+            }
+            Message::SetBoundaryIdColormap(idx) => {
+                if let Some(&cmap) = Colormap::ALL.get(idx) {
+                    self.sim_settings.boundary_id_colormap = cmap;
                     self.rebuild_scene();
                 }
             }
@@ -1049,6 +1063,11 @@ impl AppModel {
         if let Some(info) = self.instances.get_current_time_step_info() {
             self.sim_settings
                 .set_radius(0.5 * (info.measurement.rest_density_grid_spacing as f32));
+            let fluid_colormap = if self.sim_settings.fluid_vis.uses_fluid_id_colormap() {
+                self.sim_settings.fluid_id_colormap
+            } else {
+                self.sim_settings.quantity_colormap
+            };
             let scene = build_scene_data(
                 info,
                 &self.sim_settings.cut,
@@ -1057,7 +1076,8 @@ impl AppModel {
                 self.sim_settings.boundary_alpha,
                 self.sim_settings.particle_radius,
                 self.sim_settings.color_mapping_max,
-                self.sim_settings.colormap,
+                fluid_colormap,
+                self.sim_settings.boundary_id_colormap,
             );
             self.simulation_page.set_scene(scene);
         }

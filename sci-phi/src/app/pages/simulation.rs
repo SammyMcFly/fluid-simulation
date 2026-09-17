@@ -17,14 +17,16 @@ use crate::fl;
 pub struct SimulationSettings {
     // Fluid visualization option
     pub fluid_vis: FluidVisOption,
+    pub fluid_id_colormap: Colormap,
     pub fluid_quantity: QuantityOption,
-    pub colormap: Colormap,
+    pub quantity_colormap: Colormap,
     pub color_mapping_max: f32,
     pub color_mapping_max_input: String,
     // Boundary visualization option
     pub boundary_hidden: bool,
     pub boundary_vis: BoundaryVisOption,
     pub boundary_alpha: f32,
+    pub boundary_id_colormap: Colormap,
     /// Sensor plane configuration
     pub sensor_plane: SensorPlaneConfig,
     /// Cut plane state
@@ -54,13 +56,15 @@ impl Default for SimulationSettings {
             .collect();
         Self {
             fluid_vis: FluidVisOption::SamplesQuantity,
+            fluid_id_colormap: Colormap::default(),
             fluid_quantity: QuantityOption::Speed,
-            colormap: Colormap::default(),
+            quantity_colormap: Colormap::default(),
             color_mapping_max: 10.0,
             color_mapping_max_input: "10.0".to_string(),
             boundary_hidden: false,
             boundary_vis: BoundaryVisOption::MeshOriginal,
             boundary_alpha: 0.5,
+            boundary_id_colormap: Colormap::default(),
             sensor_plane: SensorPlaneConfig::default(),
             cut: Cut::default(),
             cut_x_input: "0.0".to_string(),
@@ -176,27 +180,63 @@ impl SimulationSettings {
         }
     }
 
-    fn colormap_controls<'a>(&'a self) -> cosmic::Element<'a, Message> {
+    /// Colormap setting row: label on the left (via `settings::item`), and on
+    /// the right a small colorbar preview of the currently selected colormap
+    /// followed by the dropdown to change it.
+    ///
+    /// Shared by all three colormap settings (quantity, fluid ID, boundary ID)
+    /// -- `quantity_colormap_controls` additionally appends its own min/max
+    /// range row below this one.
+    fn colormap_row<'a>(
+        colormap: Colormap,
+        label: impl Into<std::borrow::Cow<'a, str>>,
+        on_select: fn(usize) -> Message,
+        show_preview: bool,
+    ) -> Element<'a, Message, Theme, Renderer> {
         let spacing = theme::active().cosmic().spacing;
+        let selected = Colormap::ALL.iter().position(|c| *c == colormap);
 
-        let selected = Colormap::ALL.iter().position(|c| *c == self.colormap);
-        let colormap_selector = widget::settings::item::builder(fl!("settings", "colormap"))
-            .control(widget::dropdown(
-                &Colormap::LABELS,
-                selected,
-                Message::SetColormap,
-            ));
+        let (w, h) = (96usize, 16usize);
+        let handle =
+            widget::image::Handle::from_rgba(w as u32, h as u32, colorbar_bytes(colormap, w, h));
 
+        let selector = if show_preview {
+            let preview = widget::image(handle)
+                .width(Length::Fixed(w as f32))
+                .height(Length::Fixed(spacing.space_m as f32));
+            widget::row::with_children(vec![
+                preview.into(),
+                widget::dropdown(&Colormap::LABELS, selected, on_select).into(),
+            ])
+        } else {
+            widget::row::with_children(vec![
+                widget::dropdown(&Colormap::LABELS, selected, on_select).into(),
+            ])
+        };
+        widget::settings::item::builder(label)
+            .control(
+                selector
+                .align_y(Alignment::Center)
+                .spacing(spacing.space_xxxs),
+            )
+            .into()
+    }
+
+    /// Colorbar image preview for a given colormap -- a fixed-height gradient
+    /// strip, reused both standalone (fluid/boundary ID) and as the visual
+    /// "min...max" gradient inside `quantity_colormap_controls`.
+    fn colorbar_preview<'a>(colormap: Colormap) -> Element<'a, Message, Theme, Renderer> {
         let (w, h) = (256usize, 16usize);
-        let handle = widget::image::Handle::from_rgba(
-            w as u32,
-            h as u32,
-            colorbar_bytes(self.colormap, w, h),
-        );
-
-        let colorbar = widget::image(handle)
+        let handle =
+            widget::image::Handle::from_rgba(w as u32, h as u32, colorbar_bytes(colormap, w, h));
+        widget::image(handle)
             .width(Length::Fill)
-            .height(Length::Fixed(12.0));
+            .height(Length::Fixed(12.0))
+            .into()
+    }
+
+    fn quantity_colormap_controls<'a>(&'a self) -> Element<'a, Message, Theme, Renderer> {
+        let spacing = theme::active().cosmic().spacing;
 
         let max_input =
             widget::text_input(fl!("settings", "max-label"), &self.color_mapping_max_input)
@@ -224,7 +264,7 @@ impl SimulationSettings {
 
         let colormap_settings = widget::row::with_capacity(4)
             .push(widget::text(format!("{} ", fl!("settings", "min-label"))))
-            .push(colorbar)
+            .push(Self::colorbar_preview(self.quantity_colormap))
             .push(widget::text(fl!("settings", "max-label")))
             .push(max_input)
             .push(minus_btn)
@@ -232,8 +272,13 @@ impl SimulationSettings {
             .align_y(Alignment::Center)
             .spacing(spacing.space_xxxs);
 
-        widget::column::with_capacity(6)
-            .push(colormap_selector)
+        widget::column::with_capacity(2)
+            .push(Self::colormap_row(
+                self.quantity_colormap,
+                fl!("settings", "quantity_colormap"),
+                Message::SetQuantityColormap,
+                false,
+            ))
             .push(colormap_settings)
             .spacing(spacing.space_xxxs)
             .into()
@@ -260,25 +305,34 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
                 ),
             );
 
-        // Quantity selector.
+        // Quantity selector + its own colormap (only ever relevant together:
+        // SamplesQuantity, SensorPlane).
         if self.fluid_vis.uses_quantity() {
             let quantity_selected = QuantityOption::ALL
                 .iter()
                 .position(|q| *q == self.fluid_quantity);
-            fluid_section = fluid_section.add(
-                widget::settings::item::builder(fl!("settings", "quantity")).control(
-                    widget::dropdown(
-                        &self.quantity_labels,
-                        quantity_selected,
-                        Message::SetFluidQuantity,
+            fluid_section = fluid_section
+                .add(
+                    widget::settings::item::builder(fl!("settings", "quantity")).control(
+                        widget::dropdown(
+                            &self.quantity_labels,
+                            quantity_selected,
+                            Message::SetFluidQuantity,
+                        ),
                     ),
-                ),
-            );
+                )
+                .add(self.quantity_colormap_controls());
         }
 
-        // Quantity selector.
-        if self.fluid_vis.uses_colormap() {
-            fluid_section = fluid_section.add(self.colormap_controls());
+        // Fluid-ID colormap (mutually exclusive with the block above -- disjoint
+        // FluidVisOption sets).
+        if self.fluid_vis.uses_fluid_id_colormap() {
+            fluid_section = fluid_section.add(SimulationSettings::colormap_row(
+                self.fluid_id_colormap,
+                fl!("settings", "id_colormap"),
+                Message::SetFluidIdColormap,
+                true,
+            ));
         }
 
         // Bounds + dx + commit only for Sensor-Plane.
@@ -330,7 +384,7 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
             .boundary_vis_enabled_options
             .iter()
             .position(|o| *o == self.boundary_vis);
-        let boundary_section = widget::settings::section()
+        let mut boundary_section = widget::settings::section()
             .title(fl!("section", "boundary"))
             .add(
                 widget::settings::item::builder(fl!("settings", "hide-boundary"))
@@ -344,15 +398,25 @@ impl<'a> Into<Element<'a, Message, Theme, Renderer>> for &'a SimulationSettings 
                         Message::SetBoundaryVisualization,
                     ),
                 ),
-            )
-            .add(
-                widget::settings::item::builder(fl!("settings", "boundary-alpha")).control(
-                    widget::slider(0.0..=1.0, self.boundary_alpha, |value| {
-                        Message::SetBoundaryAlpha(value)
-                    })
-                    .step(0.01),
-                ),
             );
+
+        if self.boundary_vis.uses_colormap() {
+            boundary_section = boundary_section.add(SimulationSettings::colormap_row(
+                self.boundary_id_colormap,
+                fl!("settings", "id_colormap"),
+                Message::SetBoundaryIdColormap,
+                true,
+            ));
+        }
+
+        boundary_section = boundary_section.add(
+            widget::settings::item::builder(fl!("settings", "boundary-alpha")).control(
+                widget::slider(0.0..=1.0, self.boundary_alpha, |value| {
+                    Message::SetBoundaryAlpha(value)
+                })
+                .step(0.01),
+            ),
+        );
 
         // ─── Cut Controls ─────────────────────────────────────
         let cut_section = widget::settings::section()
@@ -593,14 +657,11 @@ impl FluidVisOption {
         matches!(self, Self::SamplesQuantity | Self::SensorPlane)
     }
 
-    pub fn uses_colormap(self) -> bool {
-        matches!(
-            self,
-            Self::TriangleMeshFluidId
-                | Self::SamplesFluidId
-                | Self::SamplesQuantity
-                | Self::SensorPlane,
-        )
+    /// Whether this option is colored by fluid ID -- as opposed to
+    /// `uses_quantity()` (continuous, scalar-graded) coloring, which is a
+    /// disjoint set of variants and has its own colormap setting.
+    pub fn uses_fluid_id_colormap(self) -> bool {
+        matches!(self, Self::TriangleMeshFluidId | Self::SamplesFluidId)
     }
 
     pub fn from_template(v: &FluidVisualization) -> Self {
@@ -776,6 +837,12 @@ impl BoundaryVisOption {
             Self::SamplesUniform => fl!("boundary-vis", "samples-uniform"),
             Self::SamplesBoundaryId => fl!("boundary-vis", "samples-boundary-id"),
         }
+    }
+
+    /// Whether this option is colored by boundary ID, and therefore has its
+    /// own colormap setting (`SimulationSettings::boundary_id_colormap`).
+    pub fn uses_colormap(self) -> bool {
+        matches!(self, Self::MeshBoundaryId | Self::SamplesBoundaryId)
     }
 
     pub fn to_template(self) -> BoundaryVisualization {
