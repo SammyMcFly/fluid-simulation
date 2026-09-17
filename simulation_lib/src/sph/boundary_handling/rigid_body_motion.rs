@@ -45,6 +45,7 @@ impl RigidBodyMotion {
         linear_velocity: Vector3<f64>,
         angular_velocity: Vector3<f64>,
     ) -> Self {
+        assert_ne!(mass, 0., "Rigid body mass cannot be zero.");
         let r = orientation.to_rotation_matrix();
         let inertia_tensor_world = r.matrix() * inertia_tensor_body * r.matrix().transpose();
         let mut motion = Self {
