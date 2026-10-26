@@ -1,0 +1,52 @@
+# Scene file
+[gravity_mode]
+type = "Radial" # Uniform, Radial
+center = [0.0, 0.0, 0.0]
+
+[light]
+position = [ 2.0, 2.0, 100.0 ]
+
+[meshes]
+cube_out = "/mnt/Code/fluid-simulation/cube_face_normals_outwards.obj"
+cube_in = "/mnt/Code/fluid-simulation/cube_face_normals_inwards.obj"
+sphere_out = "/mnt/Code/fluid-simulation/sphere_face_normals_outwards.obj"
+sphere_in = "/mnt/Code/fluid-simulation/sphere_face_normals_inwards.obj"
+
+# RIGID BODIES
+# [[fluid]]
+# mesh = "cube_out"
+# fluid_id = 0
+# translation = [0.0, 0.0, -20.0]
+# rotation_euler_deg = [0.0, 0.0, 0.0]
+# scale = [5.0, 10.0, 5.0]
+
+[[boundary.dynamic]]
+mesh = "cube_out"
+boundary_id = 1
+density = 900
+translation = [-10.0, 0.0, 0.0]
+rotation_euler_deg = [0.0, 0.0, 0.0]
+scale = [2.0, 4.0, 10.0]
+
+[[boundary.dynamic]]
+mesh = "cube_out"
+boundary_id = 1
+density = 900
+translation = [10.0, 0.0, 0.0]
+rotation_euler_deg = [0.0, 30.0, 0.0]
+scale = [2.0, 4.0, 10.0]
+
+[[boundary.dynamic]]
+mesh = "cube_out"
+boundary_id = 1
+density = 900
+translation = [0.0, 10.0, 0.0]
+rotation_euler_deg = [0.0, 0.0, 30.0]
+scale = [2.0, 4.0, 10.0]
+
+# [[boundary.static]]
+# mesh = "sphere_in"
+# boundary_id = 0
+# translation = [0.0, 0.0, 0.0]
+# scale = 30.0
+# render_vertex_normals = "AngleWeightedPseudoNormals"
