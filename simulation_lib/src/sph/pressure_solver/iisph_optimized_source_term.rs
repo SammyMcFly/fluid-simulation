@@ -19,6 +19,7 @@
 use crate::for_each_mut;
 use crate::neighbor_search::NeighborList;
 use crate::sph::CurrentSystemProperties;
+use crate::sph::SystemParameters;
 use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
 use crate::sph::fluid::{Fluid, Len};
 use crate::sph::kernel::KernelFn;
@@ -26,8 +27,7 @@ use crate::sph::pressure_solver::iisph::{IISPH, TerminationCondition};
 use crate::sph::pressure_solver::{PressureSolver, SolverMeasurementInfo};
 use crate::sph::pressure_solver::{add_pressure_acceleration, set_pred_vel_by_applying_acc};
 use crate::sph::setup::input::Parameters;
-use crate::sph::{Outer, SystemParameters};
-use crate::utilities::vector;
+use crate::utilities::{Outer, vector};
 
 use nalgebra::Matrix3;
 #[cfg(feature = "parallel")]

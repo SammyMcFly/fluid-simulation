@@ -31,8 +31,7 @@ pub use non_pressure_accelerations::GravityMode;
 
 use bincode::{Decode, Encode};
 use dyn_clone::DynClone;
-use nalgebra::{Matrix3, Point3, Vector3};
-use num_traits::Zero;
+use nalgebra::Point3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -732,29 +731,6 @@ impl<
     }
 }
 
-pub trait Outer {
-    type OuterProductType;
-    fn outer(&self, other: &Self) -> Self::OuterProductType;
-}
-
-impl<N: Copy + std::ops::Mul<N, Output = N> + Zero> Outer for Vector3<N> {
-    type OuterProductType = Matrix3<N>;
-
-    fn outer(&self, other: &Self) -> Self::OuterProductType {
-        Matrix3::new(
-            self[0] * other[0],
-            self[0] * other[1],
-            self[0] * other[2],
-            self[1] * other[0],
-            self[1] * other[1],
-            self[1] * other[2],
-            self[2] * other[0],
-            self[2] * other[1],
-            self[2] * other[2],
-        )
-    }
-}
-
 /// Information about the system at the current time
 #[derive(Debug, Clone, Default)]
 pub struct CurrentSystemProperties {
@@ -941,6 +917,7 @@ impl From<SerSystemCheckpoint> for SystemCheckpoint {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nalgebra::Vector3;
 
     // ─── Fixtures / helpers ─────────────────────────────────────────────
 
