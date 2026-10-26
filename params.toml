@@ -13,8 +13,8 @@ kernel_support_radius = 1.6 # (not hot swappable)
 disable_particles_below = -50
 fluid_viscosity = 0.2
 boundary_viscosity = 0.2
-# boundary_pressure_acceleration_weighting = 0.7 # gamma
-boundary_pressure_acceleration_weighting = 1.0 # gamma
+boundary_pressure_acceleration_weighting = 0.7 # gamma
+# boundary_pressure_acceleration_weighting = 1.0 # gamma
 boundary_rest_volume_weighting = 1.0 # gamma
 
 # local pressure
