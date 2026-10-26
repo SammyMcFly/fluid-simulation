@@ -227,6 +227,15 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
             pipeline.depth_texture = Some(DepthTexture::new(device, width, height));
         }
 
+        // ─── Depth peeling resources (transparent meshes) ─────
+        pipeline.ensure_peel_resources(device, width, height);
+        {
+            let opaque_depth_view = &pipeline.depth_texture.as_ref().unwrap().view;
+            let (bg_a, bg_b) = pipeline.make_peel_light_bind_groups(device, opaque_depth_view);
+            pipeline.peel_light_bind_group_a = Some(bg_a);
+            pipeline.peel_light_bind_group_b = Some(bg_b);
+        }
+
         // ─── Camera + Light uniforms ──────────────────────────
         queue.write_buffer(
             &pipeline.camera_buffer,
@@ -245,6 +254,10 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
         // ─── Setup offscreen for screenshot ───────────────────
         if self.readback_request.is_some() {
             self.setup_offscreen(pipeline, device, width, height);
+            let opaque_depth_view = &pipeline.offscreen_depth.as_ref().unwrap().view;
+            let (bg_a, bg_b) = pipeline.make_peel_light_bind_groups(device, opaque_depth_view);
+            pipeline.peel_light_bind_group_offscreen_a = Some(bg_a);
+            pipeline.peel_light_bind_group_offscreen_b = Some(bg_b);
         }
     }
 
@@ -267,7 +280,7 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
             return;
         };
 
-        // ─── 1. Normal render to screen ──────────────────────
+        // ─── 1. Opaque + depth-correct billboard pass ────────
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Fluid Render Pass"),
@@ -306,10 +319,19 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                 clip_bounds.height,
             );
 
-            self.draw_scene(&mut pass, pipeline);
+            self.draw_opaque_scene(&mut pass, pipeline);
         }
 
-        // ─── 2. Offscreen render for screenshot ──────────────
+        // ─── 2. Depth-peeled transparency (boundary + fluid mesh) ──
+        if let (Some(bg_a), Some(bg_b)) = (
+            &pipeline.peel_light_bind_group_a,
+            &pipeline.peel_light_bind_group_b,
+        ) {
+            self.peel_transparency(pipeline, encoder, bg_a, bg_b, Some(clip_bounds));
+            self.composite_accum(pipeline, encoder, target, Some(clip_bounds));
+        }
+
+        // ─── 3. Offscreen render for screenshot ──────────────
         if let Some(ref request) = self.readback_request {
             let should_capture = {
                 let state = pipeline.screenshot_state.lock().unwrap();
@@ -350,7 +372,18 @@ impl<W: ScreenshotCommand> shader::Primitive for SimulationFrame<W> {
                         ..Default::default()
                     });
 
-                    self.draw_scene(&mut pass, pipeline);
+                    self.draw_opaque_scene(&mut pass, pipeline);
+                }
+
+                if let (Some(bg_a), Some(bg_b)) = (
+                    &pipeline.peel_light_bind_group_offscreen_a,
+                    &pipeline.peel_light_bind_group_offscreen_b,
+                ) {
+                    // Offscreen target has no clip_bounds concept -- it IS exactly
+                    // screenshot_width x screenshot_height, same as pass 1 above
+                    // (which also doesn't set a viewport for the offscreen case).
+                    self.peel_transparency(pipeline, encoder, bg_a, bg_b, None);
+                    self.composite_accum(pipeline, encoder, offscreen_view, None);
                 }
 
                 // Copy offscreen → staging
@@ -601,7 +634,17 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
         pipeline.screenshot_height = height;
     }
 
-    fn draw_scene<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, pipeline: &'a SimulationRenderer) {
+    /// Draws everything that doesn't need depth peeling: opaque/analytically
+    /// depth-correct geometry (light indicator, fluid particles, sensor
+    /// plane, boundary particles). Boundary meshes and the transparent fluid
+    /// mesh are handled separately by `peel_transparency`, since multiple
+    /// such meshes can't be correctly depth-sorted via simple draw order
+    /// (see `peel_transparency` for why).
+    fn draw_opaque_scene<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        pipeline: &'a SimulationRenderer,
+    ) {
         // Light indicator
         pass.set_pipeline(&pipeline.light_pipeline);
         pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
@@ -632,35 +675,9 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
         {
             pass.set_pipeline(&pipeline.mesh_unlit_pipeline);
             pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-            // no light_bind_group – pipeline layout has only Camera
             pass.set_vertex_buffer(0, vb.slice(..));
             pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..pipeline.scene.sensor_plane_index_count, 0, 0..1);
-        }
-
-        // Fluid mesh
-        if let (Some(vb), Some(ib)) = (
-            &pipeline.scene.mesh_vertex_buffer,
-            &pipeline.scene.mesh_index_buffer,
-        ) && pipeline.scene.mesh_index_count > 0
-        {
-            if pipeline.scene.mesh_transparent {
-                pass.set_pipeline(&pipeline.mesh_transparent_fluid_backface_pipeline);
-                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-                pass.set_vertex_buffer(0, vb.slice(..));
-                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-
-                pass.set_pipeline(&pipeline.mesh_transparent_fluid_pipeline);
-                pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
-            } else {
-                pass.set_pipeline(&pipeline.mesh_opaque_pipeline);
-                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-                pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-                pass.set_vertex_buffer(0, vb.slice(..));
-                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
-            }
         }
 
         // Boundary particles
@@ -673,25 +690,214 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
             pass.set_vertex_buffer(0, buf.slice(..));
             pass.draw(0..6, 0..pipeline.scene.boundary_particle_count);
         }
+    }
 
-        // Boundary mesh
-        for mesh in &pipeline.scene.boundary_meshes {
-            if mesh.index_count == 0 {
-                continue;
+    /// Depth-peels all transparent boundary meshes and the transparent fluid
+    /// mesh together, `DEPTH_PEEL_LAYERS` layers deep, compositing each
+    /// layer into `pipeline.accum_texture` via the "under" operator.
+    ///
+    /// Why this replaces simple draw-order/backface-frontface rendering:
+    /// with multiple boundary meshes, there is no single draw order that is
+    /// correct for every pixel simultaneously (object A can be in front of
+    /// object B on one part of the screen and behind it on another). Depth
+    /// peeling sidesteps this by repeatedly extracting the next-nearest
+    /// surface at every pixel, across ALL transparent meshes at once, using
+    /// the hardware depth test rather than a fixed draw order.
+    fn peel_transparency(
+        &self,
+        pipeline: &SimulationRenderer,
+        encoder: &mut wgpu::CommandEncoder,
+        peel_bind_group_a: &wgpu::BindGroup,
+        peel_bind_group_b: &wgpu::BindGroup,
+        clip_bounds: Option<&Rectangle<u32>>,
+    ) {
+        let (Some(depth_a), Some(depth_b), Some(accum), Some(layer_color), Some(layer_bg)) = (
+            &pipeline.peel_depth_a,
+            &pipeline.peel_depth_b,
+            &pipeline.accum_texture,
+            &pipeline.layer_color,
+            &pipeline.layer_composite_bind_group,
+        ) else {
+            return;
+        };
+
+        for layer in 0..crate::pipeline::DEPTH_PEEL_LAYERS {
+            let (depth_view, bind_group) = if layer % 2 == 0 {
+                (&depth_a.view, peel_bind_group_a)
+            } else {
+                (&depth_b.view, peel_bind_group_b)
+            };
+
+            let (boundary_pipeline, fluid_pipeline) = if layer == 0 {
+                (
+                    &pipeline.boundary_peel_first_pipeline,
+                    &pipeline.fluid_peel_first_pipeline,
+                )
+            } else {
+                (
+                    &pipeline.boundary_peel_next_pipeline,
+                    &pipeline.fluid_peel_next_pipeline,
+                )
+            };
+
+            // ─── Pass A: resolve this one layer into `layer_color` ──────
+            // Normal Z-buffered rendering (REPLACE blend, see
+            // `build_peel_pipeline`): among all triangles (boundary + fluid
+            // mesh) competing for a pixel, only the nearest one that passes
+            // the depth test ends up stored here, exactly like opaque
+            // rendering -- order-independent, no cross-triangle color
+            // accumulation within this single layer.
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Depth Peel Layer Resolve"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &layer_color.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    ..Default::default()
+                });
+
+                pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
+                pass.set_bind_group(1, bind_group, &[]);
+
+                // Must match pass 1's viewport exactly -- `in.clip_position.xy`
+                // is used as pixel coordinates for the opaque/prev depth
+                // texture lookups in the peel shaders, which must refer to
+                // the same screen location pass 1 wrote `opaque_depth` at.
+                if let Some(cb) = clip_bounds {
+                    pass.set_viewport(
+                        cb.x as f32,
+                        cb.y as f32,
+                        cb.width as f32,
+                        cb.height as f32,
+                        0.0,
+                        1.0,
+                    );
+                    pass.set_scissor_rect(cb.x, cb.y, cb.width, cb.height);
+                }
+
+                if let (Some(vb), Some(ib)) = (
+                    &pipeline.scene.mesh_vertex_buffer,
+                    &pipeline.scene.mesh_index_buffer,
+                ) && pipeline.scene.mesh_index_count > 0
+                {
+                    pass.set_pipeline(fluid_pipeline);
+                    pass.set_vertex_buffer(0, vb.slice(..));
+                    pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..pipeline.scene.mesh_index_count, 0, 0..1);
+                }
+
+                for mesh in &pipeline.scene.boundary_meshes {
+                    if mesh.index_count == 0 {
+                        continue;
+                    }
+                    pass.set_pipeline(boundary_pipeline);
+                    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    pass.set_vertex_buffer(1, mesh.instance_buffer.slice(..));
+                    pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                }
             }
-            pass.set_bind_group(0, &pipeline.camera_bind_group, &[]);
-            pass.set_bind_group(1, &pipeline.light_bind_group, &[]);
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            pass.set_vertex_buffer(1, mesh.instance_buffer.slice(..));
-            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-            // Pass 1: backface
-            pass.set_pipeline(&pipeline.mesh_transparent_backface_pipeline);
-            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            // ─── Pass B: fold this resolved layer into `accum_texture` ──
+            // "Under" blend, exactly once per layer -- this is where
+            // cross-layer front-to-back transparency compositing actually
+            // happens now (previously done, incorrectly, inside pass A).
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Depth Peel Layer Composite"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &accum.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: if layer == 0 {
+                                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                            } else {
+                                wgpu::LoadOp::Load
+                            },
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
 
-            // Pass 2: frontface
-            pass.set_pipeline(&pipeline.mesh_transparent_pipeline);
-            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                if let Some(cb) = clip_bounds {
+                    pass.set_viewport(
+                        cb.x as f32,
+                        cb.y as f32,
+                        cb.width as f32,
+                        cb.height as f32,
+                        0.0,
+                        1.0,
+                    );
+                    pass.set_scissor_rect(cb.x, cb.y, cb.width, cb.height);
+                }
+
+                pass.set_pipeline(&pipeline.layer_composite_pipeline);
+                pass.set_bind_group(0, layer_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
         }
+    }
+
+    /// Blends the fully-accumulated peel result onto `color_view`.
+    /// `clip_bounds` restricts the viewport/scissor for the on-screen case;
+    /// pass `None` for the offscreen screenshot case (full-size target).
+    fn composite_accum(
+        &self,
+        pipeline: &SimulationRenderer,
+        encoder: &mut wgpu::CommandEncoder,
+        color_view: &wgpu::TextureView,
+        clip_bounds: Option<&Rectangle<u32>>,
+    ) {
+        let Some(composite_bg) = &pipeline.composite_bind_group else {
+            return;
+        };
+
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Composite Peel Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: color_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+
+        if let Some(cb) = clip_bounds {
+            pass.set_viewport(
+                cb.x as f32,
+                cb.y as f32,
+                cb.width as f32,
+                cb.height as f32,
+                0.0,
+                1.0,
+            );
+            pass.set_scissor_rect(cb.x, cb.y, cb.width, cb.height);
+        }
+
+        pass.set_pipeline(&pipeline.composite_pipeline);
+        pass.set_bind_group(0, composite_bg, &[]);
+        pass.draw(0..3, 0..1);
     }
 }
