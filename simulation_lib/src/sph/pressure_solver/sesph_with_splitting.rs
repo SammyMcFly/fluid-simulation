@@ -1,5 +1,5 @@
 //! State equation SPH (SESPH) or weakly compressible SPH (WCSPH) pressure solver
-use crate::for_each;
+use crate::for_each_mut;
 use crate::neighbor_search::NeighborList;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::SystemParameters;
@@ -44,7 +44,7 @@ impl PressureSolver for SESPHwSplitting {
         self.calc_predicted_density::<K>(fluid, boundary, neighbor_list, params);
         // compute pressure
         {
-            for_each!(
+            for_each_mut!(
                 mut [fluid.pressure],
                 ref [
                     density_pred = self.density_pred,
@@ -94,7 +94,7 @@ impl SESPHwSplitting {
         neighbor_list: &NeighborList,
         params: &SystemParameters,
     ) {
-        for_each!(
+        for_each_mut!(
             mut [self.density_pred],
             ref [
                 pos_now = fluid.position,
@@ -158,7 +158,8 @@ mod tests {
     use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
     use crate::sph::GravityMode;
     use crate::sph::boundary_handling::{
-        Boundary, BoundaryCheckpoint, BoundaryConstructionError, ForceOntoBoundary, VolumeMapBoundary
+        Boundary, BoundaryCheckpoint, BoundaryConstructionError, ForceOntoBoundary,
+        VolumeMapBoundary,
     };
     use crate::sph::kernel::CubicBSpline3D;
     use nalgebra::{Point3, Vector3};

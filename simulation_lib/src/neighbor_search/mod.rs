@@ -5,7 +5,7 @@ use nalgebra::Point3;
 use rayon::prelude::*;
 use serde::Deserialize;
 
-use crate::for_each;
+use crate::for_each_mut;
 pub mod spatial_hashing;
 
 pub use spatial_hashing::SpatialHashing;
@@ -105,7 +105,7 @@ mod neighbor_list {
         fn clear(&mut self) {
             self.indices.clear();
             self.offsets.clear();
-            for_each!(
+            for_each_mut!(
                 mut [self.unflattened_indices],
                 ref [],
                 |_id, id_neighbors| {

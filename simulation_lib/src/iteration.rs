@@ -1,7 +1,7 @@
 //! iteration.rs
 
 #[cfg(not(feature = "parallel"))]
-macro_rules! for_each {
+macro_rules! for_each_mut {
     // 1 mutable field
     (
         mut [$m1:expr],
@@ -58,7 +58,7 @@ macro_rules! for_each {
 }
 
 #[cfg(feature = "parallel")]
-macro_rules! for_each {
+macro_rules! for_each_mut {
     // 1 mutable field
     (
         mut [$m1:expr],
@@ -116,6 +116,43 @@ macro_rules! for_each {
 
 #[cfg(not(feature = "parallel"))]
 macro_rules! for_each_collect {
+    (
+        ref [$r1:expr],
+        ref [$($ref_name:ident = $ref_expr:expr),* $(,)?],
+        |$id:ident, $a:ident, $local:ident| $body:expr
+    ) => {{
+        $(let $ref_name = &$ref_expr;)*
+        let mut $local = Vec::new();
+        $r1.iter()
+            .enumerate()
+            .for_each(|($id, $a)| { $body });
+        $local
+    }};
+}
+
+#[cfg(feature = "parallel")]
+macro_rules! for_each_collect {
+    (
+        ref [$r1:expr],
+        ref [$($ref_name:ident = $ref_expr:expr),* $(,)?],
+        |$id:ident, $a:ident, $local:ident| $body:expr
+    ) => {{
+        $(let $ref_name = &$ref_expr;)*
+        $r1.par_iter()
+            .enumerate()
+            .fold(Vec::new, |mut $local, ($id, $a)| {
+                $body;
+                $local
+            })
+            .reduce(Vec::new, |mut a, mut b| {
+                a.append(&mut b);
+                a
+            })
+    }};
+}
+
+#[cfg(not(feature = "parallel"))]
+macro_rules! for_each_collect_mut {
     // 1 mutable field, mit lokalem Collector
     (
         mut [$m1:expr],
@@ -132,7 +169,7 @@ macro_rules! for_each_collect {
 }
 
 #[cfg(feature = "parallel")]
-macro_rules! for_each_collect {
+macro_rules! for_each_collect_mut {
     // 1 mutable field, mit lokalem Collector (fold + reduce)
     (
         mut [$m1:expr],
@@ -153,8 +190,82 @@ macro_rules! for_each_collect {
     }};
 }
 
-pub(crate) use for_each;
+#[cfg(not(feature = "parallel"))]
+macro_rules! for_each_sum {
+    // 1 ref field
+    (
+        ref [$r1:expr],
+        ref [$($ref_name:ident = $ref_expr:expr),* $(,)?],
+        |$id:ident, $a:ident, $local:ident| $body:expr
+    ) => {{
+        $(let $ref_name = &$ref_expr;)*
+        let mut $local = 0.;
+        $r1.iter()
+            .enumerate()
+            .for_each(|($id, $a)| { $body });
+        $local
+    }};
+
+    // 2 ref fields
+    (
+        ref [$m1:expr, $m2:expr],
+        ref [$($ref_name:ident = $ref_expr:expr),* $(,)?],
+        |$id:ident, $a:ident, $b:ident, $local:ident| $body:expr
+    ) => {{
+        $(let $ref_name = &$ref_expr;)*
+        let mut $local = 0.;
+        $m1.iter()
+            .zip($m2.iter())
+            .enumerate()
+            .for_each(|($id, ($a, $b))| { $body });
+        $local
+    }};
+}
+
+#[cfg(feature = "parallel")]
+macro_rules! for_each_sum {
+    // 1 ref field
+    (
+        ref [$r1:expr],
+        ref [$($ref_name:ident = $ref_expr:expr),* $(,)?],
+        |$id:ident, $a:ident, $local:ident| $body:expr
+    ) => {{
+        $(let $ref_name = &$ref_expr;)*
+        $r1.par_iter()
+            .enumerate()
+            .fold(0., |mut $local, ($id, $a)| {
+                $body;
+                $local
+            })
+            .reduce(0., |a, b| {
+                a + b
+            })
+    }};
+
+    // 2 ref fields
+    (
+        ref [$m1:expr, $m2:expr],
+        ref [$($ref_name:ident = $ref_expr:expr),* $(,)?],
+        |$id:ident, $a:ident, $b:ident, $local:ident| $body:expr
+    ) => {{
+        $(let $ref_name = &$ref_expr;)*
+        $m1.par_iter()
+            .zip($m2.par_iter())
+            .enumerate()
+            .fold(|| 0., |mut $local, ($id, ($a, $b))| {
+                $body;
+                $local
+            })
+            .reduce(|| 0., |a, b| {
+                a + b
+            })
+    }};
+}
+
 pub(crate) use for_each_collect;
+pub(crate) use for_each_collect_mut;
+pub(crate) use for_each_mut;
+pub(crate) use for_each_sum;
 
 #[cfg(test)]
 mod tests {
@@ -166,7 +277,7 @@ mod tests {
     #[test]
     fn for_each_one_field_applies_body_to_every_element() {
         let mut values = vec![1, 2, 3, 4];
-        for_each!(
+        for_each_mut!(
             mut [values],
             ref [],
             |_id, v| {
@@ -180,7 +291,7 @@ mod tests {
     fn for_each_one_field_provides_correct_index_per_element() {
         let mut values = vec![10, 20, 30];
         let mut ids_seen = vec![0usize; values.len()];
-        for_each!(
+        for_each_mut!(
             mut [values, ids_seen],
             ref [],
             |id, _v, id_slot| {
@@ -193,7 +304,7 @@ mod tests {
     #[test]
     fn for_each_on_empty_slice_is_a_noop() {
         let mut values: Vec<i32> = Vec::new();
-        for_each!(
+        for_each_mut!(
             mut [values],
             ref [],
             |_id, v| {
@@ -209,7 +320,7 @@ mod tests {
     fn for_each_single_ref_binding_is_accessible_in_body() {
         let mut output = vec![0; 3];
         let multiplier = vec![10, 20, 30];
-        for_each!(
+        for_each_mut!(
             mut [output],
             ref [mult = multiplier],
             |id, out| {
@@ -224,7 +335,7 @@ mod tests {
         let mut output = vec![0; 3];
         let a = vec![1, 2, 3];
         let b = vec![10, 20, 30];
-        for_each!(
+        for_each_mut!(
             mut [output],
             ref [a = a, b = b],
             |id, out| {
@@ -240,7 +351,7 @@ mod tests {
     fn for_each_two_fields_updates_both_in_lockstep() {
         let mut a = vec![1, 2, 3];
         let mut b = vec![10, 20, 30];
-        for_each!(
+        for_each_mut!(
             mut [a, b],
             ref [],
             |_id, x, y| {
@@ -257,7 +368,7 @@ mod tests {
         let mut a = vec![1, 2, 3];
         let mut b = vec![10, 20, 30];
         let mut c = vec![100, 200, 300];
-        for_each!(
+        for_each_mut!(
             mut [a, b, c],
             ref [],
             |_id, x, y, z| {
@@ -277,7 +388,7 @@ mod tests {
         let mut b = vec![10, 20];
         let mut c = vec![100, 200];
         let mut d = vec![1000, 2000];
-        for_each!(
+        for_each_mut!(
             mut [a, b, c, d],
             ref [],
             |_id, w, x, y, z| {
@@ -301,7 +412,7 @@ mod tests {
         // production call sites always pass equal-length slices.
         let mut a = vec![1, 2, 3, 4];
         let mut b = vec![10, 20]; // shorter
-        for_each!(
+        for_each_mut!(
             mut [a, b],
             ref [],
             |_id, x, y| {
@@ -317,8 +428,70 @@ mod tests {
 
     #[test]
     fn for_each_collect_gathers_pushed_values() {
-        let mut values = vec![1, 2, 3, 4, 5];
+        let values = vec![1, 2, 3, 4, 5];
         let mut result = for_each_collect!(
+            ref [values],
+            ref [],
+            |_id, v, local| {
+                if *v % 2 == 0 {
+                    local.push(*v);
+                }
+            }
+        );
+        // Order is not guaranteed under the `parallel` feature (fold+reduce
+        // may combine chunks in any order), so sort before comparing.
+        result.sort();
+        assert_eq!(result, vec![2, 4]);
+    }
+
+    #[test]
+    fn for_each_collect_visits_every_element_exactly_once_with_correct_id() {
+        let values = vec![100, 200, 300, 400];
+        let mut ids = for_each_collect!(
+            ref [values],
+            ref [],
+            |id, _v, local| {
+                local.push(id);
+            }
+        );
+        ids.sort();
+        assert_eq!(ids, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn for_each_collect_on_empty_slice_yields_empty_vec() {
+        let values: Vec<i32> = Vec::new();
+        let result = for_each_collect!(
+            ref [values],
+            ref [],
+            |_id, v, local| {
+                local.push(*v);
+            }
+        );
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn for_each_collect_can_push_multiple_items_per_element() {
+        let values = vec![1, 2, 3];
+        let mut result = for_each_collect!(
+            ref [values],
+            ref [],
+            |_id, v, local| {
+                local.push(*v);
+                local.push(*v * 10);
+            }
+        );
+        result.sort();
+        assert_eq!(result, vec![1, 2, 3, 10, 20, 30]);
+    }
+
+    // ─── for_each_collect_mut ───────────────────────────────────────────────────
+
+    #[test]
+    fn for_each_collect_mut_gathers_pushed_values() {
+        let mut values = vec![1, 2, 3, 4, 5];
+        let mut result = for_each_collect_mut!(
             mut [values],
             ref [],
             |_id, v, local| {
@@ -334,9 +507,9 @@ mod tests {
     }
 
     #[test]
-    fn for_each_collect_can_also_mutate_the_iterated_field() {
+    fn for_each_collect_mut_can_also_mutate_the_iterated_field() {
         let mut values = vec![1, 2, 3];
-        let mut doubled_evens = for_each_collect!(
+        let mut doubled_evens = for_each_collect_mut!(
             mut [values],
             ref [],
             |_id, v, local| {
@@ -352,10 +525,10 @@ mod tests {
     }
 
     #[test]
-    fn for_each_collect_ref_binding_is_accessible_in_body() {
+    fn for_each_collect_mut_ref_binding_is_accessible_in_body() {
         let mut values = vec![0, 1, 2, 3];
         let threshold = 2usize;
-        let mut ids_above_threshold = for_each_collect!(
+        let mut ids_above_threshold = for_each_collect_mut!(
             mut [values],
             ref [t = threshold],
             |id, v, local| {
@@ -371,9 +544,9 @@ mod tests {
     }
 
     #[test]
-    fn for_each_collect_visits_every_element_exactly_once_with_correct_id() {
+    fn for_each_collect_mut_visits_every_element_exactly_once_with_correct_id() {
         let mut values = vec![100, 200, 300, 400];
-        let mut ids = for_each_collect!(
+        let mut ids = for_each_collect_mut!(
             mut [values],
             ref [],
             |id, _v, local| {
@@ -385,9 +558,9 @@ mod tests {
     }
 
     #[test]
-    fn for_each_collect_on_empty_slice_yields_empty_vec() {
+    fn for_each_collect_mut_on_empty_slice_yields_empty_vec() {
         let mut values: Vec<i32> = Vec::new();
-        let result = for_each_collect!(
+        let result = for_each_collect_mut!(
             mut [values],
             ref [],
             |_id, v, local| {
@@ -398,9 +571,9 @@ mod tests {
     }
 
     #[test]
-    fn for_each_collect_can_push_multiple_items_per_element() {
+    fn for_each_collect_mut_can_push_multiple_items_per_element() {
         let mut values = vec![1, 2, 3];
-        let mut result = for_each_collect!(
+        let mut result = for_each_collect_mut!(
             mut [values],
             ref [],
             |_id, v, local| {

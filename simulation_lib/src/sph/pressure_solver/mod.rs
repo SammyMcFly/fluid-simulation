@@ -9,8 +9,8 @@ pub use iisph_optimized_source_term::IISPHwOST;
 pub use sesph::SESPH;
 pub use sesph_with_splitting::SESPHwSplitting;
 
-use crate::for_each;
-use crate::iteration::for_each_collect;
+use crate::for_each_mut;
+use crate::iteration::for_each_collect_mut;
 use crate::neighbor_search::NeighborList;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::SystemParameters;
@@ -88,7 +88,7 @@ pub struct SolverMeasurementInfo {
 
 /// calculate and set predicted velocity due to currently set acceleration
 fn set_pred_vel_by_applying_acc(fluid: &mut Fluid, params: &SystemParameters, to_pred_vel: bool) {
-    for_each!(
+    for_each_mut!(
         mut [fluid.solver_velocity_slots[0]],
         ref [
             vel_now = fluid.velocity,
@@ -139,7 +139,7 @@ fn add_pressure_acceleration<K: KernelFn>(
         &fluid.position
     };
     // compute pressure acceleration
-    let forces_onto_boundary: Vec<ForceOntoBoundary> = for_each_collect!(
+    let forces_onto_boundary: Vec<ForceOntoBoundary> = for_each_collect_mut!(
         mut [target],
         ref [
             pos = pos_source,
@@ -200,7 +200,9 @@ mod tests {
     use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
     use crate::render_info::BoundaryVisualization;
     use crate::sph::GravityMode;
-    use crate::sph::boundary_handling::{Boundary, BoundaryCheckpoint, BoundaryConstructionError, VolumeMapBoundary};
+    use crate::sph::boundary_handling::{
+        Boundary, BoundaryCheckpoint, BoundaryConstructionError, VolumeMapBoundary,
+    };
     use crate::sph::fluid::Len;
     use crate::sph::kernel::CubicBSpline3D;
     use crate::sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};

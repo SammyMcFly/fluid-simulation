@@ -1,5 +1,5 @@
 //! Implicit frictional boundary handling via volume maps
-use crate::for_each;
+use crate::for_each_mut;
 use crate::neighbor_search::NeighborList;
 use crate::neighbor_search::NeighborSearch;
 use crate::render_info::RenderPose;
@@ -404,7 +404,7 @@ impl BoundaryType {
                 state,
                 ..
             } => {
-                for_each!(
+                for_each_mut!(
                     mut [position, velocity],
                     ref [position_body = position_body],
                     |id, id_pos, id_vel| {

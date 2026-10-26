@@ -1,6 +1,6 @@
 //! Acceleration module
-use crate::for_each;
-use crate::iteration::for_each_collect;
+use crate::for_each_mut;
+use crate::iteration::for_each_collect_mut;
 use crate::neighbor_search::NeighborList;
 use crate::sph::SystemParameters;
 use crate::sph::boundary_handling::BoundaryHandling;
@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 /// reset acceleration, i. e. set it to 0.
 pub fn reset_acceleration(fluid: &mut Fluid) {
-    for_each!(
+    for_each_mut!(
         mut [fluid.acceleration],
         ref [],
         |_id, id_acceleration| {
@@ -69,7 +69,7 @@ pub fn add_gravity_acceleration<B: BoundaryHandling>(
     let strength_of_gravity = 9.81;
     match mode {
         GravityMode::Uniform => {
-            for_each!(
+            for_each_mut!(
                 mut [fluid.acceleration],
                 ref [],
                 |_id, id_acceleration| {
@@ -82,7 +82,7 @@ pub fn add_gravity_acceleration<B: BoundaryHandling>(
         }
         GravityMode::Radial { center } => {
             let gravitation_center = Point3::new(center[0], center[1], center[2]);
-            for_each!(
+            for_each_mut!(
                 mut [fluid.acceleration],
                 ref [position = fluid.position],
                 |id, id_acceleration| {
@@ -109,7 +109,7 @@ pub fn add_viscosity_acceleration<K: KernelFn>(
     neighbors: &NeighborList,
     params: &SystemParameters,
 ) {
-    let forces_onto_boundary: Vec<ForceOntoBoundary> = for_each_collect!(
+    let forces_onto_boundary: Vec<ForceOntoBoundary> = for_each_collect_mut!(
         mut [fluid.acceleration],
         ref [
             pos_now = fluid.position,
@@ -189,7 +189,9 @@ mod tests {
     use super::*;
     use crate::neighbor_search::{NeighborList, NeighborSearch, SpatialHashing};
     use crate::render_info::BoundaryVisualization;
-    use crate::sph::boundary_handling::{Boundary, BoundaryCheckpoint, BoundaryConstructionError, VolumeMapBoundary};
+    use crate::sph::boundary_handling::{
+        Boundary, BoundaryCheckpoint, BoundaryConstructionError, VolumeMapBoundary,
+    };
     use crate::sph::fluid::Len;
     use crate::sph::kernel::CubicBSpline3D;
     use crate::sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};

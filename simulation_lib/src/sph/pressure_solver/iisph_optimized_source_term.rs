@@ -16,7 +16,7 @@
 //!
 //! To prevent silent failures, the combination of this solver running with dynamic
 //! boundaries is guarded from running.
-use crate::for_each;
+use crate::for_each_mut;
 use crate::neighbor_search::NeighborList;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
@@ -97,7 +97,7 @@ impl PressureSolver for IISPHwOST {
             // set predicted velocity
             set_pred_vel_by_applying_acc(fluid, params, true);
             // set predicted position
-            for_each!(
+            for_each_mut!(
                 mut [fluid.solver_position_slots[0]],
                 ref [
                     pos_now = fluid.position,
@@ -137,7 +137,7 @@ impl PressureSolver for IISPHwOST {
         }
         // write new positions and resampled velocities to predicted velocity and position field of each particle
         {
-            for_each!(
+            for_each_mut!(
                 mut [fluid.solver_position_slots[0], self.inner.pressure_acc_f],
                 ref [
                     pos_now = fluid.position,
@@ -192,7 +192,7 @@ impl PressureSolver for IISPHwOST {
                 }
             );
             // move velocity from pressure_acc_f to predicted velocity
-            for_each!(
+            for_each_mut!(
                 mut [fluid.solver_velocity_slots[0]],
                 ref [
                     pressure_acc_f = self.inner.pressure_acc_f,
@@ -233,7 +233,8 @@ mod tests {
     use crate::neighbor_search::{NeighborList, NeighborSearch};
     use crate::sph::GravityMode;
     use crate::sph::boundary_handling::{
-        Boundary, BoundaryCheckpoint, BoundaryConstructionError, ForceOntoBoundary, VolumeMapBoundary
+        Boundary, BoundaryCheckpoint, BoundaryConstructionError, ForceOntoBoundary,
+        VolumeMapBoundary,
     };
     use crate::sph::kernel::CubicBSpline3D;
     use nalgebra::{Point3, Vector3};

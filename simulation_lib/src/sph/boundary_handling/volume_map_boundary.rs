@@ -1,5 +1,5 @@
 //! Implicit frictional boundary handling via volume maps
-use crate::for_each;
+use crate::for_each_mut;
 use crate::neighbor_search::NeighborSearch;
 use crate::render_info::{
     BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization, RenderPose,
@@ -979,7 +979,7 @@ mod neighbor_list {
             self.volumes.clear();
             self.indices.clear();
             self.offsets.clear();
-            for_each!(
+            for_each_mut!(
                 mut [self.unflattened_indices, self.unflattened_positions, self.unflattened_velocities, self.unflattened_volumes],
                 ref [],
                 |_id, id_index, id_pos, id_vel, id_vol| {

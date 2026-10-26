@@ -10,4 +10,4 @@ pub mod sph;
 pub mod utilities;
 
 mod iteration;
-pub(crate) use iteration::for_each;
+pub(crate) use iteration::for_each_mut;

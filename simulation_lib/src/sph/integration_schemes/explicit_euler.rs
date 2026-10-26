@@ -1,7 +1,7 @@
 //! Explicit Euler integration scheme
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::for_each;
+use crate::for_each_mut;
 use crate::sph::fluid::Fluid;
 use crate::sph::integration_schemes::IntegrationScheme;
 
@@ -10,7 +10,7 @@ pub struct ExplicitEuler;
 
 impl IntegrationScheme for ExplicitEuler {
     fn integrate(&mut self, fluid: &mut Fluid, dt: f64) {
-        for_each!(
+        for_each_mut!(
             mut [fluid.position, fluid.velocity],
             ref [
                 acceleration = fluid.acceleration,

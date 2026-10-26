@@ -1,5 +1,5 @@
 //! Verlet integration scheme
-use crate::for_each;
+use crate::for_each_mut;
 use crate::sph::fluid::Fluid;
 use crate::sph::integration_schemes::IntegrationScheme;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
@@ -18,7 +18,7 @@ impl IntegrationScheme for Verlet {
         );
         // slot 0 = x(t-1), i.e. position one step before the current
         // `fluid.position` = x(t)
-        for_each!(
+        for_each_mut!(
             mut [fluid.position, fluid.velocity, fluid.integrator_position_slots[0]],
             ref [
                 acceleration = fluid.acceleration,

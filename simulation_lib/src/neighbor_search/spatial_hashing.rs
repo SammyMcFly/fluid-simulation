@@ -4,7 +4,7 @@ use nalgebra::{Point3, Vector3};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap; // Faster than: // use std::collections::HashMap;
 
-use crate::for_each;
+use crate::for_each_mut;
 use crate::neighbor_search::{NeighborSearch, distance};
 
 type UniformGridCell = Vector3<i32>;
@@ -139,7 +139,7 @@ impl NeighborSearch for SpatialHashing {
         Self::populate(&mut self.cells, sample_positions, self.cell_size);
 
         neighbor_list.rebuild(positions.len(), |nl| {
-            for_each!(
+            for_each_mut!(
                 mut [nl.neighbors_mut()],
                 ref [pos = positions, neighbor_pos = sample_positions],
                 |id, id_neighbors| {

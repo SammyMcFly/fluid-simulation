@@ -3,7 +3,7 @@ use nalgebra::{Point3, Vector3};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::for_each;
+use crate::for_each_mut;
 use crate::neighbor_search::NeighborList;
 use crate::sph::SystemParameters;
 use crate::sph::boundary_handling::{BoundaryHandling, RequestMode};
@@ -19,7 +19,7 @@ pub fn get_volume<K: KernelFn>(
     boundary: &impl BoundaryHandling,
     params: &SystemParameters,
 ) {
-    for_each!(
+    for_each_mut!(
         mut [volume],
         ref [
             position_eval = position_eval,
@@ -72,7 +72,7 @@ pub fn get_speed<K: KernelFn>(
     boundary: &impl BoundaryHandling,
     params: &SystemParameters,
 ) {
-    for_each!(
+    for_each_mut!(
         mut [speed],
         ref [
             pos_now_eval = position_eval,
@@ -128,7 +128,7 @@ pub fn get_density<K: KernelFn>(
     // boundary: &impl BoundaryHandling,
     params: &SystemParameters,
 ) {
-    for_each!(
+    for_each_mut!(
         mut [density],
         ref [
             position_eval = position_eval,
@@ -180,7 +180,7 @@ pub fn get_density_error<K: KernelFn>(
     // boundary: &impl BoundaryHandling,
     params: &SystemParameters,
 ) {
-    for_each!(
+    for_each_mut!(
         mut [density_err],
         ref [
             position_eval = position_eval,
@@ -239,7 +239,7 @@ pub fn get_pressure<K: KernelFn>(
     // boundary: &impl BoundaryHandling,
     params: &SystemParameters,
 ) {
-    for_each!(
+    for_each_mut!(
         mut [pressure],
         ref [
             pos_now_eval = position_eval,
@@ -296,7 +296,7 @@ pub fn get_kinetic_energy<K: KernelFn>(
     // boundary: &impl BoundaryHandling,
     params: &SystemParameters,
 ) {
-    for_each!(
+    for_each_mut!(
         mut [kinetic_energy],
         ref [
             pos_now_eval = position_eval,

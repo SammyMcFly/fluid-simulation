@@ -1,5 +1,5 @@
 //! State equation SPH (SESPH) or weakly compressible SPH (WCSPH) pressure solver
-use crate::for_each;
+use crate::for_each_mut;
 use crate::neighbor_search::NeighborList;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::SystemParameters;
@@ -37,7 +37,7 @@ impl PressureSolver for SESPH {
         _properties: &mut CurrentSystemProperties,
     ) {
         {
-            for_each!(
+            for_each_mut!(
                 mut [fluid.pressure],
                 ref [
                     volume = fluid.volume,

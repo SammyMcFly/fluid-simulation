@@ -1,5 +1,5 @@
 //! Implicit imcompressible SPH (SESPH) pressure self
-use crate::for_each;
+use crate::for_each_mut;
 use crate::neighbor_search::NeighborList;
 use crate::sph::CurrentSystemProperties;
 use crate::sph::SystemParameters;
@@ -122,7 +122,7 @@ impl IISPH {
         params: &SystemParameters,
     ) {
         // compute source term s_f of pressure linear equation system
-        for_each!(
+        for_each_mut!(
             mut [self.s_f],
             ref [
                 pos_now = fluid.position,
@@ -181,7 +181,7 @@ impl IISPH {
         with_pred_positions: bool,
     ) {
         // compute source term s_f of pressure linear equation system
-        for_each!(
+        for_each_mut!(
             mut [self.s_f],
             ref [
                 pos_now = fluid.position,
@@ -260,7 +260,7 @@ impl IISPH {
         with_pred_positions: bool,
     ) {
         // compute diagonal element A_ff
-        for_each!(
+        for_each_mut!(
             mut [self.a_ff],
             ref [
                 pos_now = fluid.position,
@@ -342,7 +342,7 @@ impl IISPH {
     }
 
     fn initialize(&mut self, fluid: &mut Fluid, clamp_pressure: bool) {
-        for_each!(
+        for_each_mut!(
             mut [fluid.pressure],
             ref [
                 s_f = self.s_f,
@@ -435,7 +435,7 @@ impl IISPH {
 
             // perform self iteration for all fluid particles
             let mut pred_density_errors: Vec<f64> = vec![0.0; fluid.len()];
-            for_each!(
+            for_each_mut!(
                 mut [fluid.pressure, pred_density_errors],
                 ref [
                     pos_now = fluid.position,
