@@ -60,7 +60,7 @@ impl BoundaryHandling for StaticSampleBoundary {
             &boundary.scale,
         );
         let trimesh = mesh.trimesh();
-        let position = sample_triangle_mesh_surface(trimesh, rest_density_grid_spacing);
+        let position = sample_triangle_mesh_surface(trimesh, 0.7 * rest_density_grid_spacing);
         let len = position.len();
         let boundary = BoundaryType::StaticBoundary {
             // boundary_id: boundary.boundary_id,
@@ -110,7 +110,7 @@ impl BoundaryHandling for StaticSampleBoundary {
         let global_center_of_mass = Point3::from(Vector3::from(boundary.translation))
             + orientation.transform_vector(&local_com_vec);
         // sample the mesh
-        let position_body = sample_triangle_mesh_surface(trimesh, rest_density_grid_spacing);
+        let position_body = sample_triangle_mesh_surface(trimesh, 0.7 * rest_density_grid_spacing);
         let len = position_body.len();
         let boundary = BoundaryType::DynamicBoundary {
             position_body,
@@ -163,12 +163,7 @@ impl BoundaryHandling for StaticSampleBoundary {
     ) {
         for b in &mut self.boundaries {
             let (boundary_position, neighbor_list) = b.position_and_boundary_neighbor_list_mut();
-            neighbor_search.find_samples(
-                search_range,
-                positions,
-                boundary_position,
-                neighbor_list,
-            );
+            neighbor_search.find_samples(search_range, positions, boundary_position, neighbor_list);
         }
     }
 
