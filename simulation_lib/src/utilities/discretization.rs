@@ -28,17 +28,18 @@ pub enum DiscretizationError {
     Interrupted,
 }
 
-/// Integrates f(x, y, z) over a ball with radius 'radius' using the Gauß-Legendre quadrature.
-pub fn gauss_legendre_integrate<F>(
+/// Integrates f(x, y, z) over a ball with radius 'radius' using the Gauß-Legendre quadrature
+/// of degree `degree`.
+pub fn gauss_legendre_integrate_ball<F>(
     f: &F,
     center: &Point3<f64>,
     radius: f64,
-    order: usize,
+    degree: usize,
 ) -> Result<f64, EvaluationError>
 where
     F: Fn(&Point3<f64>) -> Result<f64, EvaluationError>,
 {
-    let quad = GaussLegendre::new(order.try_into().unwrap());
+    let quad = GaussLegendre::new(degree.try_into().unwrap());
     let error: RefCell<Option<EvaluationError>> = RefCell::new(None);
 
     let result = quad.integrate(0.0, radius, |r| {
@@ -745,7 +746,8 @@ mod tests {
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             disc.get_cube_idx(&Point3::new(0.5, 0.5, 0.5)).unwrap(),
             [0, 0, 0]
@@ -766,7 +768,8 @@ mod tests {
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             disc.get_cube_idx(&Point3::new(2.0, 1.0, 1.0)).unwrap(),
             [1, 0, 0]
@@ -783,7 +786,8 @@ mod tests {
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(matches!(
             disc.get_cube_idx(&Point3::new(-0.01, 0.5, 0.5)),
             Err(EvaluationError::OutOfBounds)
@@ -812,7 +816,8 @@ mod tests {
             1.0,
             &|p: &Point3<f64>| Ok(if p.x <= 1.0 { 0.0 } else { 10.0 }),
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Corner node at lattice [3,0,0] == physical (1,0,0): shared by
         // both cells, contributed by unpruned cell 1.
@@ -847,7 +852,8 @@ mod tests {
                 }
             },
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(matches!(
             disc.function(&Point3::new(0.5, 0.5, 0.5)),
@@ -867,7 +873,8 @@ mod tests {
             1.0,
             &|p: &Point3<f64>| Ok(3.0 * p.x),
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         let d = disc
             .directional_derivative(&Point3::new(0., 0., 0.), 0, 0.1)
@@ -903,7 +910,8 @@ mod tests {
             2.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         // p + h = 0.95 + 0.1 = 1.05, exceeds x_max = 1.0.
         let result = disc.directional_derivative(&Point3::new(0.95, 0., 0.), 0, 0.1);
@@ -958,7 +966,8 @@ mod tests {
             1.0,
             &|_p: &Point3<f64>| Ok(0.0),
             None,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(!disc.is_empty());
     }
 

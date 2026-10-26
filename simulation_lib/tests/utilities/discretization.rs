@@ -1,6 +1,6 @@
 use nalgebra::{Point3, Vector3};
 use simulation_lib::utilities::discretization::{
-    CubicSerendipityDiscretization, EvaluationError, gauss_legendre_integrate,
+    CubicSerendipityDiscretization, EvaluationError, gauss_legendre_integrate_ball,
 };
 use std::f64::consts::PI;
 
@@ -26,7 +26,7 @@ fn gauss_legendre_integrate_constant_equals_ball_volume() {
     // this fails in practice.
     let radius = 1.3;
     let f = |_p: &Point3<f64>| -> Result<f64, EvaluationError> { Ok(1.0) };
-    let result = gauss_legendre_integrate(&f, &Point3::new(0.5, -0.2, 0.7), radius, 20).unwrap();
+    let result = gauss_legendre_integrate_ball(&f, &Point3::new(0.5, -0.2, 0.7), radius, 20).unwrap();
     let expected = 4.0 / 3.0 * PI * radius.powi(3);
     assert!(
         (result - expected).abs() / expected < 1e-6,
@@ -41,7 +41,7 @@ fn gauss_legendre_integrate_radial_linear_matches_closed_form() {
     let center = Point3::new(1.0, 2.0, -0.5);
     let radius = 0.8;
     let f = move |p: &Point3<f64>| -> Result<f64, EvaluationError> { Ok((p - center).norm()) };
-    let result = gauss_legendre_integrate(&f, &center, radius, 24).unwrap();
+    let result = gauss_legendre_integrate_ball(&f, &center, radius, 24).unwrap();
     let expected = PI * radius.powi(4);
     assert!(
         (result - expected).abs() / expected < 1e-4,
@@ -53,7 +53,7 @@ fn gauss_legendre_integrate_radial_linear_matches_closed_form() {
 fn gauss_legendre_integrate_propagates_error() {
     let f =
         |_p: &Point3<f64>| -> Result<f64, EvaluationError> { Err(EvaluationError::OutOfBounds) };
-    let result = gauss_legendre_integrate(&f, &Point3::origin(), 1.0, 5);
+    let result = gauss_legendre_integrate_ball(&f, &Point3::origin(), 1.0, 5);
     assert!(matches!(result, Err(EvaluationError::OutOfBounds)));
 }
 

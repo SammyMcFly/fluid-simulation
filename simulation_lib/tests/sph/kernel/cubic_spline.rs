@@ -9,7 +9,7 @@
 use nalgebra::{Point3, Vector3};
 
 use simulation_lib::sph::kernel::{CubicBSpline3D, KernelFn};
-use simulation_lib::utilities::discretization::gauss_legendre_integrate;
+use simulation_lib::utilities::discretization::gauss_legendre_integrate_ball;
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ fn kernel_function_integrates_to_one_over_its_support() {
     // otherwise) — not just an implementation detail.
     for &support_radius in &[0.5, 1.0, 2.0] {
         let center = Point3::new(1.0, -2.0, 0.5); // arbitrary, non-origin center
-        let integral = gauss_legendre_integrate(
+        let integral = gauss_legendre_integrate_ball(
             &|p| {
                 let r_vec = p - center;
                 Ok(CubicBSpline3D::kernel_function(&r_vec, support_radius))

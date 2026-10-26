@@ -10,7 +10,8 @@ use crate::sph::boundary_handling::{
 use crate::sph::kernel::{CubicBSpline3D, KernelFn};
 use crate::sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
 use crate::utilities::discretization::{
-    CubicSerendipityDiscretization, DiscretizationError, EvaluationError, gauss_legendre_integrate
+    CubicSerendipityDiscretization, DiscretizationError, EvaluationError,
+    gauss_legendre_integrate_ball,
 };
 use crate::utilities::euler_deg_to_quaternion;
 use crate::utilities::triangle_mesh::{MeshContainer, RenderMesh};
@@ -588,7 +589,7 @@ impl<'a> SDFnWrapper<'a> {
             return Ok(4.0 / 3.0 * std::f64::consts::PI * kernel_support_radius.powi(3));
         }
 
-        gauss_legendre_integrate(
+        gauss_legendre_integrate_ball(
             &|p| match self.sdfn.function(p) {
                 Ok(sd) => Ok(cubic_extension_fn(sd, kernel_support_radius)),
                 Err(e) => Err(e),
