@@ -408,6 +408,9 @@ impl IISPH {
         termination_condition: TerminationCondition,
         clamp_pressure: bool,
     ) {
+        if fluid.is_empty() {
+            return;
+        }
         // compute diagonal element A_ff
         self.set_diagonal_element::<K>(fluid, boundary, neighbor_list, params, with_pred_positions);
         // Set initial guess
