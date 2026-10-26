@@ -1,6 +1,6 @@
 # Sci-PHi
 
-A physics-based **Smoothed Particle Hydrodynamics (SPH)** fluid simulation framework written in Rust, featuring real-time 3D visualization, recording, and playback.
+A physics-based **Smoothed Particle Hydrodynamics (SPH)** fluid simulation framework written in Rust, featuring 3D visualization, recording, and playback.
 
 ## Overview
 
