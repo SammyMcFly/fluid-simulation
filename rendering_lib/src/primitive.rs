@@ -529,7 +529,7 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
                 }
             }
             BoundarySceneData::Mesh { meshes } => {
-                for draw in meshes {
+                for (idx, draw) in meshes.iter().enumerate() {
                     if draw.vertices.is_empty() || draw.indices.is_empty() {
                         continue;
                     }
@@ -545,10 +545,20 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
                             contents: bytemuck::cast_slice(&draw.indices),
                             usage: wgpu::BufferUsages::INDEX,
                         });
+
+                    // Assign a unique surface ID per boundary mesh, used by
+                    // the peel shaders' same-surface check (see
+                    // `MeshPoseInstance::object_id`). ID 0 is the "none"
+                    // sentinel, 1 is reserved for the fluid mesh
+                    // (`THIS_ID` in mesh_peel_fluid.wgsl), so boundary
+                    // meshes start at 2.
+                    let mut pose = draw.pose;
+                    pose.object_id = (idx as u32) + 2;
+
                     let instance_buffer =
                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Boundary Mesh Pose"),
-                            contents: bytemuck::bytes_of(&draw.pose),
+                            contents: bytemuck::bytes_of(&pose),
                             usage: wgpu::BufferUsages::VERTEX,
                         });
                     pipeline.scene.boundary_meshes.push(BoundaryMesh {
@@ -711,21 +721,32 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
         peel_bind_group_b: &wgpu::BindGroup,
         clip_bounds: Option<&Rectangle<u32>>,
     ) {
-        let (Some(depth_a), Some(depth_b), Some(accum), Some(layer_color), Some(layer_bg)) = (
+        let (
+            Some(depth_a),
+            Some(depth_b),
+            Some(id_a),
+            Some(id_b),
+            Some(accum),
+            Some(layer_color),
+            Some(layer_bg),
+        ) = (
             &pipeline.peel_depth_a,
             &pipeline.peel_depth_b,
+            &pipeline.peel_id_a,
+            &pipeline.peel_id_b,
             &pipeline.accum_texture,
             &pipeline.layer_color,
             &pipeline.layer_composite_bind_group,
-        ) else {
+        )
+        else {
             return;
         };
 
         for layer in 0..crate::pipeline::DEPTH_PEEL_LAYERS {
-            let (depth_view, bind_group) = if layer % 2 == 0 {
-                (&depth_a.view, peel_bind_group_a)
+            let (depth_view, id_view, bind_group) = if layer % 2 == 0 {
+                (&depth_a.view, &id_a.view, peel_bind_group_a)
             } else {
-                (&depth_b.view, peel_bind_group_b)
+                (&depth_b.view, &id_b.view, peel_bind_group_b)
             };
 
             let (boundary_pipeline, fluid_pipeline) = if layer == 0 {
@@ -750,15 +771,30 @@ impl<W: ScreenshotCommand> SimulationFrame<W> {
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Depth Peel Layer Resolve"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &layer_color.view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
+                    color_attachments: &[
+                        Some(wgpu::RenderPassColorAttachment {
+                            view: &layer_color.view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
+                            view: id_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                // All-zero clear == IdTexture::NONE, regardless
+                                // of which ping-pong slot this is -- cleared
+                                // every time this slot is (re)written, exactly
+                                // like `depth_view`'s Clear(1.0) below.
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        }),
+                    ],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: depth_view,
                         depth_ops: Some(wgpu::Operations {

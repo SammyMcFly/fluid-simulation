@@ -52,6 +52,53 @@ impl DepthTexture {
     }
 }
 
+// ─── Depth Peeling: Surface ID Texture ────────────────────────
+
+/// Per-pixel surface identifier, ping-ponged alongside `peel_depth_a/b`.
+/// Lets `fs_next` tell apart "this fragment is the SAME surface that was
+/// resolved in the previous layer" (safe to apply `DEPTH_EPSILON` to, to
+/// avoid seams at shared mesh edges) from "this is a genuinely different
+/// surface that happens to have an almost-equal depth" (e.g. two meshes
+/// intersecting -- must NOT get the tolerance, or one side of the
+/// intersection gets wrongly discarded).
+pub struct IdTexture {
+    pub view: wgpu::TextureView,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl IdTexture {
+    pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
+    /// Sentinel: "no surface was resolved here in the previous layer".
+    /// Deliberately `0`, matching an all-zero clear value -- real object
+    /// IDs start at `1` (see `mesh_peel_fluid.wgsl`'s `THIS_ID` and
+    /// `SimulationFrame::upload_scene`'s `pose.object_id` assignment).
+    pub const NONE: u32 = 0;
+
+    pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth Peel ID Texture"),
+            size: wgpu::Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        Self {
+            view,
+            width,
+            height,
+        }
+    }
+}
+
 // ─── Depth Peeling: Accumulation Texture ──────────────────────
 
 /// Off-screen color target that depth-peeled transparent layers are
@@ -221,6 +268,8 @@ pub struct SimulationRenderer {
     pub peel_light_bind_group_layout: wgpu::BindGroupLayout,
     pub peel_depth_a: Option<DepthTexture>,
     pub peel_depth_b: Option<DepthTexture>,
+    pub peel_id_a: Option<IdTexture>,
+    pub peel_id_b: Option<IdTexture>,
     pub accum_texture: Option<AccumTexture>,
     /// Peel bind groups for the on-screen target. "_a" is used while
     /// writing peel_depth_a (so its `prev_depth` binding is peel_depth_b),
@@ -396,6 +445,16 @@ impl shader::Pipeline for SimulationRenderer {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Uint,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -519,6 +578,8 @@ impl shader::Pipeline for SimulationRenderer {
             peel_light_bind_group_layout,
             peel_depth_a: None,
             peel_depth_b: None,
+            peel_id_a: None,
+            peel_id_b: None,
             accum_texture: None,
             peel_light_bind_group_a: None,
             peel_light_bind_group_b: None,
@@ -954,28 +1015,38 @@ impl SimulationRenderer {
             fragment: Some(wgpu::FragmentState {
                 module: shader,
                 entry_point: Some(fs_entry),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: AccumTexture::FORMAT,
-                    // REPLACE, not "under"-blend: within a single peel layer,
-                    // multiple triangles of the SAME non-convex mesh can
-                    // overlap at a pixel (e.g. at a fold/crease). The depth
-                    // test alone only decides whether a fragment is written
-                    // at all -- it does NOT prevent an earlier-arriving,
-                    // farther fragment from already having been blended in
-                    // before a later-arriving, nearer one overwrites the
-                    // depth buffer. With an additive "under" blend, both
-                    // fragments' colors end up summed. With REPLACE, each
-                    // passing fragment fully overwrites the previous one, so
-                    // -- exactly like conventional opaque Z-buffered
-                    // rendering -- the final stored color is always just the
-                    // single nearest surviving fragment, regardless of draw
-                    // order. This resolves ONE correct color per pixel for
-                    // this layer; cross-layer "under" compositing happens
-                    // separately, in a second pass (see
-                    // `composite_layer_into_accum` in primitive.rs).
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: AccumTexture::FORMAT,
+                        // REPLACE, not "under"-blend: within a single peel layer,
+                        // multiple triangles of the SAME non-convex mesh can
+                        // overlap at a pixel (e.g. at a fold/crease). The depth
+                        // test alone only decides whether a fragment is written
+                        // at all -- it does NOT prevent an earlier-arriving,
+                        // farther fragment from already having been blended in
+                        // before a later-arriving, nearer one overwrites the
+                        // depth buffer. With an additive "under" blend, both
+                        // fragments' colors end up summed. With REPLACE, each
+                        // passing fragment fully overwrites the previous one, so
+                        // -- exactly like conventional opaque Z-buffered
+                        // rendering -- the final stored color is always just the
+                        // single nearest surviving fragment, regardless of draw
+                        // order. This resolves ONE correct color per pixel for
+                        // this layer; cross-layer "under" compositing happens
+                        // separately, in a second pass (see
+                        // `composite_layer_into_accum` in primitive.rs).
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: IdTexture::FORMAT,
+                        // Integer formats can't blend; REPLACE-by-depth-test
+                        // semantics (same as the color target) fall out
+                        // automatically from the depth test alone.
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
@@ -1103,6 +1174,8 @@ impl SimulationRenderer {
         if needs_recreate {
             self.peel_depth_a = Some(DepthTexture::new(device, width, height));
             self.peel_depth_b = Some(DepthTexture::new(device, width, height));
+            self.peel_id_a = Some(IdTexture::new(device, width, height));
+            self.peel_id_b = Some(IdTexture::new(device, width, height));
             self.accum_texture = Some(AccumTexture::new(device, width, height));
             self.layer_color = Some(AccumTexture::new(device, width, height));
 
@@ -1150,8 +1223,18 @@ impl SimulationRenderer {
             .as_ref()
             .expect("peel resources not initialized -- call ensure_peel_resources first")
             .view;
+        let id_a = &self
+            .peel_id_a
+            .as_ref()
+            .expect("peel resources not initialized -- call ensure_peel_resources first")
+            .view;
+        let id_b = &self
+            .peel_id_b
+            .as_ref()
+            .expect("peel resources not initialized -- call ensure_peel_resources first")
+            .view;
 
-        let make = |prev_depth_view: &wgpu::TextureView| {
+        let make = |prev_depth_view: &wgpu::TextureView, prev_id_view: &wgpu::TextureView| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Peel Light BG"),
                 layout: &self.peel_light_bind_group_layout,
@@ -1168,13 +1251,17 @@ impl SimulationRenderer {
                         binding: 2,
                         resource: wgpu::BindingResource::TextureView(opaque_depth_view),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(prev_id_view),
+                    },
                 ],
             })
         };
 
-        // "a" is used while WRITING to peel_depth_a, so its prev_depth must
-        // be peel_depth_b (the previous iteration's result) -- and vice versa.
-        (make(depth_b), make(depth_a))
+        // "a" is used while WRITING to peel_depth_a/peel_id_a, so its
+        // prev_depth/prev_id must be peel_depth_b/peel_id_b -- and vice versa.
+        (make(depth_b, id_b), make(depth_a, id_a))
     }
 }
 
@@ -1230,7 +1317,17 @@ impl BillboardInstance {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MeshPoseInstance {
     pub translation: [f32; 3],
-    pub _pad0: f32,
+    /// Surface/object identifier used by the depth-peeling fragment
+    /// shaders to distinguish "same surface as the previous peel layer"
+    /// (safe to epsilon-tolerate) from "different surface, coincidentally
+    /// equal depth" (e.g. a genuine mesh intersection -- must NOT be
+    /// tolerated). `0` is reserved as the "no surface" sentinel
+    /// (`IdTexture::NONE`); real IDs are assigned starting at `1` by
+    /// `SimulationFrame::upload_scene` when uploading each boundary mesh
+    /// (the single fluid mesh uses the hardcoded `THIS_ID = 1u` in
+    /// `mesh_peel_fluid.wgsl`, so boundary meshes start at `2`).
+    /// Occupies what used to be pure padding -- same struct size/layout.
+    pub object_id: u32,
     /// Quaternion (i, j, k, w)
     pub rotation: [f32; 4],
 }
@@ -1238,7 +1335,7 @@ pub struct MeshPoseInstance {
 impl MeshPoseInstance {
     pub const IDENTITY: Self = Self {
         translation: [0.0; 3],
-        _pad0: 0.0,
+        object_id: 0,
         rotation: [0.0, 0.0, 0.0, 1.0],
     };
 
@@ -1251,6 +1348,11 @@ impl MeshPoseInstance {
                     offset: 0,
                     shader_location: 3,
                     format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: 12,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Uint32,
                 },
                 wgpu::VertexAttribute {
                     offset: 16,
@@ -1266,7 +1368,9 @@ impl From<&simulation_lib::render_info::RenderPose> for MeshPoseInstance {
     fn from(p: &simulation_lib::render_info::RenderPose) -> Self {
         Self {
             translation: p.translation,
-            _pad0: 0.0,
+            // Overwritten with a real per-mesh ID in
+            // `SimulationFrame::upload_scene` before upload.
+            object_id: 0,
             rotation: p.rotation,
         }
     }

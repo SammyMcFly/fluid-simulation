@@ -14,6 +14,14 @@ struct Light {
 @group(1) @binding(0) var<uniform> light: Light;
 @group(1) @binding(1) var prev_depth: texture_depth_2d;
 @group(1) @binding(2) var opaque_depth: texture_depth_2d;
+@group(1) @binding(3) var prev_id: texture_2d<u32>;
+
+/// There is only ever one fluid mesh draw per frame (non-instanced), so a
+/// single hardcoded ID suffices -- unlike boundary meshes, which get a
+/// unique per-mesh `object_id` via `MeshPoseInstance` (see
+/// mesh_peel_boundary.wgsl / pipeline.rs). `0` is reserved as the
+/// "no surface" sentinel (`IdTexture::NONE`), so this starts at `1`.
+const THIS_ID: u32 = 1u;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -45,6 +53,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
 struct FragOutput {
     @location(0) color: vec4<f32>,
+    @location(1) id: u32,
 };
 
 fn shade(in: VertexOutput) -> vec4<f32> {
@@ -72,7 +81,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
 // thin dark seam running along internal mesh edges. See e.g. GPU Gems 2,
 // "Depth Peeling for Order-Independent Transparency", for this being a
 // standard, expected requirement of the technique, not a one-off bug.
-const DEPTH_EPSILON: f32 = 1e-7;
+const DEPTH_EPSILON: f32 = 1e-12;
 
 fn occluded_by_opaque(pixel: vec2<i32>, depth: f32) -> bool {
     let opaque_d = textureLoad(opaque_depth, pixel, 0);
@@ -87,6 +96,7 @@ fn fs_first(in: VertexOutput) -> FragOutput {
     }
     var out: FragOutput;
     out.color = shade(in);
+    out.id = THIS_ID;
     return out;
 }
 
@@ -98,10 +108,21 @@ fn fs_next(in: VertexOutput) -> FragOutput {
         discard;
     }
     let prev_d = textureLoad(prev_depth, pixel, 0);
-    if depth <= prev_d + DEPTH_EPSILON {
+    let prev_id_at_pixel = textureLoad(prev_id, pixel, 0).r;
+
+    // See mesh_peel_boundary.wgsl's fs_next for why this check exists.
+    // Here it's always comparing against the single constant THIS_ID, so
+    // this only distinguishes "previous layer here was also fluid mesh"
+    // from "previous layer here was a different (boundary) mesh, or
+    // nothing" -- the latter two correctly get zero tolerance.
+    let same_surface = prev_id_at_pixel == THIS_ID;
+    let eps = select(0.0, DEPTH_EPSILON, same_surface);
+    if depth <= prev_d + eps {
         discard;
     }
+
     var out: FragOutput;
     out.color = shade(in);
+    out.id = THIS_ID;
     return out;
 }

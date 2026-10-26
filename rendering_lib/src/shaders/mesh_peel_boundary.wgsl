@@ -14,6 +14,7 @@ struct Light {
 @group(1) @binding(0) var<uniform> light: Light;
 @group(1) @binding(1) var prev_depth: texture_depth_2d;
 @group(1) @binding(2) var opaque_depth: texture_depth_2d;
+@group(1) @binding(3) var prev_id: texture_2d<u32>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -24,6 +25,7 @@ struct VertexInput {
 struct InstanceInput {
     @location(3) translation: vec3<f32>,
     @location(4) rotation: vec4<f32>, // quaternion (i, j, k, w)
+    @location(5) object_id: u32,
 };
 
 struct VertexOutput {
@@ -31,6 +33,7 @@ struct VertexOutput {
     @location(0) world_position: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) color: vec4<f32>,
+    @location(3) @interpolate(flat) object_id: u32,
 };
 
 fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
@@ -54,12 +57,14 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.world_position = swizzle(world_pos_sim);
     out.world_normal = swizzle(world_normal_sim);
     out.color = in.color;
+    out.object_id = inst.object_id;
     out.clip_position = camera.view_proj * vec4(out.world_position, 1.0);
     return out;
 }
 
 struct FragOutput {
     @location(0) color: vec4<f32>,
+    @location(1) id: u32,
 };
 
 // Blinn-Phong shading, premultiplied by alpha (required for the "under"
@@ -105,6 +110,7 @@ fn fs_first(in: VertexOutput) -> FragOutput {
     }
     var out: FragOutput;
     out.color = shade(in);
+    out.id = in.object_id;
     return out;
 }
 
@@ -118,10 +124,23 @@ fn fs_next(in: VertexOutput) -> FragOutput {
         discard;
     }
     let prev_d = textureLoad(prev_depth, pixel, 0);
-    if depth <= prev_d + DEPTH_EPSILON {
+    let prev_id_at_pixel = textureLoad(prev_id, pixel, 0).r;
+
+    // Only tolerate DEPTH_EPSILON's floating-point rounding slop when the
+    // previous layer's surviving fragment at this pixel was the SAME
+    // surface (same object_id) -- that's the shared-mesh-edge seam this
+    // epsilon exists for. For a genuinely different surface (e.g. two
+    // meshes intersecting), require strictly-greater depth with zero
+    // tolerance, so neither side of the intersection gets wrongly
+    // discarded.
+    let same_surface = prev_id_at_pixel == in.object_id;
+    let eps = select(0.0, DEPTH_EPSILON, same_surface);
+    if depth <= prev_d + eps {
         discard;
     }
+
     var out: FragOutput;
     out.color = shade(in);
+    out.id = in.object_id;
     return out;
 }
