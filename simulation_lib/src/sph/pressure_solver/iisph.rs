@@ -375,19 +375,19 @@ impl IISPH {
         );
     }
 
-    fn continue_solving(
+    fn converged(
         termination_condition: &TerminationCondition,
         solver_iteration: u32,
         predicted_density_error: f64,
     ) -> bool {
         match termination_condition {
-            TerminationCondition::AfterIteration(number) => solver_iteration < *number,
+            TerminationCondition::AfterIteration(number) => solver_iteration > *number,
             TerminationCondition::TargetDensityError(tde) => {
                 let min_solver_iterations = 2;
                 let max_solver_iteration = u32::MAX;
                 // let max_solver_iteration = 100;
-                (solver_iteration < min_solver_iterations || predicted_density_error > *tde)
-                    && solver_iteration < max_solver_iteration
+                (solver_iteration > min_solver_iterations && predicted_density_error < *tde)
+                    || solver_iteration > max_solver_iteration
             }
         }
     }
@@ -415,8 +415,7 @@ impl IISPH {
         // Solve linear equation system until a sufficiently accurate result is obtained
         let mut solver_iteration = 0;
         let mut predicted_density_error = f64::INFINITY;
-        // for _solver_iteration in 0..self.properties.solver_iterations {
-        while Self::continue_solving(
+        while !Self::converged(
             &termination_condition,
             solver_iteration,
             predicted_density_error,
@@ -1079,22 +1078,22 @@ mod tests {
 
     #[test]
     fn continue_solving_after_iteration_stops_exactly_at_the_bound() {
-        assert!(IISPH::continue_solving(
+        assert!(IISPH::converged(
             &TerminationCondition::AfterIteration(3),
             0,
             0.0
         ));
-        assert!(IISPH::continue_solving(
+        assert!(IISPH::converged(
             &TerminationCondition::AfterIteration(3),
             2,
             0.0
         ));
-        assert!(!IISPH::continue_solving(
+        assert!(!IISPH::converged(
             &TerminationCondition::AfterIteration(3),
             3,
             0.0
         ));
-        assert!(!IISPH::continue_solving(
+        assert!(!IISPH::converged(
             &TerminationCondition::AfterIteration(0),
             0,
             0.0
@@ -1104,12 +1103,12 @@ mod tests {
     #[test]
     fn continue_solving_target_density_error_forces_minimum_two_iterations() {
         // Even with an already-tiny error, iterations 0 and 1 must proceed.
-        assert!(IISPH::continue_solving(
+        assert!(IISPH::converged(
             &TerminationCondition::TargetDensityError(1.0),
             0,
             0.0
         ));
-        assert!(IISPH::continue_solving(
+        assert!(IISPH::converged(
             &TerminationCondition::TargetDensityError(1.0),
             1,
             0.0
@@ -1118,12 +1117,12 @@ mod tests {
 
     #[test]
     fn continue_solving_target_density_error_stops_once_below_target_after_minimum() {
-        assert!(!IISPH::continue_solving(
+        assert!(!IISPH::converged(
             &TerminationCondition::TargetDensityError(1.0),
             2,
             0.5 // below target
         ));
-        assert!(IISPH::continue_solving(
+        assert!(IISPH::converged(
             &TerminationCondition::TargetDensityError(1.0),
             2,
             2.0 // above target -> keep going
