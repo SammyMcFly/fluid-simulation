@@ -50,7 +50,6 @@ pub trait BoundaryHandling: Send + Sync + Clone {
         progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) -> Result<(), BoundaryConstructionError>;
 
-
     fn add_dynamic_boundary(
         &mut self,
         mesh: &mut MeshContainer,

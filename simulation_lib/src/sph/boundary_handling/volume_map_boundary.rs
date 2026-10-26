@@ -1,11 +1,13 @@
 //! Implicit frictional boundary handling via volume maps
 use crate::for_each_mut;
+use crate::iteration::for_each_collect;
 use crate::neighbor_search::NeighborSearch;
 use crate::render_info::{
     BoundaryMeshColoring, BoundarySampleColoring, BoundaryVisualization, RenderPose,
 };
 use crate::sph::boundary_handling::{
-    Boundary, BoundaryCheckpoint, BoundaryConstructionError, BoundaryHandling, ForceOntoBoundary, RequestMode, RigidBodyMotion, RigidBodyMotionCheckpoint
+    Boundary, BoundaryCheckpoint, BoundaryConstructionError, BoundaryHandling, ForceOntoBoundary,
+    RequestMode, RigidBodyMotion, RigidBodyMotionCheckpoint,
 };
 use crate::sph::kernel::{CubicBSpline3D, KernelFn};
 use crate::sph::setup::input::{DynamicBoundaryDef, StaticBoundaryDef};
@@ -13,10 +15,11 @@ use crate::utilities::discretization::{
     CubicSerendipityDiscretization, DiscretizationError, EvaluationError,
     gauss_legendre_integrate_ball,
 };
-use crate::utilities::euler_deg_to_quaternion;
 use crate::utilities::triangle_mesh::{MeshContainer, RenderMesh};
+use crate::utilities::{Outer, euler_deg_to_quaternion, mean_fischer_burmeister};
 
-use nalgebra::{Isometry3, Point3, Vector3};
+use gauss_quad::GaussLegendre;
+use nalgebra::{Isometry3, Matrix3, Point3, Vector3};
 use num_traits::Zero;
 use parry3d_f64::mass_properties::MassProperties;
 use parry3d_f64::math::Pose;
@@ -26,6 +29,7 @@ use parry3d_f64::shape::{Shape, TriMesh};
 use rayon::prelude::*;
 use std::panic;
 use std::slice::SliceIndex;
+use std::sync::OnceLock;
 
 fn ball_volume(radius: f64) -> f64 {
     4.0 / 3.0 * std::f64::consts::PI * radius.powi(3)
@@ -34,10 +38,1067 @@ fn ball_volume(radius: f64) -> f64 {
 #[derive(Debug, Default, Clone)]
 pub struct VolumeMapBoundary {
     boundaries: Vec<BoundaryType>,
+    rest_density_grid_spacing: f64,
+    kernel_support_radius: f64,
+    p: Vec<f64>,                 // p_c^k
+    v_err: Vec<f64>,             // V_c^err(p_c^k)
+    lambda: Vec<Vector3<f64>>,   // lambda_c^k
+    v_tang: Vec<Vector3<f64>>,   // v_c^tang(lambda_c^k)
+    s_p: Vec<f64>,               // NNCG-search direction
+    s_lambda: Vec<Vector3<f64>>, // NNCG-search direction
+    extra_force: Vec<Vector3<f64>>,
+    extra_torque: Vec<Vector3<f64>>,
+    v_trial: Vec<Vector3<f64>>,
+    omega_trial: Vec<Vector3<f64>>,
 }
 
 impl VolumeMapBoundary {
-    const INTEGRATION_ORDER: usize = 30;
+    const GAUSS_LEGENDRE_QUADRATURE_DEGREE: usize = 30;
+    const CONTACT_HANDLING_GAUSS_LEGENDRE_QUADRATURE_DEGREE: usize = 8;
+    /// Target contact-cell size, expressed as a multiple of
+    /// `kernel_support_radius`.
+    const CONTACT_CELL_SIZE_FACTOR: f64 = 0.5;
+
+    const FRICTION_COEFFICIENT: f64 = 0.5;
+
+    const RELAXATION: f64 = 0.5;
+    const MIN_DIAGONAL_ELEMENT: f64 = 1e-35;
+    const ITERATIONS_WARN_LIMIT: u32 = 100;
+    const FB_TOLERANCE_PRESSURE: f64 = 1e-6;
+    const FB_TOLERANCE_FRICTION: f64 = 1e-3;
+
+    fn broad_phase(bodies: &[BoundaryType]) -> Vec<(usize, usize)> {
+        #[cfg(not(feature = "parallel"))]
+        let world_aabbs: Vec<WorldAABB> = bodies.iter().map(|b| b.world_aabb()).collect();
+        #[cfg(feature = "parallel")]
+        let world_aabbs: Vec<WorldAABB> = bodies.par_iter().map(|b| b.world_aabb()).collect();
+
+        for_each_collect!(
+            ref [bodies],
+            ref [aabbs = world_aabbs],
+            |i, body_i, pairs| {
+                for j in (i + 1)..bodies.len() {
+                    if !body_i.is_dynamic() && !bodies[j].is_dynamic() {
+                        continue;
+                    }
+                    if aabbs[i].overlap(&aabbs[j]) {
+                        pairs.push((i, j));
+                    }
+                }
+            }
+        )
+    }
+
+    /// Generates fresh contact cells for the current configuration.
+    ///
+    /// Per cell, this evaluates both SDFs at a small set of fixed
+    /// quadrature points (never re-queried after this call — positions
+    /// are frozen for the entire Jacobi/NNCG solve of this time step) and
+    /// caches everything needed to build the pressure LCP.
+    fn generate_contact_cells(&self) -> Vec<ContactCell> {
+        let pairs = Self::broad_phase(&self.boundaries);
+
+        // Cheap, sequential: build the flat (body_a, body_b, SubCell) task list.
+        // No SDF evaluation happens yet, so sequential cost here is negligible.
+        let mut tasks: Vec<(usize, usize, SubCell)> = Vec::new();
+        for (body_a, body_b) in pairs {
+            let aabb_a = self.boundaries[body_a].world_aabb();
+            let aabb_b = self.boundaries[body_b].world_aabb();
+            let Some(overlap) = aabb_a.intersection(&aabb_b) else {
+                continue;
+            };
+            let cell_size = self.kernel_support_radius * Self::CONTACT_CELL_SIZE_FACTOR;
+            for sub_cell in subdivide_overlap(&overlap, cell_size) {
+                tasks.push((body_a, body_b, sub_cell));
+            }
+        }
+
+        // Expensive part (SDF + gradient quadrature, incl. the pruning check):
+        // runs in parallel over the FLAT task list -- much better load
+        // balancing than parallelizing over `pairs` directly.
+        for_each_collect!(
+            ref [tasks],
+            ref [boundaries = self.boundaries, ksr = self.kernel_support_radius],
+            |_id, task, active_cells| {
+                let (body_a, body_b, sub_cell) = task;
+                let center = sub_cell.from + (sub_cell.to - sub_cell.from) * 0.5;
+                let half_diag = (sub_cell.to - sub_cell.from).norm() * 0.5;
+
+                // Safety factor accounts for the discretized SDF not perfectly satisfying
+                // the eikonal condition (interpolation can locally overshoot ‖∇d‖ ≈ 1,
+                // observed up to ~2x elsewhere in this codebase — see find_boundary_samples).
+                const GRADIENT_OVERSHOOT_SAFETY_FACTOR: f64 = 2.0;
+                let bound = GRADIENT_OVERSHOOT_SAFETY_FACTOR * half_diag;
+
+                // No early return/continue: both SDF lookups and the pruning
+                // check are threaded through nested `if let`/`if` instead, so
+                // this closure body works unchanged whether it's the body of
+                // `.for_each(...)` (sequential) or `.fold(...)` (parallel) --
+                // see note on why a bare `return;` is NOT safe here.
+                if let (Ok(phi_a_center), Ok(phi_b_center)) = (
+                    boundaries[*body_a].signed_distance(&center),
+                    boundaries[*body_b].signed_distance(&center),
+                ) {
+                    // A contact cell can only contribute if it dips below BOTH
+                    // surfaces (phi < 0 for both) somewhere inside it — s_a/s_b
+                    // are exactly zero whenever phi_a/phi_b >= 0, independent
+                    // of kernel_support_radius.
+                    if phi_a_center - bound < 0. && phi_b_center - bound < 0.
+                        && let Some(cell) = build_contact_cell(
+                            *body_a,
+                            *body_b,
+                            sub_cell,
+                            boundaries,
+                            *ksr,
+                            Self::CONTACT_HANDLING_GAUSS_LEGENDRE_QUADRATURE_DEGREE,
+                        )
+                    {
+                        active_cells.push(cell);
+                    }
+                }
+            }
+        )
+    }
+
+    fn converged(convergence_measurement: f64, tolerance: f64, solver_iteration: u32) -> bool {
+        // println!(
+        //     "convergence_measurement: {}, tolerance: {}, solver_iteration: {}",
+        //     convergence_measurement, tolerance, solver_iteration
+        // );
+        if solver_iteration >= Self::ITERATIONS_WARN_LIMIT {
+            tracing::warn!("Solver exceeded {} iterations", Self::ITERATIONS_WARN_LIMIT);
+        }
+        if convergence_measurement < tolerance {
+            return true;
+        }
+        false
+    }
+
+    /// Solves the rigid-rigid contact pressure LCP for all currently
+    /// active cells via NNCG-accelerated Jacobi iteration (Probst &
+    /// Teschner, Algorithm 2, extended with the SDF-quadrature-based
+    /// `V_c^err`), and commits the resulting contact forces/torques onto
+    /// the involved `RigidBodyMotion`s.
+    ///
+    /// Note: this only *adds* to `motion.force`/`motion.torque` — it does
+    /// NOT call `step_forward_in_time`. The caller (`step_forward_in_time`
+    /// of this `BoundaryHandling` impl) must still integrate afterwards.
+    fn solve_for_p_c(
+        &mut self,
+        active_cells: &mut [ContactCell],
+        dt: f64,
+        fb_tolerance_pressure: f64,
+        fb_tolerance_friction: f64,
+    ) {
+        let n = active_cells.len();
+        self.p = vec![0.0; n];
+        self.v_err = vec![0.0; n];
+        self.lambda = vec![Vector3::zeros(); n];
+        self.v_tang = vec![Vector3::zeros(); n];
+        self.s_p = vec![0.0; n];
+        if n == 0 {
+            return;
+        }
+
+        let n_bodies = self.boundaries.len();
+        for_each_mut!(
+            mut [active_cells],
+            ref [boundaries = self.boundaries, dt_ref = dt],
+            |_id, cell| {
+                compute_diagonal(cell, boundaries, *dt_ref);
+            }
+        );
+        let body_cell_index = BodyCellIndex::build(active_cells, n_bodies);
+
+        self.extra_force.clear();
+        self.extra_force.resize(n_bodies, Vector3::zeros());
+        self.extra_torque.clear();
+        self.extra_torque.resize(n_bodies, Vector3::zeros());
+        self.v_trial.clear();
+        self.v_trial.resize(n_bodies, Vector3::zeros());
+        self.omega_trial.clear();
+        self.omega_trial.resize(n_bodies, Vector3::zeros());
+        accumulate_extra_forces(
+            active_cells,
+            &body_cell_index,
+            &self.p,
+            &self.lambda,
+            &self.boundaries,
+            &mut self.extra_force,
+            &mut self.extra_torque,
+        );
+        compute_trial_velocities(
+            &self.boundaries,
+            dt,
+            &self.extra_force,
+            &self.extra_torque,
+            &mut self.v_trial,
+            &mut self.omega_trial,
+        );
+        for_each_mut!(
+            mut [self.v_err],
+            ref [cells = active_cells, v_trial = self.v_trial, omega_trial = self.omega_trial, dt_ref = dt],
+            |id, v_err| {
+                *v_err = predicted_volume_error(&cells[id], *dt_ref, v_trial, omega_trial);
+            }
+        );
+        for_each_mut!(
+            mut [self.v_tang],
+            ref [cells = active_cells, v_trial = self.v_trial, omega_trial = self.omega_trial, boundaries = self.boundaries],
+            |id, v_tang| {
+                *v_tang = predicted_tangential_velocity(&cells[id], boundaries, v_trial, omega_trial);
+            }
+        );
+
+        let (p1, lambda1) = projected_jacobi(
+            active_cells,
+            &body_cell_index,
+            &self.p,
+            &self.v_err,
+            &self.lambda,
+            &self.v_tang,
+            n_bodies,
+            Self::MIN_DIAGONAL_ELEMENT,
+            Self::RELAXATION,
+            Self::FRICTION_COEFFICIENT,
+        );
+        let mut grad_p: Vec<f64> = p1.iter().zip(&self.p).map(|(n, o)| -(n - o)).collect();
+        let mut grad_lambda: Vec<Vector3<f64>> = lambda1
+            .iter()
+            .zip(&self.lambda)
+            .map(|(n, o)| -(n - o))
+            .collect();
+        self.s_p = grad_p.iter().map(|g| -g).collect();
+        self.s_lambda = grad_lambda.iter().map(|g| -g).collect();
+        self.p = p1;
+        self.lambda = lambda1;
+        let mut prev_grad_p_norm_squared: f64 = grad_p.iter().map(|g| g * g).sum();
+        let mut prev_grad_lambda_norm_squared: f64 = grad_lambda.iter().map(|g| g.dot(g)).sum();
+
+        accumulate_extra_forces(
+            active_cells,
+            &body_cell_index,
+            &self.p,
+            &self.lambda,
+            &self.boundaries,
+            &mut self.extra_force,
+            &mut self.extra_torque,
+        );
+        compute_trial_velocities(
+            &self.boundaries,
+            dt,
+            &self.extra_force,
+            &self.extra_torque,
+            &mut self.v_trial,
+            &mut self.omega_trial,
+        );
+        for_each_mut!(
+            mut [self.v_err],
+            ref [cells = active_cells, v_trial = self.v_trial, omega_trial = self.omega_trial, dt_ref = dt],
+            |id, v| {
+                *v = predicted_volume_error(&cells[id], *dt_ref, v_trial, omega_trial);
+            }
+        );
+        for_each_mut!(
+            mut [self.v_tang],
+            ref [cells = active_cells, v_trial = self.v_trial, omega_trial = self.omega_trial, boundaries = self.boundaries],
+            |id, v_tang| {
+                *v_tang = predicted_tangential_velocity(&cells[id], boundaries, v_trial, omega_trial);
+            }
+        );
+
+        let mut preconditioned_p = vec![0.0; n];
+        let mut v_tang_norm = vec![0.0; n];
+        let mut preconditioned_deviation_from_max_dissipation = vec![0.0; n];
+        preconditioned_p
+            .iter_mut()
+            .zip(self.p.iter().zip(active_cells.iter()))
+            .for_each(|(pp, (p, cell))| {
+                *pp = p * cell.a_cc_pressure.max(Self::MIN_DIAGONAL_ELEMENT)
+            });
+        v_tang_norm
+            .iter_mut()
+            .zip(self.v_tang.iter())
+            .for_each(|(v_t_n, v_t)| *v_t_n = v_t.norm());
+        preconditioned_deviation_from_max_dissipation
+            .iter_mut()
+            .zip(
+                active_cells
+                    .iter()
+                    .zip(self.p.iter().zip(self.lambda.iter())),
+            )
+            .for_each(|(dev, (cell, (p, lambda)))| {
+                *dev = cell.a_cc_friction.max(Self::MIN_DIAGONAL_ELEMENT)
+                    * (Self::FRICTION_COEFFICIENT * p * cell.f_a.norm() - lambda.norm());
+            });
+
+        let mut solver_iteration = 0;
+        while !(Self::converged(
+            mean_fischer_burmeister(&preconditioned_p, &self.v_err),
+            fb_tolerance_pressure,
+            solver_iteration,
+        ) && Self::converged(
+            mean_fischer_burmeister(&v_tang_norm, &preconditioned_deviation_from_max_dissipation),
+            fb_tolerance_friction,
+            solver_iteration,
+        )) {
+            // let merit: f64 = self
+            //     .v_err
+            //     .iter()
+            //     .map(|v| v.min(0.0).powi(2))
+            //     .sum::<f64>()
+            //     .sqrt();
+            // tracing::info!(solver_iteration, merit, "merit");
+            let (p_jacobi, lambda_jacobi) = projected_jacobi(
+                active_cells,
+                &body_cell_index,
+                &self.p,
+                &self.v_err,
+                &self.lambda,
+                &self.v_tang,
+                n_bodies,
+                Self::MIN_DIAGONAL_ELEMENT,
+                Self::RELAXATION,
+                Self::FRICTION_COEFFICIENT,
+            );
+            grad_p = p_jacobi
+                .iter()
+                .zip(&self.p)
+                .map(|(n, o)| -(n - o))
+                .collect();
+            grad_lambda = lambda_jacobi
+                .iter()
+                .zip(&self.lambda)
+                .map(|(n, o)| -(n - o))
+                .collect();
+            let grad_p_norm_squared: f64 = grad_p.iter().map(|g| g * g).sum();
+            let grad_lambda_norm_squared: f64 = grad_lambda.iter().map(|g| g.dot(g)).sum();
+
+            // if grad_norm_squared.sqrt() < Self::GRADIENT_TOLERANCE {
+            //     self.p = p_jacobi;
+            //     break;
+            // }
+            {
+                let beta = (grad_p_norm_squared + grad_lambda_norm_squared)
+                    / (prev_grad_p_norm_squared + prev_grad_lambda_norm_squared)
+                        .max(f64::MIN_POSITIVE);
+                // tracing::info!("beta: {}", beta);
+                if beta > 1.0 {
+                    // tracing::info!("NNCG reset at iteration: {}", solver_iteration);
+                    self.s_p = vec![0.0; n];
+                    self.s_lambda = vec![Vector3::zeros(); n];
+                    self.p = p_jacobi;
+                    self.lambda = lambda_jacobi;
+                } else {
+                    // self.p = p_jacobi
+                    //     .iter()
+                    //     .zip(&self.s)
+                    //     .map(|(r, si)| r + beta * si)
+                    //     .collect();
+                    // self.s = grad
+                    //     .iter()
+                    //     .zip(&self.s)
+                    //     .map(|(g, si)| beta * si - g)
+                    //     .collect();
+                    let p_nncg: Vec<f64> = p_jacobi
+                        .iter()
+                        .zip(&self.s_p)
+                        .map(|(p_jacobi, search_direction)| p_jacobi + beta * search_direction)
+                        .collect();
+                    let lambda_nncg: Vec<Vector3<f64>> = lambda_jacobi
+                        .iter()
+                        .zip(&self.s_lambda)
+                        .map(|(lambda_jacobi, search_direction)| {
+                            lambda_jacobi + beta * search_direction
+                        })
+                        .collect();
+
+                    // let mut n_fallback = 0usize;
+                    // for p in &p_nncg {
+                    //     if *p < 0.0 {
+                    //         n_fallback += 1;
+                    //         // ... existing fallback logic
+                    //     }
+                    // }
+                    // tracing::info!(solver_iteration, n_fallback, beta, "nncg step");
+
+                    // Pressure
+                    //
+                    // Apply proximal operator: Clamp to set of allowed pressure (p_c >= 0)
+
+                    // Per-contact feasibility: only the contacts that actually overshoot fall
+                    // back to the plain projected-Jacobi value (with their own search direction
+                    // zeroed); the rest keep the accelerated step and conjugate direction.
+                    let mut p_out = vec![0.0; n];
+                    let mut s_p_out = vec![0.0; n];
+                    for_each_mut!(
+                        mut [p_out, s_p_out],
+                        ref [p_jacobi = p_jacobi, p_nncg = p_nncg, grad = grad_p, s_prev = self.s_p, beta_ref = beta],
+                        |i, p_out, s_p_out| {
+                            if p_nncg[i] < 0.0 {
+                                *p_out = p_jacobi[i];
+                                // *p_out = 0.0;
+                                *s_p_out = 0.0;
+                            } else {
+                                *p_out = p_nncg[i];
+                                *s_p_out = *beta_ref * s_prev[i] - grad[i];
+                            }
+                        }
+                    );
+                    // Friction
+                    //
+                    // Apply proximal operator -> project and clamp to friction cone
+                    let mut lambda_out = vec![Vector3::zeros(); n];
+                    let mut s_lambda_out = vec![Vector3::zeros(); n];
+                    for_each_mut!(
+                        mut [lambda_out, s_lambda_out],
+                        ref [lambda_jacobi = lambda_jacobi, lambda_nncg = lambda_nncg, grad = grad_lambda, s_prev = self.s_lambda, beta_ref = beta, cells = active_cells, p = self.p],
+                        |i, l_out, s_l_out| {
+                            let tangential_proj = cells[i].tangential_projection * lambda_nncg[i];
+                            let tangential_proj_mag = tangential_proj.norm();
+                            let lambda_max_mag = Self::FRICTION_COEFFICIENT * p[i] * cells[i].f_a.norm();
+                            if tangential_proj_mag > lambda_max_mag {
+                                *l_out = lambda_jacobi[i];
+                                // *l_out = lambda_max_mag * tangential_proj / tangential_proj_mag;
+                                *s_l_out = Vector3::zeros();
+                            } else {
+                                *l_out = tangential_proj;
+                                *s_l_out = *beta_ref * s_prev[i] - grad[i];
+                            }
+                        }
+                    );
+
+                    self.p = p_out;
+                    self.s_p = s_p_out;
+                    self.lambda = lambda_out;
+                    self.s_lambda = s_lambda_out;
+                }
+
+                //                 let beta = ((grad_p_norm_squared + grad_lambda_norm_squared)
+                //                     / (prev_grad_p_norm_squared + prev_grad_lambda_norm_squared)
+                //                         .max(f64::MIN_POSITIVE))
+                //                 .clamp(0.0, 1.0);
+                //                 // let beta = 0.;
+                //
+                //                 let p_nncg: Vec<f64> = p_jacobi
+                //                     .iter()
+                //                     .zip(&self.s_p)
+                //                     .map(|(p_jacobi, search_direction)| p_jacobi + beta * search_direction)
+                //                     .collect();
+                //                 let lambda_nncg: Vec<Vector3<f64>> = lambda_jacobi
+                //                     .iter()
+                //                     .zip(&self.s_lambda)
+                //                     .map(|(lambda_jacobi, search_direction)| {
+                //                         lambda_jacobi + beta * search_direction
+                //                     })
+                //                     .collect();
+                //
+                //                 // let mut n_fallback = 0usize;
+                //                 // for p in &p_nncg {
+                //                 //     if *p < 0.0 {
+                //                 //         n_fallback += 1;
+                //                 //         // ... existing fallback logic
+                //                 //     }
+                //                 // }
+                //                 // tracing::info!(solver_iteration, n_fallback, beta, "nncg step");
+                //
+                //                 // Pressure
+                //                 //
+                //                 // Apply proximal operator: Clamp to set of allowed pressure (p_c >= 0)
+                //                 //
+                //                 // Per-contact feasibility: only the contacts that actually overshoot fall
+                //                 // back to the plain projected-Jacobi value (with their own search direction
+                //                 // zeroed); the rest keep the accelerated step and conjugate direction.
+                //                 let mut p_out = vec![0.0; n];
+                //                 let mut s_out = vec![0.0; n];
+                //                 for_each_mut!(
+                //                     mut [p_out, s_out],
+                //                     ref [p_jacobi = p_jacobi, p_nncg = p_nncg, grad = grad_p, s_prev = self.s_p, beta_ref = beta],
+                //                     |i, p_out, s_out| {
+                //                         if p_nncg[i] < 0.0 {
+                //                             // *p_out = p_jacobi[i];
+                //                             *p_out = 0.0;
+                //                             *s_out = 0.0;
+                //                         } else {
+                //                             *p_out = p_nncg[i];
+                //                             *s_out = *beta_ref * s_prev[i] - grad[i];
+                //                         }
+                //                     }
+                //                 );
+                //                 // Friction
+                //                 //
+                //                 // Apply proximal operator -> project and clamp to friction cone
+                //                 let mut lambda_out = vec![Vector3::zeros(); n];
+                //                 let mut s_lambda_out = vec![Vector3::zeros(); n];
+                //                 for_each_mut!(
+                //                     mut [lambda_out, s_lambda_out],
+                //                     ref [lambda_jacobi = lambda_jacobi, lambda_nncg = lambda_nncg, grad = grad_lambda, s_prev = self.s_lambda, beta_ref = beta, cells = active_cells, p = self.p],
+                //                     |i, l_out, s_l_out| {
+                //                         let tangential_proj = cells[i].tangential_projection * lambda_nncg[i];
+                //                         let tangential_proj_mag = tangential_proj.norm();
+                //                         let lambda_max_mag = Self::FRICTION_COEFFICIENT * p[i] * cells[i].f_a.norm();
+                //                         if tangential_proj_mag > lambda_max_mag {
+                //                             // *l_out = lambda_jacobi[i];
+                //                             *l_out = lambda_max_mag * tangential_proj / tangential_proj_mag;
+                //                             *s_l_out = Vector3::zeros();
+                //                         } else {
+                //                             *l_out = tangential_proj;
+                //                             *s_l_out = *beta_ref * s_prev[i] - grad[i];
+                //                         }
+                //                     }
+                //                 );
+                //
+                //                 self.p = p_out;
+                //                 self.s_p = s_out;
+                //                 self.lambda = lambda_out;
+                //                 self.s_lambda = s_lambda_out;
+            }
+            prev_grad_p_norm_squared = grad_p_norm_squared;
+            prev_grad_lambda_norm_squared = grad_lambda_norm_squared;
+            // let min_pressure = self.p.iter().copied().fold(f64::INFINITY, f64::min);
+            // tracing::info!(min_pressure, "Minimum pressure after NNCG extrapolation");
+
+            accumulate_extra_forces(
+                active_cells,
+                &body_cell_index,
+                &self.p,
+                &self.lambda,
+                &self.boundaries,
+                &mut self.extra_force,
+                &mut self.extra_torque,
+            );
+            compute_trial_velocities(
+                &self.boundaries,
+                dt,
+                &self.extra_force,
+                &self.extra_torque,
+                &mut self.v_trial,
+                &mut self.omega_trial,
+            );
+            for_each_mut!(
+                mut [self.v_err],
+                ref [cells = active_cells, v_trial = self.v_trial, omega_trial = self.omega_trial, dt_ref = dt],
+                |id, v| {
+                    *v = predicted_volume_error(&cells[id], *dt_ref, v_trial, omega_trial);
+                }
+            );
+            for_each_mut!(
+                mut [self.v_tang],
+                ref [cells = active_cells, v_trial = self.v_trial, omega_trial = self.omega_trial, boundaries = self.boundaries],
+                |id, v_tang| {
+                    *v_tang = predicted_tangential_velocity(&cells[id], boundaries, v_trial, omega_trial);
+                }
+            );
+
+            preconditioned_p
+                .iter_mut()
+                .zip(self.p.iter().zip(active_cells.iter()))
+                .for_each(|(pp, (p, cell))| {
+                    *pp = p * cell.a_cc_pressure.max(Self::MIN_DIAGONAL_ELEMENT)
+                });
+            v_tang_norm
+                .iter_mut()
+                .zip(self.v_tang.iter())
+                .for_each(|(v_n, v)| *v_n = v.norm());
+            preconditioned_deviation_from_max_dissipation
+                .iter_mut()
+                .zip(
+                    active_cells
+                        .iter()
+                        .zip(self.p.iter().zip(self.lambda.iter())),
+                )
+                .for_each(|(dev, (cell, (p, lambda)))| {
+                    *dev = cell.a_cc_friction.max(Self::MIN_DIAGONAL_ELEMENT)
+                        * (Self::FRICTION_COEFFICIENT * p * cell.f_a.norm() - lambda.norm());
+                });
+
+            solver_iteration += 1;
+        }
+        tracing::info!("final solver_iteration: {}", solver_iteration);
+
+        // Commit: fold the converged contact pressure into each body's
+        // force/torque accumulator. The subsequent `step_forward_in_time`
+        // call (in the caller) integrates this together with whatever
+        // explicit forces were already accumulated this step.
+        accumulate_extra_forces(
+            active_cells,
+            &body_cell_index,
+            &self.p,
+            &self.lambda,
+            &self.boundaries,
+            &mut self.extra_force,
+            &mut self.extra_torque,
+        );
+        for (i, b) in self.boundaries.iter_mut().enumerate() {
+            if let Some(m) = b.motion_mut() {
+                m.add_force_and_torque(self.extra_force[i], self.extra_torque[i]);
+            }
+        }
+    }
+}
+
+/// For each body, the set of active contact cells touching it (as either
+/// body_a or body_b), built once per timestep right after
+/// `generate_contact_cells`. Reused, unchanged, across every subsequent
+/// Jacobi/NNCG iteration -- turns the per-iteration scatter-add in
+/// `accumulate_extra_forces`/`projected_jacobi` into an embarrassingly
+/// parallel per-body gather.
+#[derive(Debug, Default, Clone)]
+struct BodyCellIndex {
+    /// Flattened (cell_index, is_body_a) pairs.
+    entries: Vec<(usize, bool)>,
+    /// `offsets[body] .. offsets[body + 1]` indexes into `entries`.
+    offsets: Vec<usize>,
+}
+
+impl BodyCellIndex {
+    fn build(active_cells: &[ContactCell], n_bodies: usize) -> Self {
+        let mut per_body: Vec<Vec<(usize, bool)>> = vec![Vec::new(); n_bodies];
+        for (cell_idx, cell) in active_cells.iter().enumerate() {
+            per_body[cell.body_a].push((cell_idx, true));
+            per_body[cell.body_b].push((cell_idx, false));
+        }
+        let mut entries = Vec::with_capacity(active_cells.len() * 2);
+        let mut offsets = Vec::with_capacity(n_bodies + 1);
+        offsets.push(0);
+        for list in &per_body {
+            entries.extend_from_slice(list);
+            offsets.push(entries.len());
+        }
+        Self { entries, offsets }
+    }
+
+    #[inline]
+    fn entries_for(&self, body: usize) -> &[(usize, bool)] {
+        &self.entries[self.offsets[body]..self.offsets[body + 1]]
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ContactCell {
+    body_a: usize,
+    body_b: usize,
+    /// Frozen for the entire solve of this time step.
+    quad_points: Vec<QuadPointData>,
+    /// `V_c(t)`, computed once at generation time.
+    volume: f64,
+    // Calculated once per timestep by `compute_diagonal`:
+    center: Point3<f64>,
+    f_a: Vector3<f64>,
+    tau_a_u: Vector3<f64>,
+    f_b: Vector3<f64>,
+    tau_b_u: Vector3<f64>,
+    tangential_projection: Matrix3<f64>,
+    a_cc_pressure: f64,
+    a_cc_friction: f64,
+}
+
+/// Evaluates both SDFs at the quadrature points of a single sub-cell,
+/// builds a [`ContactCell`] if the overlap is non-trivial, or returns
+/// `None` otherwise. Quadrature points with no overlap contribution
+/// (`s_a == 0 || s_b == 0`) are discarded, not stored.
+fn build_contact_cell(
+    body_a: usize,
+    body_b: usize,
+    sub: &SubCell,
+    boundaries: &[BoundaryType],
+    kernel_support_radius: f64,
+    quadrature_degree: usize,
+) -> Option<ContactCell> {
+    let mut v_c = 0.0;
+    let mut quad_points = Vec::with_capacity(quadrature_degree.pow(3));
+    let scaling = 2.0;
+
+    for (x_g, w_g) in quadrature_points(&sub.from, &sub.to, quadrature_degree) {
+        let Ok(phi_a) = boundaries[body_a].signed_distance(&x_g) else {
+            continue;
+        };
+        let Ok(phi_b) = boundaries[body_b].signed_distance(&x_g) else {
+            continue;
+        };
+
+        let s_a = cubic_extension_fn(
+            scaling * phi_a + kernel_support_radius,
+            kernel_support_radius,
+        );
+        let s_b = cubic_extension_fn(
+            scaling * phi_b + kernel_support_radius,
+            kernel_support_radius,
+        );
+        if s_a <= 0.0 || s_b <= 0.0 {
+            continue;
+        }
+
+        let Ok(grad_a) = boundaries[body_a].signed_distance_gradient(&x_g) else {
+            continue;
+        };
+        let Ok(grad_b) = boundaries[body_b].signed_distance_gradient(&x_g) else {
+            continue;
+        };
+
+        v_c += w_g * s_a * s_b;
+        quad_points.push(QuadPointData {
+            pos: x_g,
+            weight: w_g,
+            grad_phi_a_world: grad_a,
+            grad_phi_b_world: grad_b,
+            s_a,
+            s_b,
+            s_prime_a: scaling
+                * cubic_extension_fn_derivative(
+                    scaling * phi_a + kernel_support_radius,
+                    kernel_support_radius,
+                ),
+            s_prime_b: scaling
+                * cubic_extension_fn_derivative(
+                    scaling * phi_b + kernel_support_radius,
+                    kernel_support_radius,
+                ),
+        });
+    }
+
+    if v_c <= 0.0 || quad_points.is_empty() {
+        return None;
+    }
+
+    Some(ContactCell {
+        body_a,
+        body_b,
+        quad_points,
+        volume: v_c,
+        center: Point3::origin(),
+        f_a: Vector3::zeros(),
+        tau_a_u: Vector3::zeros(),
+        f_b: Vector3::zeros(),
+        tau_b_u: Vector3::zeros(),
+        tangential_projection: Matrix3::identity(),
+        a_cc_pressure: 0.0,
+        a_cc_friction: 0.0,
+    })
+}
+
+/// All quantities derivable purely from geometry at a single quadrature
+/// point, cached once per time step — positions are frozen for the
+/// entire solve, only velocities vary across Jacobi/NNCG iterations.
+#[derive(Debug, Clone, Copy)]
+struct QuadPointData {
+    pos: Point3<f64>,
+    weight: f64,
+    grad_phi_a_world: Vector3<f64>,
+    grad_phi_b_world: Vector3<f64>,
+    s_a: f64,
+    s_b: f64,
+    s_prime_a: f64,
+    s_prime_b: f64,
+}
+
+fn gauss_nodes_weights(order: usize) -> &'static (Vec<f64>, Vec<f64>) {
+    static CACHE: OnceLock<(Vec<f64>, Vec<f64>)> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let quad = GaussLegendre::new(order.try_into().unwrap());
+        let nodes: Vec<f64> = quad.nodes().copied().collect();
+        let weights: Vec<f64> = quad.weights().copied().collect();
+        (nodes, weights)
+    })
+}
+
+fn quadrature_points(
+    from: &Point3<f64>,
+    to: &Point3<f64>,
+    degree: usize,
+) -> Vec<(Point3<f64>, f64)> {
+    let half = (to - from) * 0.5;
+    let center = from + half;
+
+    let (nodes, weights) = gauss_nodes_weights(degree);
+    let n = nodes.len();
+
+    let mut out = Vec::with_capacity(n * n * n);
+    for i in 0..n {
+        let (nx, wx) = (nodes[i], weights[i]);
+        for j in 0..n {
+            let (ny, wy) = (nodes[j], weights[j]);
+            for k in 0..n {
+                let (nz, wz) = (nodes[k], weights[k]);
+                let pos = center + Vector3::new(nx * half.x, ny * half.y, nz * half.z);
+                let weight = wx * wy * wz * half.x * half.y * half.z;
+                out.push((pos, weight));
+            }
+        }
+    }
+    out
+}
+
+/// Precomputes the unit sensitivity vectors `f_A, τ_A^u, f_B, τ_B^u` and
+/// the diagonal element `a_cc` for a single contact cell. Called once per
+/// time step, before any Jacobi iteration.
+fn compute_diagonal(cell: &mut ContactCell, boundaries: &[BoundaryType], dt: f64) {
+    let com_a = boundaries[cell.body_a].motion().map(|m| m.center_of_mass());
+    let com_b = boundaries[cell.body_b].motion().map(|m| m.center_of_mass());
+
+    let mut x_c_times_v_c = Point3::origin();
+    let mut f_a = Vector3::zeros();
+    let mut tau_a_u = Vector3::zeros();
+    let mut f_b = Vector3::zeros();
+    let mut tau_b_u = Vector3::zeros();
+
+    for qp in &cell.quad_points {
+        let w_g = qp.weight * qp.s_a * qp.s_b;
+        x_c_times_v_c += w_g * qp.pos.coords;
+
+        let w_a = qp.weight * qp.s_prime_a * qp.s_b;
+        f_a += w_a * qp.grad_phi_a_world;
+        if let Some(c) = com_a {
+            tau_a_u += w_a * (qp.pos - c).cross(&qp.grad_phi_a_world);
+        }
+
+        let w_b = qp.weight * qp.s_prime_b * qp.s_a;
+        f_b += w_b * qp.grad_phi_b_world;
+        if let Some(c) = com_b {
+            tau_b_u += w_b * (qp.pos - c).cross(&qp.grad_phi_b_world);
+        }
+    }
+
+    cell.center = x_c_times_v_c / cell.volume;
+    cell.f_a = f_a;
+    cell.tau_a_u = tau_a_u;
+    cell.f_b = f_b;
+    cell.tau_b_u = tau_b_u;
+    let normal_a = cell.f_a / cell.f_a.norm().max(1e-15);
+    cell.tangential_projection = Matrix3::identity() - normal_a.outer(&normal_a);
+
+    // A static body (motion() == None) contributes zero compliance —
+    // equivalent to infinite mass / zero inverse inertia.
+    let term_a = boundaries[cell.body_a]
+        .motion()
+        .map(|m| f_a.dot(&f_a) / m.mass() + tau_a_u.dot(&(m.inv_inertia_world() * tau_a_u)))
+        .unwrap_or(0.0);
+    let term_b = boundaries[cell.body_b]
+        .motion()
+        .map(|m| f_b.dot(&f_b) / m.mass() + tau_b_u.dot(&(m.inv_inertia_world() * tau_b_u)))
+        .unwrap_or(0.0);
+
+    cell.a_cc_pressure = dt * dt * (term_a + term_b);
+    // tracing::info!("a_cc: {}", cell.a_cc);
+
+    let term_a = boundaries[cell.body_a]
+        .motion()
+        .map(|m| {
+            Matrix3::identity() / m.mass()
+                - (cell.center - m.center_of_mass()).cross_matrix()
+                    * m.inv_inertia_world()
+                    * (cell.center - m.center_of_mass()).cross_matrix()
+        })
+        .unwrap_or(Matrix3::zeros());
+    let term_b = boundaries[cell.body_b]
+        .motion()
+        .map(|m| {
+            Matrix3::identity() / m.mass()
+                - (cell.center - m.center_of_mass()).cross_matrix()
+                    * m.inv_inertia_world()
+                    * (cell.center - m.center_of_mass()).cross_matrix()
+        })
+        .unwrap_or(Matrix3::zeros());
+
+    cell.a_cc_friction = 1. / 3. * (dt * cell.tangential_projection * (term_a + term_b)).trace();
+}
+
+/// Accumulates, per body, the total contact force/torque implied by the
+/// current pressure iterate `p` across all active cells touching that
+/// body (as either `body_a` or `body_b`).
+// fn accumulate_extra_forces(
+//     active_cells: &[ContactCell],
+//     p: &[f64],
+//     extra_force: &mut [Vector3<f64>],
+//     extra_torque: &mut [Vector3<f64>],
+// ) {
+//     for f in extra_force.iter_mut() {
+//         *f = Vector3::zeros();
+//     }
+//     for t in extra_torque.iter_mut() {
+//         *t = Vector3::zeros();
+//     }
+//     for (cell, &p_c) in active_cells.iter().zip(p.iter()) {
+//         extra_force[cell.body_a] += p_c * cell.f_a;
+//         extra_torque[cell.body_a] += p_c * cell.tau_a_u;
+//         extra_force[cell.body_b] += p_c * cell.f_b;
+//         extra_torque[cell.body_b] += p_c * cell.tau_b_u;
+//     }
+// }
+fn accumulate_extra_forces(
+    active_cells: &[ContactCell],
+    body_cell_index: &BodyCellIndex,
+    p: &[f64],
+    lambda: &[Vector3<f64>],
+    boundaries: &[BoundaryType],
+    extra_force: &mut [Vector3<f64>],
+    extra_torque: &mut [Vector3<f64>],
+) {
+    for_each_mut!(
+        mut [extra_force, extra_torque],
+        ref [cells = active_cells, p = p, lambda = lambda, boundaries = boundaries, idx = body_cell_index],
+        |body, force, torque| {
+            let mut f = Vector3::zeros();
+            let mut t = Vector3::zeros();
+            for &(cell_idx, is_a) in idx.entries_for(body) {
+                let c = &cells[cell_idx];
+                let com_a = boundaries[c.body_a].motion().map(|m| m.center_of_mass());
+                let com_b = boundaries[c.body_b].motion().map(|m| m.center_of_mass());
+                let p_c = p[cell_idx];
+                let lambda_c = lambda[cell_idx];
+                if is_a {
+                    f += p_c * c.f_a + lambda_c;
+                    if let Some(com_a) = com_a {
+                        t += p_c * c.tau_a_u + (c.center - com_a).cross(&lambda_c);
+                    }
+                } else {
+                    f += p_c * c.f_b - lambda_c;
+                    if let Some(com_b) = com_b {
+                        t += p_c * c.tau_b_u - (c.center - com_b).cross(&lambda_c);
+                    }
+                }
+            }
+            *force = f;
+            *torque = t;
+        }
+    );
+}
+
+fn compute_trial_velocities(
+    boundaries: &[BoundaryType],
+    dt: f64,
+    extra_force: &[Vector3<f64>],
+    extra_torque: &[Vector3<f64>],
+    v_trial: &mut [Vector3<f64>],
+    omega_trial: &mut [Vector3<f64>],
+) {
+    for_each_mut!(
+        mut [v_trial, omega_trial],
+        ref [boundary = boundaries, extra_force = extra_force, extra_torque = extra_torque, dt_ref = dt],
+        |id, v, omega| {
+            let (vv, oo) = match boundary[id].motion() {
+                None => (Vector3::zeros(), Vector3::zeros()),
+                Some(m) => (
+                    m.trial_velocity(*dt_ref, &extra_force[id]),
+                    m.trial_angular_velocity(*dt_ref, &extra_torque[id]),
+                ),
+            };
+            *v = vv;
+            *omega = oo;
+        }
+    );
+}
+
+/// `V_c^err(t+Δt) = -V_c(t) - Δt·V̇_c(t+Δt)` for a single cell, given the
+/// per-body additional contact force/torque implied by the current
+/// pressure iterate.
+#[inline]
+fn predicted_volume_error(
+    cell: &ContactCell,
+    dt: f64,
+    trial_velocity: &[Vector3<f64>],
+    trial_angular_velocity: &[Vector3<f64>],
+) -> f64 {
+    -cell.volume
+        + dt * (trial_velocity[cell.body_a].dot(&cell.f_a)
+            + trial_angular_velocity[cell.body_a].dot(&cell.tau_a_u)
+            + trial_velocity[cell.body_b].dot(&cell.f_b)
+            + trial_angular_velocity[cell.body_b].dot(&cell.tau_b_u))
+}
+
+/// `v_c^tang(t+Δt)` for a single cell.
+#[inline]
+fn predicted_tangential_velocity(
+    cell: &ContactCell,
+    boundaries: &[BoundaryType],
+    trial_velocity: &[Vector3<f64>],
+    trial_angular_velocity: &[Vector3<f64>],
+) -> Vector3<f64> {
+    let com_a = boundaries[cell.body_a].motion().map(|m| m.center_of_mass());
+    let com_b = boundaries[cell.body_b].motion().map(|m| m.center_of_mass());
+    if let Some(com_a) = com_a
+        && let Some(com_b) = com_b
+    {
+        let v_rel = trial_velocity[cell.body_a]
+            + trial_angular_velocity[cell.body_a].cross(&(cell.center - com_a))
+            - trial_velocity[cell.body_b]
+            - trial_angular_velocity[cell.body_b].cross(&(cell.center - com_b));
+        cell.tangential_projection * v_rel
+    } else {
+        Vector3::zeros()
+    }
+}
+
+/// Projected relaxed Jacobi step (ρ_c^{k+1} = max(0, ρ_c^k + α_c·V_c^err)),
+/// with the `n_max` normalization needed since a contact cell couples
+/// *two* bodies rather than linking a single particle to one body.
+fn projected_jacobi(
+    active_cells: &[ContactCell],
+    body_cell_index: &BodyCellIndex,
+    p: &[f64],
+    v_err: &[f64],
+    lambda: &[Vector3<f64>],
+    v_tang: &[Vector3<f64>],
+    n_bodies: usize,
+    min_diagonal_element: f64,
+    relaxation: f64,
+    friction_coefficient: f64,
+) -> (Vec<f64>, Vec<Vector3<f64>>) {
+    let mut n_active = vec![0u32; n_bodies];
+    for_each_mut!(
+        mut [n_active],
+        ref [idx = body_cell_index, p = p, v_err = v_err],
+        |body, n| {
+            *n = idx.entries_for(body)
+                .iter()
+                .filter(|&&(cell_idx, _)| v_err[cell_idx] < 0.0 || p[cell_idx] > 0.0)
+                .count() as u32;
+        }
+    );
+
+    (
+        active_cells
+            .iter()
+            .zip(p.iter().zip(v_err.iter()))
+            .map(|(cell, (&p_c, &verr_c))| {
+                let n_max = n_active[cell.body_a].max(n_active[cell.body_b]).max(1) as f64;
+                let alpha = relaxation / n_max / cell.a_cc_pressure.max(min_diagonal_element);
+
+                // apply proximal operator -> clamp to set of allowed pressure
+                (p_c - alpha * verr_c).max(0.0)
+            })
+            .collect(),
+        active_cells
+            .iter()
+            .enumerate()
+            .zip(lambda.iter().zip(v_tang.iter()))
+            .map(|((cell_idx, cell), (&lambda_c, &v_tang_c))| {
+                let n_max = n_active[cell.body_a].max(n_active[cell.body_b]).max(1) as f64;
+                // let alpha = relaxation / n_max / cell.a_cc_friction.max(min_diagonal_element);
+                let lambda_max_mag = friction_coefficient * p[cell_idx] * cell.f_a.norm();
+
+                // λ*
+                // apply proximal operator -> project and clamp to friction cone (projection is not necessary here, as v_tang_c is in the tangetial plane by construction)
+                let lambda_c_star_raw = -v_tang_c / cell.a_cc_friction.max(min_diagonal_element);
+                let lambda_c_star_raw_norm = lambda_c_star_raw.norm();
+                let lambda_c_star = if lambda_c_star_raw_norm > lambda_max_mag {
+                    lambda_max_mag * lambda_c_star_raw / lambda_c_star_raw_norm
+                } else {
+                    lambda_c_star_raw
+                };
+
+                // λ_{l+1}
+                // apply proximal operator -> project and clamp to friction cone (projection is not necessary here, as v_tang_c is in the tangetial plane by construction)
+                let lambda_c_new = lambda_c + relaxation / n_max * lambda_c_star;
+                let lambda_c_new_norm = lambda_c_new.norm();
+                if lambda_c_new_norm > lambda_max_mag {
+                    lambda_max_mag * lambda_c_new / lambda_c_new_norm
+                } else {
+                    lambda_c_new
+                }
+            })
+            .collect(),
+    )
 }
 
 impl BoundaryHandling for VolumeMapBoundary {
@@ -64,8 +1125,28 @@ impl BoundaryHandling for VolumeMapBoundary {
         );
         let trimesh = mesh.trimesh();
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius, progress_cb)
-            .map_err(|_| BoundaryConstructionError::Interrupted)?;
+        let fields = DiscretizedBoundaryFields::new(
+            trimesh,
+            dx,
+            kernel_support_radius,
+            Self::GAUSS_LEGENDRE_QUADRATURE_DEGREE,
+            progress_cb,
+        )
+        .map_err(|_| BoundaryConstructionError::Interrupted)?;
+
+        let local_aabb = trimesh.local_aabb();
+        let bounding_box = LocalAABB {
+            center: Point3::new(
+                local_aabb.center().x,
+                local_aabb.center().y,
+                local_aabb.center().z,
+            ),
+            half_extents: Vector3::new(
+                local_aabb.half_extents().x,
+                local_aabb.half_extents().y,
+                local_aabb.half_extents().z,
+            ),
+        };
 
         let boundary = BoundaryType::StaticBoundary {
             signed_distance_field: fields.signed_distance_field,
@@ -74,7 +1155,10 @@ impl BoundaryHandling for VolumeMapBoundary {
             render_mesh_id: boundary.boundary_id,
             boundary_neighbor_list: NeighborList::default(),
             boundary_neighbor_list_viscosity: NeighborList::default(),
+            bounding_box,
         };
+        self.rest_density_grid_spacing = rest_density_grid_spacing;
+        self.kernel_support_radius = kernel_support_radius;
         self.boundaries.push(boundary);
         Ok(())
     }
@@ -113,8 +1197,28 @@ impl BoundaryHandling for VolumeMapBoundary {
             + orientation.transform_vector(&local_com_vec);
         // discretize the mesh
         let dx = rest_density_grid_spacing * 4.; // TODO
-        let fields = DiscretizedBoundaryFields::new(trimesh, dx, kernel_support_radius, progress_cb)
-            .map_err(|_| BoundaryConstructionError::Interrupted)?;
+        let fields = DiscretizedBoundaryFields::new(
+            trimesh,
+            dx,
+            kernel_support_radius,
+            Self::GAUSS_LEGENDRE_QUADRATURE_DEGREE,
+            progress_cb,
+        )
+        .map_err(|_| BoundaryConstructionError::Interrupted)?;
+
+        let local_aabb = trimesh.local_aabb();
+        let bounding_box = LocalAABB {
+            center: Point3::new(
+                local_aabb.center().x,
+                local_aabb.center().y,
+                local_aabb.center().z,
+            ),
+            half_extents: Vector3::new(
+                local_aabb.half_extents().x,
+                local_aabb.half_extents().y,
+                local_aabb.half_extents().z,
+            ),
+        };
 
         let boundary = BoundaryType::DynamicBoundary {
             signed_distance_field: fields.signed_distance_field,
@@ -136,7 +1240,10 @@ impl BoundaryHandling for VolumeMapBoundary {
             ),
             boundary_neighbor_list: NeighborList::default(),
             boundary_neighbor_list_viscosity: NeighborList::default(),
+            bounding_box,
         };
+        self.rest_density_grid_spacing = rest_density_grid_spacing;
+        self.kernel_support_radius = kernel_support_radius;
         self.boundaries.push(boundary);
         Ok(())
     }
@@ -331,6 +1438,15 @@ impl BoundaryHandling for VolumeMapBoundary {
     }
 
     fn step_forward_in_time(&mut self, dt: f64) {
+        // Rigid-rigid contact: it adds to forces and torques to bodies due to contact handling.
+        let mut active_cells = self.generate_contact_cells();
+        self.solve_for_p_c(
+            &mut active_cells,
+            dt,
+            Self::FB_TOLERANCE_PRESSURE,
+            Self::FB_TOLERANCE_FRICTION,
+        );
+
         for b in &mut self.boundaries {
             b.step_forward_in_time(dt);
         }
@@ -432,6 +1548,7 @@ impl DiscretizedBoundaryFields {
         trimesh: &TriMesh,
         dx: f64,
         kernel_support_radius: f64,
+        quadrature_degree: usize,
         mut progress_cb: Option<&mut dyn FnMut(f32) -> bool>,
     ) -> Result<Self, DiscretizationError> {
         #[cfg(feature = "logging")]
@@ -492,11 +1609,7 @@ impl DiscretizedBoundaryFields {
             dx,
             &|p| {
                 sd_field_wrapped
-                    .volume(
-                        p,
-                        kernel_support_radius,
-                        VolumeMapBoundary::INTEGRATION_ORDER,
-                    )
+                    .volume(p, kernel_support_radius, quadrature_degree)
                     .map(|v| v.clamp(0.0, ball_volume(kernel_support_radius)))
             },
             progress_cb,
@@ -572,7 +1685,7 @@ impl<'a> SDFnWrapper<'a> {
         &self,
         point: &Point3<f64>,
         kernel_support_radius: f64,
-        integration_order: usize,
+        quadrature_degree: usize,
     ) -> Result<f64, EvaluationError> {
         let sd_center = match self.sdfn.function(point) {
             Ok(v) => v,
@@ -596,7 +1709,7 @@ impl<'a> SDFnWrapper<'a> {
             },
             point,
             kernel_support_radius,
-            integration_order,
+            quadrature_degree,
         )
     }
 }
@@ -613,6 +1726,20 @@ fn cubic_extension_fn(signed_distance: f64, kernel_support_radius: f64) -> f64 {
         / CubicBSpline3D::kernel_function(&Vector3::zero(), kernel_support_radius)
 }
 
+/// `d/dx` of [`cubic_extension_fn`], i.e. `γ*'(x)`.
+///
+/// Derived in closed form from the known Monaghan cubic spline shape
+/// (verified against Bender et al.'s `γ*` definition — Eq. 13), rather
+/// than relying on an assumed derivative method on `CubicBSpline3D`.
+fn cubic_extension_fn_derivative(signed_distance: f64, kernel_support_radius: f64) -> f64 {
+    if signed_distance >= kernel_support_radius || signed_distance <= 0.0 {
+        return 0.0;
+    }
+    let r_vec = Vector3::new(signed_distance, 0., 0.);
+    CubicBSpline3D::kernel_gradient(&r_vec, kernel_support_radius).x
+        / CubicBSpline3D::kernel_function(&Vector3::zero(), kernel_support_radius)
+}
+
 // ─── Boundaries ───────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -625,6 +1752,7 @@ pub enum BoundaryType {
         render_mesh_id: u32,
         boundary_neighbor_list: NeighborList,
         boundary_neighbor_list_viscosity: NeighborList,
+        bounding_box: LocalAABB,
     },
     /// Dynamic boundary: performs rigid-body motion with two-way coupling with fluid
     DynamicBoundary {
@@ -635,7 +1763,84 @@ pub enum BoundaryType {
         state: RigidBodyMotion,
         boundary_neighbor_list: NeighborList,
         boundary_neighbor_list_viscosity: NeighborList,
+        bounding_box: LocalAABB,
     },
+}
+
+#[derive(Debug, Clone)]
+struct LocalAABB {
+    center: Point3<f64>,
+    half_extents: Vector3<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct WorldAABB {
+    min: Point3<f64>,
+    max: Point3<f64>,
+}
+
+impl WorldAABB {
+    fn overlap(&self, b: &WorldAABB) -> bool {
+        self.min.x <= b.max.x
+            && self.max.x >= b.min.x
+            && self.min.y <= b.max.y
+            && self.max.y >= b.min.y
+            && self.min.z <= b.max.z
+            && self.max.z >= b.min.z
+    }
+
+    fn intersection(&self, other: &WorldAABB) -> Option<WorldAABB> {
+        let min = Point3::new(
+            self.min.x.max(other.min.x),
+            self.min.y.max(other.min.y),
+            self.min.z.max(other.min.z),
+        );
+        let max = Point3::new(
+            self.max.x.min(other.max.x),
+            self.max.y.min(other.max.y),
+            self.max.z.min(other.max.z),
+        );
+        (min.x <= max.x && min.y <= max.y && min.z <= max.z).then_some(WorldAABB { min, max })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SubCell {
+    from: Point3<f64>,
+    to: Point3<f64>,
+}
+
+fn subdivide_overlap(overlap: &WorldAABB, target_cell_size: f64) -> Vec<SubCell> {
+    let extent = overlap.max - overlap.min;
+    let n = [
+        ((extent.x / target_cell_size).ceil() as usize).max(1),
+        ((extent.y / target_cell_size).ceil() as usize).max(1),
+        ((extent.z / target_cell_size).ceil() as usize).max(1),
+    ];
+    let cell_size = Vector3::new(
+        extent.x / n[0] as f64,
+        extent.y / n[1] as f64,
+        extent.z / n[2] as f64,
+    );
+
+    let mut cells = Vec::with_capacity(n[0] * n[1] * n[2]);
+    for iz in 0..n[2] {
+        for iy in 0..n[1] {
+            for ix in 0..n[0] {
+                let from = overlap.min
+                    + Vector3::new(
+                        ix as f64 * cell_size.x,
+                        iy as f64 * cell_size.y,
+                        iz as f64 * cell_size.z,
+                    );
+                cells.push(SubCell {
+                    from,
+                    to: from + cell_size,
+                });
+            }
+        }
+    }
+    cells
 }
 
 impl Boundary for BoundaryType {
@@ -710,6 +1915,20 @@ impl BoundaryType {
         match self {
             Self::StaticBoundary { .. } => Isometry3::identity(),
             Self::DynamicBoundary { state, .. } => state.pose(),
+        }
+    }
+
+    fn motion(&self) -> Option<&RigidBodyMotion> {
+        match self {
+            Self::StaticBoundary { .. } => None,
+            Self::DynamicBoundary { state, .. } => Some(state),
+        }
+    }
+
+    fn motion_mut(&mut self) -> Option<&mut RigidBodyMotion> {
+        match self {
+            Self::StaticBoundary { .. } => None,
+            Self::DynamicBoundary { state, .. } => Some(state),
         }
     }
 
@@ -896,6 +2115,34 @@ impl BoundaryType {
                     "Boundary checkpoint entry does not match boundary type \
                          (static vs. dynamic); skipping restore for this boundary."
                 );
+            }
+        }
+    }
+
+    pub fn world_aabb(&self) -> WorldAABB {
+        match self {
+            BoundaryType::StaticBoundary { bounding_box, .. } => WorldAABB {
+                min: bounding_box.center - (bounding_box.half_extents),
+                max: bounding_box.center + (bounding_box.half_extents),
+            },
+            BoundaryType::DynamicBoundary {
+                state,
+                bounding_box,
+                ..
+            } => {
+                let pose = state.pose(); // Isometry3: aktuelle Rotation + Translation
+                let r = pose.rotation.to_rotation_matrix();
+
+                // Komponentenweises |R| angewendet auf die lokalen Halbextents (Arvos Methode)
+                let abs_r = r.matrix().abs();
+                let world_half_extents = abs_r * (bounding_box.half_extents);
+
+                let world_center = pose.transform_point(&Point3::from(bounding_box.center));
+
+                WorldAABB {
+                    min: world_center - world_half_extents,
+                    max: world_center + world_half_extents,
+                }
             }
         }
     }
@@ -1451,8 +2698,8 @@ mod neighbor_list {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parry3d_f64::{math::Vec3, shape::TriMeshFlags};
     use nalgebra::UnitQuaternion;
+    use parry3d_f64::{math::Vec3, shape::TriMeshFlags};
 
     // ─── ball_volume ────────────────────────────────────────────────
 
@@ -1600,7 +2847,8 @@ mod tests {
             2.0, // dx == domain size -> single cell
             &move |_p: &Point3<f64>| Ok(value),
             None,
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -1685,7 +2933,8 @@ mod tests {
             2.0,                        // einzelne Zelle
             &|p: &Point3<f64>| Ok(p.x), // Ebene bei x = 0
             None,
-        ).unwrap();
+        )
+        .unwrap();
         let volume_map = CubicSerendipityDiscretization::new(
             Point3::new(-1., -1., -1.),
             Point3::new(1., 1., 1.),
@@ -1694,7 +2943,8 @@ mod tests {
             2.0,
             &|_p: &Point3<f64>| Ok(1.0),
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut vm = VolumeMapBoundary {
             boundaries: vec![BoundaryType::StaticBoundary {
@@ -1704,7 +2954,23 @@ mod tests {
                 render_mesh_id: 0,
                 boundary_neighbor_list: NeighborList::default(),
                 boundary_neighbor_list_viscosity: NeighborList::default(),
+                bounding_box: LocalAABB {
+                    center: Point3::origin(),
+                    half_extents: Vector3::zero(),
+                },
             }],
+            rest_density_grid_spacing: 0.0,
+            kernel_support_radius: 0.0,
+            p: vec![],
+            v_err: vec![],
+            lambda: vec![],
+            v_tang: vec![],
+            s_p: vec![],
+            s_lambda: vec![],
+            extra_force: vec![],
+            extra_torque: vec![],
+            v_trial: vec![],
+            omega_trial: vec![],
         };
 
         let within_range = 0.5;
@@ -1773,7 +3039,8 @@ mod tests {
             2.0,
             &|p: &Point3<f64>| Ok(p.x), // plane at x = 0
             None,
-        ).unwrap();
+        )
+        .unwrap();
         let volume_map = CubicSerendipityDiscretization::new(
             Point3::new(-1., -1., -1.),
             Point3::new(1., 1., 1.),
@@ -1782,7 +3049,8 @@ mod tests {
             2.0,
             &|_p: &Point3<f64>| Ok(1.0),
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         let linear_velocity = Vector3::new(1.0, 0.0, 0.0);
         let angular_velocity = Vector3::new(0.0, 0.0, 2.0);
@@ -1813,7 +3081,23 @@ mod tests {
                 state,
                 boundary_neighbor_list: NeighborList::default(),
                 boundary_neighbor_list_viscosity: NeighborList::default(),
+                bounding_box: LocalAABB {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    half_extents: Vector3::new(0.0, 0.0, 0.0),
+                },
             }],
+            rest_density_grid_spacing: 0.0,
+            kernel_support_radius: 0.0,
+            p: vec![],
+            v_err: vec![],
+            lambda: vec![],
+            v_tang: vec![],
+            s_p: vec![],
+            s_lambda: vec![],
+            extra_force: vec![],
+            extra_torque: vec![],
+            v_trial: vec![],
+            omega_trial: vec![],
         };
 
         let within_range = 0.5;
@@ -1841,7 +3125,8 @@ mod tests {
         // any signed-distance-field interpolation imprecision -- both sides of
         // the comparison use the same `pos`, so only the VELOCITY computation
         // is actually being tested.
-        let expected_velocity_at = |p: &Point3<f64>| linear_velocity + angular_velocity.cross(&(p - center_of_mass));
+        let expected_velocity_at =
+            |p: &Point3<f64>| linear_velocity + angular_velocity.cross(&(p - center_of_mass));
 
         let mut velocities = Vec::with_capacity(n_visc);
         for local_id in 0..n_visc {

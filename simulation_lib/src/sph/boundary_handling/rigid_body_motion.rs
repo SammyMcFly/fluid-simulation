@@ -91,6 +91,15 @@ impl RigidBodyMotion {
         self.mass
     }
 
+    /// World-frame inverse inertia tensor at the current orientation.
+    ///
+    /// Required by the rigid-rigid contact solver to evaluate trial
+    /// dynamics without mutating state.
+    #[inline]
+    pub fn inv_inertia_world(&self) -> Matrix3<f64> {
+        self.inertia_tensor_inv_world
+    }
+
     /// Center of mass of the rigid body.
     #[inline]
     pub fn center_of_mass(&self) -> Point3<f64> {
@@ -140,6 +149,36 @@ impl RigidBodyMotion {
         self.torque += (force.force_location - self.center_of_mass).cross(&force.force);
     }
 
+    /// Accumulates a force and torque directly, as opposed to
+    /// [`Self::add_force`], which derives the torque from a single
+    /// application point via `(location - center_of_mass) × force`.
+    #[inline]
+    pub fn add_force_and_torque(&mut self, force: Vector3<f64>, torque: Vector3<f64>) {
+        self.force += force;
+        self.torque += torque;
+    }
+
+    /// Trial linear velocity given a *candidate additional* force, without
+    /// mutating state. `self.force` already holds all explicit forces
+    /// accumulated earlier this time step (gravity, fluid coupling); this
+    /// does not re-apply them, it only adds `extra_force` on top.
+    #[inline]
+    pub fn trial_velocity(&self, dt: f64, extra_force: &Vector3<f64>) -> Vector3<f64> {
+        self.linear_velocity + dt / self.mass * (self.force + extra_force)
+    }
+
+    /// Trial angular velocity given a *candidate additional* torque,
+    /// without mutating state. Uses the inverse inertia tensor at the
+    /// *current* (pre-integration) orientation, which is exactly what
+    /// keeps the contact volume error linear in the unknown pressure
+    /// during the Jacobi/NNCG iteration — orientation only changes once,
+    /// at the final [`Self::step_forward_in_time`] commit.
+    #[inline]
+    pub fn trial_angular_velocity(&self, dt: f64, extra_torque: &Vector3<f64>) -> Vector3<f64> {
+        let l_trial = self.angular_momentum + dt * (self.torque + extra_torque);
+        self.inertia_tensor_inv_world * l_trial
+    }
+
     /// Performs time step by integrating with the Euler-Cromer time integration scheme
     pub fn step_forward_in_time(&mut self, dt: f64) {
         // Linear
@@ -154,7 +193,8 @@ impl RigidBodyMotion {
         // Integrate orientation exactly for constant omega: q_new = exp(0.5*omega*dt) * q.
         // `from_scaled_axis` takes the rotation vector and halves internally, so no
         // extra factor 0.5 here. Left-multiplication because omega is world-frame.
-        self.orientation = UnitQuaternion::from_scaled_axis(self.angular_velocity * dt) * self.orientation;
+        self.orientation =
+            UnitQuaternion::from_scaled_axis(self.angular_velocity * dt) * self.orientation;
 
         self.reset_forces();
         self.update_derived_variables();
