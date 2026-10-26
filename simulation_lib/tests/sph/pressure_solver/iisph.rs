@@ -11,7 +11,8 @@ use simulation_lib::neighbor_search::{NeighborList, NeighborSearch};
 use simulation_lib::render_info::BoundaryVisualization;
 use simulation_lib::sph::SystemParameters;
 use simulation_lib::sph::boundary_handling::{
-    Boundary, BoundaryCheckpoint, BoundaryConstructionError, BoundaryHandling, ForceOntoBoundary, RequestMode, VolumeMapBoundary
+    Boundary, BoundaryCheckpoint, BoundaryConstructionError, BoundaryHandling, ForceOntoBoundary,
+    RequestMode, VolumeMapBoundary,
 };
 use simulation_lib::sph::fluid::{Fluid, Len};
 use simulation_lib::sph::kernel::{CubicBSpline3D, KernelFn};
@@ -49,7 +50,6 @@ fn make_solver_params(
         target_density_error,
         relaxation_factor,
         min_diagonal_element,
-        gravity_mode: GravityMode::default(),
     }
 }
 

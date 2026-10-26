@@ -5,8 +5,8 @@ pub mod input;
 
 use crate::neighbor_search::NeighborSearch;
 use crate::neighbor_search::*;
-use crate::sph::boundary_handling::{BoundaryHandling, BoundaryConstructionError};
 use crate::sph::boundary_handling::*;
+use crate::sph::boundary_handling::{BoundaryConstructionError, BoundaryHandling};
 use crate::sph::fluid::{Fluid, Len};
 use crate::sph::integration_schemes::IntegrationScheme;
 use crate::sph::integration_schemes::*;
@@ -70,9 +70,7 @@ pub enum SetupError {
     )]
     IncompatibleDynamicBoundary,
 
-    #[error(
-        "Construction was interrupted via the progress callback."
-    )]
+    #[error("Construction was interrupted via the progress callback.")]
     Interrupted(#[from] BoundaryConstructionError),
 }
 
@@ -277,7 +275,7 @@ impl<K: KernelFn, I: IntegrationScheme, P: PressureSolver, N: NeighborSearch, B:
             params.fluid_viscosity,
             params.boundary_viscosity,
             params.boundary_pressure_acceleration_weighting,
-            params.gravity_mode,
+            scene.gravity_mode,
         );
 
         let constructor = Self {
@@ -441,7 +439,6 @@ mod tests {
             target_density_error: 0.01,
             relaxation_factor: 0.5,
             min_diagonal_element: 1e-9,
-            gravity_mode: GravityMode::default(),
         }
     }
 

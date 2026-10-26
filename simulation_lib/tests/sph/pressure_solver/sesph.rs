@@ -12,7 +12,8 @@ use simulation_lib::neighbor_search::{NeighborList, NeighborSearch, SpatialHashi
 use simulation_lib::render_info::BoundaryVisualization;
 use simulation_lib::sph::SystemParameters;
 use simulation_lib::sph::boundary_handling::{
-    Boundary, BoundaryCheckpoint, BoundaryConstructionError, BoundaryHandling, ForceOntoBoundary, RequestMode, VolumeMapBoundary
+    Boundary, BoundaryCheckpoint, BoundaryConstructionError, BoundaryHandling, ForceOntoBoundary,
+    RequestMode, VolumeMapBoundary,
 };
 use simulation_lib::sph::fluid::{Fluid, Len};
 use simulation_lib::sph::kernel::{CubicBSpline3D, KernelFn};
@@ -45,7 +46,6 @@ fn make_solver_params(stiffness: f64) -> Parameters {
         target_density_error: 0.0,
         relaxation_factor: 0.0,
         min_diagonal_element: 0.0,
-        gravity_mode: GravityMode::default(),
     }
 }
 

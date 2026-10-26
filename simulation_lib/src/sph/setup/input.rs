@@ -175,13 +175,6 @@ pub struct Parameters {
     #[cfg(feature = "cfl_time_step")]
     pub cfl_number: f64,
 
-    /// Fluid phases available in the simulation, given as `[[parameters.fluid]]`
-    /// entries.
-    ///
-    /// Each [`Fluid::id`] can be referenced by [`FluidDef::fluid_id`] in the scene
-    /// file; several entries with different rest densities enable multi-fluid scenes.
-    pub fluid: Vec<Fluid>,
-
     /// Spacing of the regular grid used to sample geometry into particles and to
     /// compute rest volumes.
     ///
@@ -214,27 +207,6 @@ pub struct Parameters {
     /// Controls the amount of friction at walls: `0.0` approximates a free-slip
     /// boundary, larger values approach no-slip.
     pub boundary_viscosity: f64,
-
-    /// Physical model used for gravity.
-    ///
-    /// `Uniform` applies a constant downward acceleration to every particle and
-    /// dynamic boundary, independent of position -- the behavior always used
-    /// before this field existed. `Radial` instead attracts everything toward
-    /// a fixed center point, with the same `9.81` strength, falling off with
-    /// distance and softened near the center to avoid a singular acceleration.
-    /// Static boundaries (no center of mass) are unaffected by `Radial`.
-    ///
-    /// Defaults to `Uniform` when omitted, so existing parameter files that
-    /// predate this field keep working unmodified.
-    ///
-    /// ```toml
-    /// [parameters]
-    /// gravity_mode = { type = "Uniform" }
-    /// # or:
-    /// gravity_mode = { type = "Radial", center = [0.0, 0.0, 0.0] }
-    /// ```
-    #[serde(default)]
-    pub gravity_mode: GravityMode,
 
     /// Weighting of the boundary contribution to the pressure acceleration of fluid
     /// particles.
@@ -278,6 +250,13 @@ pub struct Parameters {
     /// particles with too few neighbors (free surface, isolated droplets). Ignored by
     /// state-equation solvers.
     pub min_diagonal_element: f64,
+
+    /// Fluid phases available in the simulation, given as `[[parameters.fluid]]`
+    /// entries.
+    ///
+    /// Each [`Fluid::id`] can be referenced by [`FluidDef::fluid_id`] in the scene
+    /// file; several entries with different rest densities enable multi-fluid scenes.
+    pub fluid: Vec<Fluid>,
 }
 
 /// Definition of a single fluid phase, given as a `[[parameters.fluid]]` entry.
@@ -321,6 +300,27 @@ pub struct Fluid {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scene {
+    /// Physical model used for gravity.
+    ///
+    /// `Uniform` applies a constant downward acceleration to every particle and
+    /// dynamic boundary, independent of position -- the behavior always used
+    /// before this field existed. `Radial` instead attracts everything toward
+    /// a fixed center point, with the same `9.81` strength, falling off with
+    /// distance and softened near the center to avoid a singular acceleration.
+    /// Static boundaries (no center of mass) are unaffected by `Radial`.
+    ///
+    /// Defaults to `Uniform` when omitted, so existing parameter files that
+    /// predate this field keep working unmodified.
+    ///
+    /// ```toml
+    /// [parameters]
+    /// gravity_mode = { type = "Uniform" }
+    /// # or:
+    /// gravity_mode = { type = "Radial", center = [0.0, 0.0, 0.0] }
+    /// ```
+    #[serde(default)]
+    pub gravity_mode: GravityMode,
+
     /// Light source used when rendering the scene.
     pub light: Light,
 

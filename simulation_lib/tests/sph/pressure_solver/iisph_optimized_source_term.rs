@@ -11,10 +11,10 @@ use parry3d_f64::shape::TriMesh;
 use simulation_lib::neighbor_search::{NeighborList, NeighborSearch};
 use simulation_lib::render_info::BoundaryVisualization;
 use simulation_lib::sph::SystemParameters;
-use simulation_lib::sph::boundary_handling::{BoundaryConstructionError, VolumeMapBoundary};
 use simulation_lib::sph::boundary_handling::{
     Boundary, BoundaryCheckpoint, BoundaryHandling, ForceOntoBoundary, RequestMode,
 };
+use simulation_lib::sph::boundary_handling::{BoundaryConstructionError, VolumeMapBoundary};
 use simulation_lib::sph::fluid::{Fluid, Len};
 use simulation_lib::sph::kernel::{CubicBSpline3D, KernelFn};
 use simulation_lib::sph::pressure_solver::{IISPHwOST, PressureSolver};
@@ -50,7 +50,6 @@ fn make_solver_params(
         target_density_error,
         relaxation_factor,
         min_diagonal_element,
-        gravity_mode: GravityMode::default(),
     }
 }
 

@@ -87,12 +87,12 @@ fn make_parameters(fluids: Vec<FluidPhase>) -> Parameters {
         target_density_error: 0.01,
         relaxation_factor: 0.5,
         min_diagonal_element: 1e-9,
-        gravity_mode: GravityMode::default(),
     }
 }
 
 fn make_scene(meshes: HashMap<String, String>, fluid_defs: Vec<FluidDef>) -> Scene {
     Scene {
+        gravity_mode: GravityMode::default(),
         light: Light {
             position: [5.0, 8.0, 5.0],
         },

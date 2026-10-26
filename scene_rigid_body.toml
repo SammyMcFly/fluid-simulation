@@ -1,4 +1,8 @@
 # Scene file
+[gravity_mode]
+type = "Uniform" # Uniform, Radial
+# center = [0.0, 0.0, 0.0]
+
 [light]
 position = [ 2.0, 2.0, 100.0 ]
 

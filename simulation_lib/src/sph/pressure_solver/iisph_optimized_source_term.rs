@@ -268,7 +268,6 @@ mod tests {
             target_density_error,
             relaxation_factor,
             min_diagonal_element,
-            gravity_mode: GravityMode::default(),
         }
     }
 
